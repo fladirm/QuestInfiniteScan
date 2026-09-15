@@ -114,7 +114,12 @@ decision (C8 violation). `MerkabaIntegration.compute` FinalizeObservation sets
 always true. Build cost O(occupied tiles) holds the serial native queue and blocks
 the next observation -> scan AND readout slow down with scanned volume (U violation).
 
-## RISK-8 — carve working set only grows [OPEN]
+## RISK-8 — carve working set only grows [PARTLY ADDRESSED]
+
+Correction: NEEDS_CARVE is cleared by strong FREE; the set is sticky, bounded by tiles in
+the 5 m view, not by session time. Fixed: all COLD halo tiles of an attempt (up to 8) are
+requested together. Evidence math untouched (contract E).
+
 NEEDS_CARVE is set on every surface integration and cleared only at evidence <= -512.
 QueryCarveTiles queues every HOT tile with `meta.w != 0` in the 5 m frustum; cost grows
 with everything ever observed.
@@ -147,7 +152,10 @@ FinalizeReadout skips publication if any dependency tile is COLD.
 Fixed: SAVE/EXPORT flush is `Persist` (dirty HOT -> PERSISTING -> clean, tile stays HOT);
 batches 128 tiles, chained without the 50 ms idle poll, one fsync per batch (no
 WriteThrough), table CRC, reads through one handle per file in offset order.
-Still open: ownership-first membrane solve, patch cache, seam-stable partition.
+Also fixed: owner-chunk-only candidate solve (context ring still read), per-group memo of
+`TryBuildPatch` for closure donors, partition sink only at never-stored space (not at the
+solve window), array-backed iterative Dinic, 4096-tile export cache with 512-tile reads,
+anchor binding checked before the flush.
 
 `FlushAllDirtyTilesAsync` rides the same 50 ms/32-tile pump and AcknowledgeWritebackBatch
 moves every flushed tile to COLD (export is not residency-neutral). Per owner chunk the

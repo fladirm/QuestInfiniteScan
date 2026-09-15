@@ -135,7 +135,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(allBuffers.Max(), Is.EqualTo(128L * 1024 * 1024));
             Assert.That(allBuffers.Max(), Is.LessThanOrEqualTo(
                 128L * 1024 * 1024));
-            Assert.That(allBuffers.Sum(), Is.EqualTo(693735564L));
+            Assert.That(allBuffers.Sum(), Is.EqualTo(693735592L));
 
             Assert.That(MerkabaSpatial.OwnerRecordCount,
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
@@ -1270,14 +1270,12 @@ namespace Genesis.RoomScan.Tests
             Assert.That(load, Does.Contain(
                 "int3 local = relative - tileOffset * 8"));
             Assert.That(load, Does.Contain(
-                "InterlockedMin(_M8Counters[" +
-                "M8_COUNTER_CARVE_HALO_LOAD_REQUEST]"));
+                "M8RecordCarveHaloRequest(slot & ~M8_CARVE_TILE_UNRESOLVED_BIT)"));
             Assert.That(build, Does.Contain(
                 "if (thread < M8_CARVE_HALO_TILE_COUNT)"));
             Assert.That(build, Does.Contain(
                 "for (uint word = 0u; word < MERKABA_M8_TILE_WORDS; word++)"));
-            Assert.That(finalize, Does.Contain(
-                "RequestColdTile(haloRequest, chunkIndex, tileLocal, true)"));
+            Assert.That(finalize, Does.Contain("M8IssueCarveHaloRequest(7u)"));
             Assert.That(finalize, Does.Contain(
                 "M8_COUNTER_UNRESOLVED_CARVE_TILES"));
 
@@ -1753,7 +1751,7 @@ namespace Genesis.RoomScan.Tests
             string prepareResolve = Slice(integration,
                 "void PrepareResolveArgs", "bool RequestColdTile");
             string query = Slice(integration, "void QueryCarveTiles",
-                "void PrepareCarveArgs");
+                "// Every COLD halo tile of one attempt");
             string prepareSurface = Slice(integration,
                 "void PrepareIntegrateArgs", "void IntegrateSurfaceCandidates");
             string prepareCarve = Slice(integration,
@@ -2040,7 +2038,7 @@ namespace Genesis.RoomScan.Tests
             string integration = Source(
                 "Runtime/Shaders/MerkabaIntegration.compute");
             string query = Slice(integration, "void QueryCarveTiles",
-                "void PrepareCarveArgs");
+                "// Every COLD halo tile of one attempt");
             int zeroCarve = query.IndexOf(
                 "_M8TileRecords[M8TileMetaIndex(physicalSlot)].w == 0u",
                 StringComparison.Ordinal);

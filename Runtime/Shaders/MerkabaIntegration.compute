@@ -1639,6 +1639,43 @@ void QueryCarveTiles(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
     }
 }
 
+// Every COLD halo tile of one attempt is requested together (bounded to
+// eight distinct tiles) instead of one tile per residency round.
+void M8RecordCarveHaloRequest(uint tileRefIndex)
+{
+    [unroll]
+    for (uint request = 0u; request < M8_CARVE_HALO_REQUEST_SLOTS; request++)
+    {
+        uint prior;
+        InterlockedCompareExchange(
+            _M8Counters[M8CarveHaloRequestCounter(request)],
+            M8_CARVE_HALO_REQUEST_EMPTY, tileRefIndex, prior);
+        if (prior == M8_CARVE_HALO_REQUEST_EMPTY || prior == tileRefIndex)
+            return;
+    }
+    uint ignored;
+    InterlockedMax(_M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES], 1u,
+        ignored);
+}
+
+void M8IssueCarveHaloRequest(uint request)
+{
+    uint haloRequest = _M8Counters[M8CarveHaloRequestCounter(request)];
+    if (haloRequest == M8_CARVE_HALO_REQUEST_EMPTY) return;
+    uint chunkIndex = haloRequest / MERKABA_M8_TILES_PER_CHUNK;
+    uint tileLocal = haloRequest % MERKABA_M8_TILES_PER_CHUNK;
+    if (_M8ChunkTileRefs[haloRequest] == MERKABA_REF_COLD_ON_SSD &&
+        RequestColdTile(haloRequest, chunkIndex, tileLocal, true))
+        M8CounterIncrement(M8_COUNTER_COLD_CARVE_TILES_REQUESTED);
+    M8CounterIncrement(M8_COUNTER_UNRESOLVED_CARVE_TILES);
+}
+
+void M8ResetCarveHaloRequest(uint request)
+{
+    _M8Counters[M8CarveHaloRequestCounter(request)] =
+        M8_CARVE_HALO_REQUEST_EMPTY;
+}
+
 [numthreads(1, 1, 1)]
 void PrepareCarveArgs(uint id : SV_DispatchThreadID)
 {
@@ -1652,7 +1689,14 @@ void PrepareCarveArgs(uint id : SV_DispatchThreadID)
         ? count : 0u;
     _M8CarveDispatchArgs[1] = 1u;
     _M8CarveDispatchArgs[2] = 1u;
-    _M8Counters[M8_COUNTER_CARVE_HALO_LOAD_REQUEST] = 0xffffffffu;
+    M8ResetCarveHaloRequest(0u);
+    M8ResetCarveHaloRequest(1u);
+    M8ResetCarveHaloRequest(2u);
+    M8ResetCarveHaloRequest(3u);
+    M8ResetCarveHaloRequest(4u);
+    M8ResetCarveHaloRequest(5u);
+    M8ResetCarveHaloRequest(6u);
+    M8ResetCarveHaloRequest(7u);
 }
 
 #define M8_CARVE_HALO_TILE_COUNT 27u
@@ -1765,9 +1809,7 @@ bool M8TryLoadCarveHaloState(int3 globalCoord, out KernelState state,
     if (slot != M8_CARVE_TILE_MISSING &&
         (slot & M8_CARVE_TILE_UNRESOLVED_BIT) != 0u)
     {
-        uint ignored;
-        InterlockedMin(_M8Counters[M8_COUNTER_CARVE_HALO_LOAD_REQUEST],
-            slot & ~M8_CARVE_TILE_UNRESOLVED_BIT, ignored);
+        M8RecordCarveHaloRequest(slot & ~M8_CARVE_TILE_UNRESOLVED_BIT);
         resolved = false;
         return false;
     }
@@ -2085,17 +2127,14 @@ void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
 [numthreads(1, 1, 1)]
 void FinalizeObservation(uint id : SV_DispatchThreadID)
 {
-    uint haloRequest =
-        _M8Counters[M8_COUNTER_CARVE_HALO_LOAD_REQUEST];
-    if (haloRequest != 0xffffffffu)
-    {
-        uint chunkIndex = haloRequest / MERKABA_M8_TILES_PER_CHUNK;
-        uint tileLocal = haloRequest % MERKABA_M8_TILES_PER_CHUNK;
-        if (_M8ChunkTileRefs[haloRequest] == MERKABA_REF_COLD_ON_SSD &&
-            RequestColdTile(haloRequest, chunkIndex, tileLocal, true))
-            M8CounterIncrement(M8_COUNTER_COLD_CARVE_TILES_REQUESTED);
-        M8CounterIncrement(M8_COUNTER_UNRESOLVED_CARVE_TILES);
-    }
+    M8IssueCarveHaloRequest(0u);
+    M8IssueCarveHaloRequest(1u);
+    M8IssueCarveHaloRequest(2u);
+    M8IssueCarveHaloRequest(3u);
+    M8IssueCarveHaloRequest(4u);
+    M8IssueCarveHaloRequest(5u);
+    M8IssueCarveHaloRequest(6u);
+    M8IssueCarveHaloRequest(7u);
     if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] == 0u)
     {
         uint failure = M8ObservationFailureReason();

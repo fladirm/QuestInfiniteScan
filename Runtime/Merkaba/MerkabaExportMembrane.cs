@@ -108,7 +108,9 @@ namespace Genesis.RoomScan
         }
         internal static MerkabaExportMembraneResult Build(
             MerkabaExportShellResult shell,
-            IProgress<OperationWorkProgress> progress = null)
+            IProgress<OperationWorkProgress> progress = null,
+            Func<int3, bool> ownsCoordinate = null,
+            Func<int3, bool> isUnknownSpace = null)
         {
             if (shell == null) throw new ArgumentNullException(nameof(shell));
             var states = new Dictionary<int3, KernelState>(shell.Kernels.Count);
@@ -139,13 +141,18 @@ namespace Genesis.RoomScan
             measured.Sort(CompareCoords);
             canonicalCoords.Sort(CompareCoords);
 
-            SparsePartitionResult partition = SolveSparsePartition(shell);
+            SparsePartitionResult partition = SolveSparsePartition(shell,
+                isUnknownSpace);
+            var patchCache = new Dictionary<int3, MerkabaOverlapShell.Patch?>();
             HashSet<int3> partitionCut = partition.Cut;
             var candidateCoords = new HashSet<int3>();
             foreach (MerkabaKernelSnapshot kernel in shell.Kernels)
-                candidateCoords.Add(kernel.Coord);
+                if (ownsCoordinate == null || ownsCoordinate(kernel.Coord))
+                    candidateCoords.Add(kernel.Coord);
             foreach (int3 coord in partitionCut)
-                if (!strongFree.Contains(coord)) candidateCoords.Add(coord);
+                if (!strongFree.Contains(coord) &&
+                    (ownsCoordinate == null || ownsCoordinate(coord)))
+                    candidateCoords.Add(coord);
             var sortedCandidates = new List<int3>(candidateCoords);
             sortedCandidates.Sort(CompareCoords);
             var patches = new List<MerkabaExportMembranePatch>(
@@ -159,7 +166,7 @@ namespace Genesis.RoomScan
                 bool hasState = states.TryGetValue(coord, out KernelState state);
                 bool isSynthetic = synthetic.Contains(coord);
                 if (hasState && !isSynthetic &&
-                    MerkabaOverlapShell.TryBuildPatch(coord, membraneContext,
+                    TryBuildCachedPatch(coord, membraneContext, patchCache,
                         out MerkabaOverlapShell.Patch measuredPatch))
                 {
                     if (ShouldKeepMeasured(coord, partition, strongFree))
@@ -176,7 +183,7 @@ namespace Genesis.RoomScan
                 {
                     if ((partitionCut.Contains(coord) ||
                          (strongFree.Count == 0 && isSynthetic)) &&
-                         TryInferClosure(coord, membraneContext,
+                         TryInferClosure(coord, membraneContext, patchCache,
                             out MerkabaExportMembranePatch inferred))
                     {
                         patches.Add(inferred);
@@ -191,7 +198,7 @@ namespace Genesis.RoomScan
                         sortedCandidates.Count,
                         $"Solved {index + 1}/{sortedCandidates.Count} membrane supports"));
             }
-            if (patches.Count == 0)
+            if (patches.Count == 0 && ownsCoordinate == null)
                 throw new InvalidOperationException(
                     "The export membrane has no resolvable measured surface " +
                     $"patches (occupied={canonicalCoords.Count}, " +
@@ -234,16 +241,38 @@ namespace Genesis.RoomScan
             patch.Corner11.GridPosition, patch.Corner01.GridPosition,
             patch.Corner00.PackedColor, false);
 
+        /// <summary>
+        /// One membrane oracle evaluation per coordinate for the whole group:
+        /// the oracle is deterministic over the immutable context, so a
+        /// memoized result is the identical patch.
+        /// </summary>
+        private static bool TryBuildCachedPatch(int3 coord,
+            IReadOnlyDictionary<int3, KernelState> states,
+            Dictionary<int3, MerkabaOverlapShell.Patch?> cache,
+            out MerkabaOverlapShell.Patch patch)
+        {
+            if (!cache.TryGetValue(coord, out MerkabaOverlapShell.Patch? cached))
+            {
+                cached = MerkabaOverlapShell.TryBuildPatch(coord, states,
+                    out MerkabaOverlapShell.Patch built)
+                    ? built : (MerkabaOverlapShell.Patch?)null;
+                cache.Add(coord, cached);
+            }
+            patch = cached ?? default;
+            return cached.HasValue;
+        }
+
         private static bool TryInferClosure(int3 coord,
             IReadOnlyDictionary<int3, KernelState> states,
+            Dictionary<int3, MerkabaOverlapShell.Patch?> patchCache,
             out MerkabaExportMembranePatch patch)
         {
             var donors = new List<(int3 Coord, MerkabaOverlapShell.Patch Patch)>();
             foreach (int3 offset in OrderedNeighbours)
             {
                 int3 donorCoord = coord + offset;
-                if (!states.TryGetValue(donorCoord, out KernelState state) ||
-                    !MerkabaOverlapShell.TryBuildPatch(donorCoord, states,
+                if (!states.ContainsKey(donorCoord) ||
+                    !TryBuildCachedPatch(donorCoord, states, patchCache,
                         out MerkabaOverlapShell.Patch donor))
                     continue;
                 donors.Add((donorCoord, donor));
@@ -307,7 +336,7 @@ namespace Genesis.RoomScan
         }
 
         private static SparsePartitionResult SolveSparsePartition(
-            MerkabaExportShellResult shell)
+            MerkabaExportShellResult shell, Func<int3, bool> isUnknownSpace)
         {
             if (shell.StrongFreeCoordinates.Length == 0)
                 return new SparsePartitionResult(new HashSet<int3>(),
@@ -355,7 +384,10 @@ namespace Genesis.RoomScan
                     if (indices.TryGetValue(coord + offset, out int neighbour))
                         flow.AddEdge(output, neighbour * 2,
                             SparseFlowNetwork.Infinity);
-                    else
+                    // Only never-observed space terminates FREE reachability.
+                    // The edge of a finite solve window is not unknown space.
+                    else if (isUnknownSpace == null ||
+                             isUnknownSpace(coord + offset))
                         boundary = true;
                 }
                 if (boundary)
@@ -399,15 +431,26 @@ namespace Genesis.RoomScan
             private readonly int[] _head;
             private readonly int[] _level;
             private readonly int[] _nextEdge;
-            private readonly List<int> _to = new();
-            private readonly List<int> _next = new();
-            private readonly List<long> _capacity = new();
+            private readonly int[] _queue;
+            private readonly int[] _pathNodes;
+            private readonly int[] _pathEdges;
+            private int[] _to;
+            private int[] _next;
+            private long[] _capacity;
+            private int _edgeCount;
 
             internal SparseFlowNetwork(int nodeCount)
             {
                 _head = new int[nodeCount];
                 _level = new int[nodeCount];
                 _nextEdge = new int[nodeCount];
+                _queue = new int[nodeCount];
+                _pathNodes = new int[nodeCount + 1];
+                _pathEdges = new int[nodeCount + 1];
+                int initialEdges = Math.Max(16, nodeCount * 8);
+                _to = new int[initialEdges];
+                _next = new int[initialEdges];
+                _capacity = new long[initialEdges];
                 Array.Fill(_head, -1);
             }
 
@@ -425,7 +468,7 @@ namespace Genesis.RoomScan
                     Array.Copy(_head, _nextEdge, _head.Length);
                     while (true)
                     {
-                        long pushed = Push(source, sink, Infinity);
+                        long pushed = Push(source, sink);
                         if (pushed == 0L) break;
                         total = checked(total + pushed);
                     }
@@ -436,19 +479,18 @@ namespace Genesis.RoomScan
             internal bool[] ReachableFrom(int source)
             {
                 var reached = new bool[_head.Length];
-                var queue = new int[_head.Length];
                 int read = 0, write = 0;
                 reached[source] = true;
-                queue[write++] = source;
+                _queue[write++] = source;
                 while (read < write)
                 {
-                    int node = queue[read++];
+                    int node = _queue[read++];
                     for (int edge = _head[node]; edge >= 0; edge = _next[edge])
                     {
                         int target = _to[edge];
                         if (_capacity[edge] <= 0L || reached[target]) continue;
                         reached[target] = true;
-                        queue[write++] = target;
+                        _queue[write++] = target;
                     }
                 }
                 return reached;
@@ -456,54 +498,87 @@ namespace Genesis.RoomScan
 
             private void AddHalf(int from, int to, long capacity)
             {
-                int edge = _to.Count;
-                _to.Add(to);
-                _next.Add(_head[from]);
-                _capacity.Add(capacity);
+                if (_edgeCount == _to.Length)
+                {
+                    int grown = checked(_to.Length * 2);
+                    Array.Resize(ref _to, grown);
+                    Array.Resize(ref _next, grown);
+                    Array.Resize(ref _capacity, grown);
+                }
+                int edge = _edgeCount++;
+                _to[edge] = to;
+                _next[edge] = _head[from];
+                _capacity[edge] = capacity;
                 _head[from] = edge;
             }
 
             private bool BuildLevels(int source, int sink)
             {
                 Array.Fill(_level, -1);
-                var queue = new int[_head.Length];
                 int read = 0, write = 0;
                 _level[source] = 0;
-                queue[write++] = source;
+                _queue[write++] = source;
                 while (read < write)
                 {
-                    int node = queue[read++];
+                    int node = _queue[read++];
                     for (int edge = _head[node]; edge >= 0; edge = _next[edge])
                     {
                         int target = _to[edge];
                         if (_capacity[edge] <= 0L || _level[target] >= 0) continue;
                         _level[target] = _level[node] + 1;
-                        queue[write++] = target;
+                        _queue[write++] = target;
                     }
                 }
                 return _level[sink] >= 0;
             }
 
-            private long Push(int node, int sink, long available)
+            // Iterative blocking-flow augmentation. Level depth can reach the
+            // node count on thread-pool stacks, so no recursion is used.
+            private long Push(int source, int sink)
             {
-                if (node == sink) return available;
-                for (int edge = _nextEdge[node]; edge >= 0;
-                     edge = _nextEdge[node])
+                int depth = 0;
+                _pathNodes[0] = source;
+                while (depth >= 0)
                 {
-                    int target = _to[edge];
-                    if (_capacity[edge] > 0L &&
-                        _level[target] == _level[node] + 1)
+                    int node = _pathNodes[depth];
+                    if (node == sink)
                     {
-                        long pushed = Push(target, sink,
-                            Math.Min(available, _capacity[edge]));
-                        if (pushed > 0L)
+                        long bottleneck = Infinity;
+                        for (int step = 0; step < depth; step++)
+                            bottleneck = Math.Min(bottleneck,
+                                _capacity[_pathEdges[step]]);
+                        for (int step = 0; step < depth; step++)
                         {
-                            _capacity[edge] -= pushed;
-                            _capacity[edge ^ 1] += pushed;
-                            return pushed;
+                            int edge = _pathEdges[step];
+                            _capacity[edge] -= bottleneck;
+                            _capacity[edge ^ 1] += bottleneck;
                         }
+                        return bottleneck;
                     }
-                    _nextEdge[node] = _next[edge];
+                    bool advanced = false;
+                    for (int edge = _nextEdge[node]; edge >= 0;
+                         edge = _nextEdge[node])
+                    {
+                        int target = _to[edge];
+                        if (_capacity[edge] > 0L &&
+                            _level[target] == _level[node] + 1)
+                        {
+                            _pathEdges[depth] = edge;
+                            _pathNodes[++depth] = target;
+                            advanced = true;
+                            break;
+                        }
+                        _nextEdge[node] = _next[edge];
+                    }
+                    if (advanced) continue;
+                    // Dead end: retire this node's level and the edge into it.
+                    _level[node] = -1;
+                    depth--;
+                    if (depth >= 0)
+                    {
+                        int parent = _pathNodes[depth];
+                        _nextEdge[parent] = _next[_nextEdge[parent]];
+                    }
                 }
                 return 0L;
             }

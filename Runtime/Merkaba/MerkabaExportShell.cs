@@ -155,9 +155,10 @@ namespace Genesis.RoomScan
                     $"Prepared {index + 1}/{sortedShell.Count} shell colors");
             }
 
-            int3[] healedSorted = Sorted(healed);
+            // The shell is the healed set; sort it once.
+            int3[] healedSorted = sortedShell.ToArray();
             return new MerkabaExportShellResult(kernels, healedSorted,
-                sortedShell.ToArray(), syntheticCoordinates.ToArray(),
+                healedSorted, syntheticCoordinates.ToArray(),
                 Sorted(strongFree), SortedEvidence(allEvidence), occupied.Count,
                 strongFree.Count,
                 syntheticSelected);

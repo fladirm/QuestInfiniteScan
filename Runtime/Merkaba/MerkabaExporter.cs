@@ -17,7 +17,7 @@ namespace Genesis.RoomScan
         private const string ViewerArchiveFileName = "QuestMerkabaScan.zip";
         private const string ViewerResourceRoot =
             "Merkaba/QuestMerkabaScanViewer";
-        private const int ExportTileCacheCapacity = 512;
+        private const int ExportTileCacheCapacity = 4096;
 
         private MerkabaGrid _grid;
         private MerkabaIntegrator _integrator;
@@ -165,9 +165,10 @@ namespace Genesis.RoomScan
                     new Progress<OperationWorkProgress>(value =>
                         _scanner?.ReportOperation(
                             ScanOperationKind.ExportGlb, value));
-                await _grid.FlushAllDirtyTilesAsync(progress);
+                // A missing room anchor fails before any storage work.
                 MerkabaSpatialBinding spatialBinding =
                     await CaptureSpatialBindingAsync();
+                await _grid.FlushAllDirtyTilesAsync(progress);
                 byte[] viewerHtml = LoadViewerResource(ViewerResourceRoot);
                 byte[] threeLicense = LoadViewerResource(
                     ViewerResourceRoot + "ThreeLicense");
@@ -580,8 +581,14 @@ namespace Genesis.RoomScan
                 MerkabaExportMembraneResult local;
                 try
                 {
+                    // Only owner-chunk supports are solved; the context ring
+                    // is read for their halo. A stored tile outside the ring
+                    // is known space, never an artificial partition sink.
+                    MerkabaTileAddress capturedOwner = ownerKey;
                     local = await Task.Run(() => MerkabaExportMembrane.Build(
-                        MerkabaExportShell.Build(evidence)));
+                        MerkabaExportShell.Build(evidence), null,
+                        coord => IsOwnedByChunk(coord, capturedOwner),
+                        coord => !IsStoredTile(coord, available)));
                 }
                 catch (Exception exception)
                 {
@@ -667,6 +674,14 @@ namespace Genesis.RoomScan
                 "ownedPatches=0 emittedLeaf=0.");
         }
 
+        private static bool IsStoredTile(int3 coord,
+            HashSet<MerkabaTileAddress> available)
+        {
+            MerkabaSpatial.Address address = MerkabaSpatial.Encode(coord);
+            return available.Contains(new MerkabaTileAddress(address.BlockCoord,
+                address.LocalAddress));
+        }
+
         private static bool IsOwnedByChunk(int3 coord,
             MerkabaTileAddress ownerKey)
         {
@@ -722,6 +737,8 @@ namespace Genesis.RoomScan
             }
         }
 
+        private const int ExportReadBatch = 512;
+
         private sealed class ExportTileSnapshotCache
         {
             private sealed class Entry
@@ -749,8 +766,7 @@ namespace Genesis.RoomScan
             internal ExportTileSnapshotCache(MerkabaGrid grid, int capacity)
             {
                 _grid = grid ?? throw new ArgumentNullException(nameof(grid));
-                _capacity = Math.Max(MerkabaGrid.StreamBatchCapacity,
-                    capacity);
+                _capacity = Math.Max(ExportReadBatch, capacity);
                 _entries = new Dictionary<MerkabaTileAddress, Entry>(
                     _capacity);
             }
@@ -772,11 +788,10 @@ namespace Genesis.RoomScan
                     }
 
                     var missing = new List<MerkabaTileAddress>(
-                        MerkabaGrid.StreamBatchCapacity);
-                    var resultIndices = new List<int>(
-                        MerkabaGrid.StreamBatchCapacity);
+                        ExportReadBatch);
+                    var resultIndices = new List<int>(ExportReadBatch);
                     while (offset < addresses.Count && missing.Count <
-                           MerkabaGrid.StreamBatchCapacity)
+                           ExportReadBatch)
                     {
                         MerkabaTileAddress address = addresses[offset];
                         if (TryGet(address, out result[offset]))
