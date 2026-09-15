@@ -1,0 +1,34 @@
+#version 450
+// C09R-E4 index relocation (runs after fuse_maint_apply, before publish_leaves; ONE invocation walks the bounded list
+// sequentially, so no two relocations race on a cell subtree): for every record the surfel leaves the leaf of its old
+// cell (found by its OLD position, the descent the insertion used) and is inserted into the cell of its current position.
+// SurfaceID and handle stay. The new cell was marked dirty by the producer (its render block is rebuilt by the next
+// publication); the old cell is in this epoch's dirty list. Zeroes the count when done.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_PAGES_RO
+#define FS_USE_SURFELS
+#define FS_USE_INDEX
+#define FS_USE_GCTR
+#define FS_USE_POOLS
+#define FS_USE_DIRTY
+#define FS_USE_RETIRE
+#include "fs_world_blocks.glsl"
+#include "fs_index.glsl"
+layout(local_size_x = 1) in;
+void main() {
+    uint n = min(FS_TK(FS_T_RELOC_COUNT), uint(FS_RELOC_MAX));
+    uint applied = 0u;
+    for (uint k = 0u; k < uint(FS_RELOC_MAX); ++k) {
+        if (k >= n) break;
+        uint b = FS_DIRTY_RELOC + 4u * k;
+        uint h = dirty[b], page = dirty[b + 1u] >> 15, oldCell = dirty[b + 1u] & 0x7FFFu, newCell = dirty[b + 2u] & 0x7FFFu;
+        FsSurfel old = surfels[h]; old.px_py = dirty[b + 3u]; fsSet_FsSurfel_pz(old, int((dirty[b + 2u] >> 15) & 0xFFFFu));   // setter keeps the low 16 bits, getter sign-extends
+        FsSurfel s = surfels[h];
+        if (!fsIndexRemove(page, oldCell, fsSurfelLocalPos(old), h)) continue;       // already gone (merged away / erased)
+        if ((fsGet_FsSurfel_evidenceFlags(s) & FS_FLAG_REMOVED) != 0u) continue;
+        if (fsIndexInsert(page, newCell, fsSurfelLocalPos(s), h)) applied++;
+        else { fsSet_FsSurfel_evidenceFlags(s, fsGet_FsSurfel_evidenceFlags(s) | FS_FLAG_REMOVED); surfels[h] = s; }   // pool exhausted: counted by the index
+    }
+    if (applied != 0u) atomicAdd(gctr[FS_GCTR_RELOCATIONS], applied);
+    FS_TK(FS_T_RELOC_COUNT) = 0u;
+}

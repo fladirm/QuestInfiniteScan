@@ -82,7 +82,9 @@ void main() {
             if (k >= cnt) break;
             uint h = idx[fsIdxLeafWord(leaves[l], 2u + k)];
             FsSurfel s = surfels[h];
-            if ((fsGet_FsSurfel_evidenceFlags(s) & FS_FLAG_REMOVED) != 0u) continue;
+            // C09R-E4 authoritative FRONT: only PROMOTED geometry is published (it feeds the canonical prediction, the HZB and
+            // persistence); transient candidates never reach the render tree, so a wrong depth pixel cannot confirm itself.
+            if ((fsGet_FsSurfel_evidenceFlags(s) & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) != 0u) continue;
             if (total >= uint(FS_CELL_RENDER_MAX)) { overflow++; continue; }
             if (curBlock == FS_INDEX_NONE || fill == uint(FS_RENDER_BLOCK_SURFELS)) {
                 if (curBlock != FS_INDEX_NONE) { uint ln = fsMakeLeafNode(curBlock, fill); if (ln == FS_INDEX_NONE) break; blocks[nb++] = ln; }

@@ -244,8 +244,10 @@ Measured: `320×320×2` per eye, swapchain 4, 25 Hz (22,6–27,3), data age ~21 
 * Hand removal ON; pixely „estimated background“ značené low-confidence.
 * Nízká confidence nesmí agresivně ničit geometrii.
 * C01 charakterizuje **systematickou bias** depth (vs. laser) — plane-fit z tisíců vzorků průměruje šum, ne bias.
-* **Minimální vzdálenost měření 0,5 m (invariant, C09R-E3b).** Depth texely blíž než `FS_MEAS_MIN_DEPTH_M` (ruka před
-  obličejem, kabel, ovladač) nejsou nikdy geometry evidence ani free-space evidence; jsou počítány (`invalid`), ne měřeny.
+* **Provisional EnvDepth bootstrap guard 0,5 m (C09R-E3b, ne invariant).** Dokud neexistuje maska ruky/ovladače,
+  dynamická klasifikace a charakteristika blízkého rozsahu senzoru, depth texely blíž než `FS_MEAS_MIN_DEPTH_M` nejsou
+  measurement. Finálně to řeší hand/controller mask, motion/dynamic classification, source confidence a DETAIL intent;
+  FinalScan musí umět povrchy blíž než 0,5 m (DETAIL, malé objekty).
 * **Motion gate i pro depth (§4.5).** Depth frame zachycený při úhlové rychlosti hlavy nad prahem není geometry evidence
   (HZB prior ano); během otáčení depth dopadá posunutě od canonical světa (device run 2026-09-15 00:12).
 

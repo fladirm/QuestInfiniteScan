@@ -199,8 +199,9 @@ struct FsIndirectDrawArgs {
 struct FsSurfelEvidence {
     uint staticEvidence_motionEvidence;
     uint varianceQ_lastSeenFrame;
-};  // 8 B
-#define FS_ABI_FSSURFELEVIDENCE_BYTES 8
+    uint lastObservationId;
+};  // 12 B
+#define FS_ABI_FSSURFELEVIDENCE_BYTES 12
 uint fsGet_FsSurfelEvidence_staticEvidence(FsSurfelEvidence s) { return bitfieldExtract(s.staticEvidence_motionEvidence, 0, 16); }
 void fsSet_FsSurfelEvidence_staticEvidence(inout FsSurfelEvidence s, uint v) { s.staticEvidence_motionEvidence = bitfieldInsert(s.staticEvidence_motionEvidence, uint(v), 0, 16); }
 uint fsGet_FsSurfelEvidence_motionEvidence(FsSurfelEvidence s) { return bitfieldExtract(s.staticEvidence_motionEvidence, 16, 16); }

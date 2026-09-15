@@ -151,11 +151,12 @@ enum FsCounter {
 
 // ---- Evidence sidecar (contract §8.6, C13): canonical, persisted, parallel to the surfel arena ------
 typedef struct FsSurfelEvidence {
-    uint16_t staticEvidence;      // consistent observations within sigma over time (saturating)
-    uint16_t motionEvidence;      // observations outside sigma consistent with motion (saturating, decays)
-    uint16_t varianceQ;           // log-encoded geometry residual variance
-    uint16_t lastSeenFrame;       // low 16 bits of the scan tick index
-} FsSurfelEvidence;               // 8 B
+    uint16_t staticEvidence;      // DISTINCT consistent observations (one depth / camera frame = at most one), saturating (C09R-E4)
+    uint16_t motionEvidence;      // distinct free-space contradictions (one per epoch), saturating
+    uint16_t varianceQ;           // log-encoded residual variance normalised by the measurement sigma^2 (FS_VAR_NORM_BASE)
+    uint16_t lastSeenFrame;       // low 16 bits of the scan tick index of the last update
+    uint32_t lastObservationId;   // FsSurfaceMeasurement.observationId of the last update (0 = never): one observation updates once
+} FsSurfelEvidence;               // 12 B
 
 // ---- Derived render tree (contract §13.4, C09R): persistent COW octree of immutable render leaf blocks.
 // Nodes and blocks live in global pools; unchanged subtrees are shared between generations. A leaf node

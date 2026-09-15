@@ -97,7 +97,8 @@ layout(std430, set = 0, binding = FS_B_DIRTY) readonly buffer DirtyBlockRO { uin
 #define FS_DIRTY_CELLMASK(page) ((page) * uint(FS_DIRTY_CELL_WORDS))
 #define FS_DIRTY_RNODEMASK(page) (uint(FS_MAX_PAGES) * uint(FS_DIRTY_CELL_WORDS) + (page) * uint(FS_DIRTY_RNODE_WORDS))
 #define FS_DIRTY_LIST_BASE   (uint(FS_MAX_PAGES) * uint(FS_DIRTY_CELL_WORDS) + uint(FS_MAX_PAGES) * uint(FS_DIRTY_RNODE_WORDS))
-#define FS_DIRTY_LIST(level) (FS_DIRTY_LIST_BASE + uint(level) * uint(FS_DIRTY_NODES_MAX))   // level 0 = cells, 1..5 = render tree levels, 6 = page prefix scratch
+#define FS_DIRTY_LIST(level) (FS_DIRTY_LIST_BASE + uint(level) * uint(FS_DIRTY_NODES_MAX))
+#define FS_DIRTY_RELOC       (FS_DIRTY_LIST_BASE + 7u * uint(FS_DIRTY_NODES_MAX))   // FS_RELOC_MAX x 4 words: handle, page<<15|oldCell, newCell|oldPz<<15, oldPx_Py (level lists: 0 cells, 1..5 render levels, 6 page prefix)
 #ifdef FS_USE_DIRTY
 layout(std430, set = 0, binding = FS_B_DIRTY) buffer DirtyBlock { uint dirty[]; };
 // Marks (page, cell) dirty once per epoch; returns true for the first marker.
@@ -105,6 +106,23 @@ bool fsMarkDirtyCell(uint page, uint cell) {
     uint prev = atomicOr(dirty[FS_DIRTY_CELLMASK(page) + (cell >> 5u)], 1u << (cell & 31u));
     return (prev & (1u << (cell & 31u))) == 0u;
 }
+#ifdef FS_USE_GCTR
+// C09R-E4 index relocation (the index follows the geometry): a surfel whose fused centre left its index cell keeps its
+// SurfaceID and handle; the record {handle, page<<15|oldCell, newCell|oldPz<<15, oldPx_Py} is applied by world_relocate
+// (remove from the old leaf by the OLD position, insert into the new cell). False = list full: the caller keeps the
+// old position (deferred, counted) instead of deforming the geometry.
+bool fsPushRelocation(uint h, uint page, uint oldCell, uint newCell, FsSurfel oldS) {
+    uint k = atomicAdd(FS_TK(FS_T_RELOC_COUNT), 1u);
+    if (k >= uint(FS_RELOC_MAX)) { atomicAdd(gctr[FS_GCTR_RELOC_DEFERRED], 1u); return false; }
+    uint b = FS_DIRTY_RELOC + 4u * k;
+    dirty[b] = h; dirty[b + 1u] = (page << 15) | oldCell;
+    dirty[b + 2u] = newCell | ((uint(fsGet_FsSurfel_pz(oldS)) & 0xFFFFu) << 15); dirty[b + 3u] = oldS.px_py;
+    fsMarkDirtyCell(page, newCell);
+    return true;
+}
+// Representable-range guard only (the page cube); never an index-cell clamp.
+vec3 fsPageRangeGuard(vec3 l) { float hh = FS_PAGE_EXTENT_M * 0.5 - 0.0005; return clamp(l, vec3(-hh), vec3(hh)); }
+#endif
 #endif
 #ifdef FS_USE_RENDER
 layout(std430, set = 0, binding = FS_B_RENDER) buffer RenderNodeBlock { FsRenderNode rnodes[]; };

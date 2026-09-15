@@ -10,7 +10,7 @@
 #define FS_USE_SORT_RO
 #define FS_USE_FREESPACE_RO
 #define FS_USE_POOLS
-#define FS_USE_DIRTY_RO
+#define FS_USE_DIRTY
 #define FS_USE_RETIRE
 #include "fs_world_blocks.glsl"
 #include "fs_fusion.glsl"
@@ -86,7 +86,10 @@ void main() {
                 r.rM = clamp(rM, FS_RADIUS_MIN_M, FS_RADIUS_MAX_M); r.rm = clamp(rm, FS_RADIUS_MIN_M, r.rM); r.angle = ang;
                 r.sigmaN = max(sqrt(1.0 / (ws + wd)), FS_SIGMA_N_FLOOR_M);
                 r.flags = (ps.flags & ~FS_EVIDENCE_COUNT_MASK) | min((ps.flags & FS_EVIDENCE_COUNT_MASK) + (pd.flags & FS_EVIDENCE_COUNT_MASK), uint(FS_EVIDENCE_COUNT_MAX));
-                vec3 bmin, bmax; fsCellBounds(cell, bmin, bmax); r.p = clamp(r.p, bmin + vec3(0.0005), bmax - vec3(0.0005));
+                // the index follows the geometry (C09R-E4): a merged centre outside the owner cell is relocated, never clamped
+                r.p = fsPageRangeGuard(r.p);
+                uint mergedCell = fsCellOf(r.p);
+                if (mergedCell != cell && !fsPushRelocation(hs, page, fsCellOf(ps.p), mergedCell, surfels[hs])) r.p = ps.p;   // list full: keep the survivor centre
                 surfels[hs] = fsPack(r);
                 fsSet_FsSurfelEvidence_staticEvidence(es, min(fsGet_FsSurfelEvidence_staticEvidence(es) + fsGet_FsSurfelEvidence_staticEvidence(ed), 65535u));
                 evidence[hs] = es;
@@ -132,12 +135,15 @@ void main() {
             uint hn = slabDir[page * uint(FS_PAGE_MAX_SLABS) + (local / uint(FS_SLAB_SURFELS))] * uint(FS_SLAB_SURFELS) + (local % uint(FS_SLAB_SURFELS));
             FsPatch child = q;
             child.p = q.p + tM * (c == 0u ? -0.5 : 0.5) * q.rM;
-            vec3 bmin, bmax; fsCellBounds(cell, bmin, bmax); child.p = clamp(child.p, bmin + vec3(0.0005), bmax - vec3(0.0005));
+            child.p = fsPageRangeGuard(child.p);                              // no cell clamp (C09R-E4)
             child.rM = max(q.rM * 0.5, FS_RADIUS_MIN_M); child.rm = min(q.rm, child.rM);
             child.flags = (q.flags & ~FS_EVIDENCE_COUNT_MASK) | max((q.flags & FS_EVIDENCE_COUNT_MASK) / 2u, 1u);
             child.surfaceId = splitId + splits * 2u + c;
             surfels[hn] = fsPack(child); evidence[hn] = halfEv;
-            fsIndexInsert(page, cell, child.p, hn);
+            if (fsIndexInsert(page, cell, child.p, hn)) {
+                uint childCell = fsCellOf(child.p);
+                if (childCell != cell) fsPushRelocation(hn, page, cell, childCell, surfels[hn]);   // full list: stays indexed in the owner cell, geometry intact
+            }
         }
         splits++;
     }

@@ -79,14 +79,14 @@ inline float MeasSigmaT(const FsSurfaceMeasurement& m) { return fmaxf(m.sigmaT, 
 inline float MeasFootprint(const FsSurfaceMeasurement& m) { return fminf(fmaxf(m.footprint, (float)FS_RADIUS_MIN_M), (float)FS_RADIUS_MAX_M); }
 
 // ---- F0 association scoring (twin of the candidate loop in fuse_associate.comp) -----------------------
+inline float PlaneGate(float sigmaA, float sigmaB) { return fminf((float)FS_ASSOC_SIGMA_GATE * sqrtf(sigmaA * sigmaA + sigmaB * sigmaB), (float)FS_ASSOC_PLANE_MAX_M); }
 // Returns true when the surfel is compatible with the measurement; `score` is the Mahalanobis-like rank.
 inline bool AssocCompatible(const FsSurfel& s, V3 local, V3 n, float sigmaNm, float footprint, float& score) {
     if (s.evidenceFlags & kFlagRemoved) return false;
     V3 sp = LocalPos(s), sn = Normal(s);
     if (Dot(sn, n) < (float)FS_ASSOC_MIN_DOT) return false;
     V3 delta = local - sp; float d = Dot(sn, delta);
-    float sigmaNs = DecodeLogSigma(s.sigmaN);
-    float gate = (float)FS_ASSOC_SIGMA_GATE * sqrtf(sigmaNs * sigmaNs + sigmaNm * sigmaNm);
+    float gate = PlaneGate(DecodeLogSigma(s.sigmaN), sigmaNm);
     if (fabsf(d) > gate) return false;
     V3 tv = delta - sn * d;
     float reach = fmaxf((float)FS_ASSOC_TANGENT_K * (DecodeLogRadius(s.radiusMajor) + footprint), (float)FS_ASSOC_REACH_MIN_M);
@@ -121,8 +121,8 @@ inline void RadixSortAssoc(std::vector<FsAssociation>& a) {
     }
 }
 
-// ---- F2 segmented reduce (twin: fs_fusion.glsl FsAccum + fuse_reduce.comp) -----------------------------
-struct Accum { float wN = 0, dN = 0; V3 nSum; float wT = 0; float tx = 0, ty = 0; float mxx = 0, myy = 0, mxy = 0, d2 = 0, s2 = 0, fp = 0; V3 col; float colW = 0; uint32_t n = 0; };
+// ---- F2 segmented reduce (twin: fs_fusion.glsl FsAccum + fuse_reduce.comp, C09R-E4) -----------------------
+struct Accum { float wN = 0, dN = 0; V3 nSum; float wT = 0; float tx = 0, ty = 0; float mxx = 0, myy = 0, mxy = 0, d2 = 0, s2 = 0, h = 0, fp = 0; V3 col; float colW = 0; uint32_t srcAnd = 0xFFFFFFFFu, obs = 0, n = 0; };
 inline V3 ColorOf(uint32_t w) { return v3((float)(w & 0xFFu), (float)((w >> 8) & 0xFFu), (float)((w >> 16) & 0xFFu)) * (1.f / 255.f); }
 inline uint32_t ColorPack(V3 c) { auto q = [](float x) { x = x < 0.f ? 0.f : (x > 1.f ? 1.f : x); return (uint32_t)(x * 255.f + 0.5f); }; return q(c.x) | (q(c.y) << 8) | (q(c.z) << 16); }
 inline uint32_t BlendAppearance(uint32_t old, V3 meanCol, float wPrior, float wMeas) {
@@ -130,19 +130,23 @@ inline uint32_t BlendAppearance(uint32_t old, V3 meanCol, float wPrior, float wM
     V3 o = ColorOf(old); float t = wMeas / (wPrior + wMeas);
     return FS_APPEARANCE_MEASURED | ColorPack(o + (meanCol - o) * t);
 }
-inline void AccumAdd(Accum& a, const Patch& q, V3 t1, V3 t2, V3 pm, V3 nm, float sigmaNm, float sigmaTm, float footprint, uint32_t colorWord = 0u) {
-    float wN = 1.f / (sigmaNm * sigmaNm), wT = 1.f / (sigmaTm * sigmaTm);
+inline float Huber(float d, float sigmaComb) { float ad = fabsf(d), c = (float)FS_HUBER_K * sigmaComb; return ad <= c ? 1.f : c / fmaxf(ad, 1e-12f); }
+inline float SigmaFloor(uint32_t srcAnd) { return (srcAnd & 4u) ? fmaxf((float)FS_SIGMA_N_FLOOR_M, (float)FS_DEPTH_PRIOR_SIGMA_FLOOR_M) : (float)FS_SIGMA_N_FLOOR_M; }
+inline void AccumAdd(Accum& a, const Patch& q, V3 t1, V3 t2, V3 pm, V3 nm, float sigmaNm, float sigmaTm, float footprint, uint32_t colorWord, uint32_t srcFlags, uint32_t obs) {
     V3 delta = pm - q.p; float d = Dot(q.n, delta);
+    float hw = Huber(d, sqrtf(q.sigmaN * q.sigmaN + sigmaNm * sigmaNm));
+    float wN = hw / (sigmaNm * sigmaNm), wT = hw / (sigmaTm * sigmaTm);
     float tvx = Dot(delta, t1), tvy = Dot(delta, t2);
     a.wN += wN; a.dN += wN * d; a.nSum = a.nSum + nm * wN;
     a.wT += wT; a.tx += tvx * wT; a.ty += tvy * wT;
     float f2 = footprint * footprint;
     a.mxx += wT * (tvx * tvx + f2); a.myy += wT * (tvy * tvy + f2); a.mxy += wT * tvx * tvy;
-    a.d2 += d * d; a.s2 += sigmaNm * sigmaNm; a.fp = fmaxf(a.fp, footprint); a.n++;
+    a.d2 += hw * d * d; a.s2 += hw * sigmaNm * sigmaNm; a.h += hw; a.fp = fmaxf(a.fp, footprint); a.n++;
+    a.srcAnd &= srcFlags; a.obs = obs;
     if (colorWord & FS_MEAS_COLOR_VALID) { a.col = a.col + ColorOf(colorWord); a.colW += 1.f; }
 }
-struct ReduceResult { FsSurfel surfel; FsSurfelEvidence evidence; uint32_t folded = 0; bool overflow = false; bool changed = false; };
-// One matched segment = one surfel; `seg` in sorted (measurement-sequence) order; `origin` = page origin.
+struct ReduceResult { FsSurfel surfel; FsSurfelEvidence evidence; uint32_t folded = 0; bool overflow = false; bool changed = false; bool duplicate = false; bool relocated = false; uint32_t newCell = 0; };
+// One matched segment = one surfel; `seg` in sorted order, all from ONE observation (one epoch ingests one frame).
 inline ReduceResult ReduceSegment(const FsSurfel& s, const FsSurfelEvidence& evIn, const std::vector<FsSurfaceMeasurement>& seg, V3 origin, uint32_t tick) {
     ReduceResult r; r.surfel = s; r.evidence = evIn;
     Patch q = Unpack(s);
@@ -152,52 +156,70 @@ inline ReduceResult ReduceSegment(const FsSurfel& s, const FsSurfelEvidence& evI
     for (size_t k = 0; k < seg.size(); ++k) {
         if (k == FS_SEG_REDUCE_MAX) { r.overflow = true; break; }
         const FsSurfaceMeasurement& m = seg[k];
-        AccumAdd(acc, q, t1, t2, MeasPos(m) - origin, MeasNormal(m), MeasSigmaN(m), MeasSigmaT(m), MeasFootprint(m), m.reserved);
+        AccumAdd(acc, q, t1, t2, MeasPos(m) - origin, MeasNormal(m), MeasSigmaN(m), MeasSigmaT(m), MeasFootprint(m), m.reserved, m.sourceFlags, m.observationId);
     }
-    if (acc.n == 0) return r;
+    if (acc.n == 0 || acc.h <= 0.f) return r;
+    if (evIn.lastObservationId == acc.obs && acc.obs != 0u) { r.duplicate = true; return r; }
+    const float nEff = acc.h;
+    float wObsN = acc.wN / nEff, wObsT = acc.wT / nEff;
+    float dMean = acc.dN / acc.wN, tMx = acc.tx / acc.wT, tMy = acc.ty / acc.wT;
+    V3 nObs = Norm(acc.nSum);
+    float sxx = fmaxf(acc.mxx / acc.wT - tMx * tMx, 0.f), syy = fmaxf(acc.myy / acc.wT - tMy * tMy, 0.f), sxy = acc.mxy / acc.wT - tMx * tMy;
     float wNs = 1.f / (q.sigmaN * q.sigmaN), wTs = 1.f / (q.sigmaT * q.sigmaT);
-    float aN = acc.wN / (wNs + acc.wN), aT = acc.wT / (wTs + acc.wT);
-    float dMean = acc.dN / acc.wN;
-    float tMx = acc.tx / acc.wT, tMy = acc.ty / acc.wT;
+    float aN = wObsN / (wNs + wObsN), aT = wObsT / (wTs + wObsT);
     V3 np = q.p + q.n * (dMean * aN) + (t1 * tMx + t2 * tMy) * aT;
-    V3 nn = Norm(q.n * wNs + acc.nSum);
-    float newSigmaN = fmaxf(sqrtf(1.f / (wNs + acc.wN)), (float)FS_SIGMA_N_FLOOR_M);
-    float newSigmaT = fmaxf(sqrtf(1.f / (wTs + acc.wT)), (float)FS_SIGMA_T_FLOOR_M);
+    V3 nn = Norm(q.n * wNs + nObs * wObsN);
+    float newSigmaN = fmaxf(sqrtf(1.f / (wNs + wObsN)), SigmaFloor(acc.srcAnd));
+    float newSigmaT = fmaxf(sqrtf(1.f / (wTs + wObsT)), (float)FS_SIGMA_T_FLOOR_M);
     uint32_t cnt = q.flags & kEvidenceCountMask;
     float ma, mb, mc; PatchMoment(q, ma, mb, mc);
-    float wPrior = (float)(cnt > 1 ? cnt : 1), wMeas = (float)acc.n;
-    float mxx = acc.mxx / acc.wT - tMx * tMx * aT, myy = acc.myy / acc.wT - tMy * tMy * aT, mxy = acc.mxy / acc.wT - tMx * tMy * aT;
-    float fa = (ma * wPrior + mxx * wMeas) / (wPrior + wMeas), fb = (mb * wPrior + myy * wMeas) / (wPrior + wMeas), fc = (mc * wPrior + mxy * wMeas) / (wPrior + wMeas);
-    float rM, rm, ang; MomentToEllipse(fa, fb, fc, rM, rm, ang);
-    rM = fminf(fmaxf(fmaxf(rM, acc.fp), (float)FS_RADIUS_MIN_M), (float)FS_RADIUS_MAX_M); rm = fminf(fmaxf(fmaxf(rm, (float)FS_RADIUS_MIN_M), (float)FS_RADIUS_MIN_M), rM);
-    uint32_t cell = CellOfV(q.p);
-    float bmin[3], bmax[3]; CellBounds(cell, bmin, bmax);
-    np = ClampV(np, v3(bmin[0] + 0.0005f, bmin[1] + 0.0005f, bmin[2] + 0.0005f), v3(bmax[0] - 0.0005f, bmax[1] - 0.0005f, bmax[2] - 0.0005f));
+    float wPrior = (float)(cnt > 1 ? cnt : 1);
+    float rM, rm, ang; MomentToEllipse((ma * wPrior + sxx) / (wPrior + 1.f), (mb * wPrior + syy) / (wPrior + 1.f), (mc * wPrior + sxy) / (wPrior + 1.f), rM, rm, ang);
+    rM = fminf(fmaxf(fmaxf(rM, acc.fp), (float)FS_RADIUS_MIN_M), (float)FS_RADIUS_MAX_M); rm = fminf(fmaxf(rm, (float)FS_RADIUS_MIN_M), rM);
+    const float hh = (float)FS_PAGE_EXTENT_M * 0.5f - 0.0005f;
+    np = ClampV(np, v3(-hh, -hh, -hh), v3(hh, hh, hh));                              // representable-range guard only
+    const uint32_t oldCell = CellOfV(q.p), newCell = CellOfV(np);
+    r.relocated = newCell != oldCell; r.newCell = newCell;
     FsSurfelEvidence ev = evIn;
     const float varBase = (float)FS_VAR_NORM_BASE;
     float var = DecodeLog(ev.varianceQ, varBase);
-    float meanD2 = (acc.d2 / (float)acc.n) / fmaxf(acc.s2 / (float)acc.n, 1e-12f);
-    var += (meanD2 - var) * ((float)acc.n / (float)(cnt + acc.n));
-    uint32_t stat = std::min<uint32_t>(ev.staticEvidence + acc.n, 65535u);
+    float meanD2 = (acc.d2 / nEff) / fmaxf(acc.s2 / nEff, 1e-12f);
+    var += (meanD2 - var) / (float)(cnt + 1);
+    uint32_t stat = std::min<uint32_t>(ev.staticEvidence + 1u, 65535u);
     uint32_t flags = q.flags;
-    cnt = std::min<uint32_t>(cnt + acc.n, FS_EVIDENCE_COUNT_MAX);
+    cnt = std::min<uint32_t>(cnt + 1, FS_EVIDENCE_COUNT_MAX);
     if ((flags & kFlagTransient) && stat >= FS_PROMOTE_STATIC) flags = (flags & ~(uint32_t)kFlagTransient) | kFlagPromoted;
     q.p = np; q.n = nn; q.angle = ang; q.rM = rM; q.rm = rm; q.sigmaN = newSigmaN; q.sigmaT = newSigmaT;
     q.flags = (flags & ~(uint32_t)kEvidenceCountMask) | cnt;
-    if (acc.colW > 0.f) q.appearance = BlendAppearance(q.appearance, acc.col * (1.f / acc.colW), wPrior, acc.colW);
+    if (acc.colW > 0.f) q.appearance = BlendAppearance(q.appearance, acc.col * (1.f / acc.colW), wPrior, 1.f);
     r.surfel = Pack(q);
-    ev.staticEvidence = (uint16_t)stat; ev.varianceQ = EncodeLog(var, varBase); ev.lastSeenFrame = (uint16_t)(tick & 0xFFFFu);
+    ev.staticEvidence = (uint16_t)stat; ev.varianceQ = EncodeLog(var, varBase); ev.lastSeenFrame = (uint16_t)(tick & 0xFFFFu); ev.lastObservationId = acc.obs;
     r.evidence = ev; r.folded = acc.n; r.changed = true;
     return r;
 }
 
-// ---- F3 clustering of an unmatched cell segment (twin: fs_cluster.glsl fsClusterSegment) --------------
-// Greedy first-fit in sorted (measurement-sequence) order: a measurement joins the FIRST candidate (creation
-// order) that is compatible (normal dot, plane gate, tangent distance <= 2 x footprint); otherwise it seeds a
-// new candidate while fewer than FS_CELL_NEW_MAX exist (extra sheets wait for the next epoch, counted by the
-// caller); at most FS_SEG_CLUSTER_MAX measurements are examined (the rest set `overflowed`). Candidate ids are
-// idBase + exclusive prefix over segments in sorted order (fuse_prefix / fuse_cluster_write).
-struct Cand { V3 p, n; float wN = 0, wT = 0; V3 nSum; float mxx = 0, myy = 0, mxy = 0, d2 = 0, fp = 0; uint32_t cnt = 0; float sigmaN = 0, sigmaT = 0; V3 col; float colW = 0; };
+// ---- F3 clustering of an unmatched cell segment (twin: fs_cluster.glsl, C09R-E4) --------------------------
+// Greedy first-fit in sorted order against each candidate's CURRENT mean (plain seed-frame sums: exact Welford mean and
+// covariance), mean normal, bounded plane gate, association reach; <= FS_CELL_NEW_MAX candidates, <= FS_SEG_CLUSTER_MAX
+// measurements examined. Candidate ids = idBase + exclusive prefix. All members are one observation.
+struct Cand {
+    V3 p0, n0, t1, t2; float c = 0, sd = 0, sdd = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0, sfp2 = 0; V3 nSum; float wN = 0, wT = 0, fp = 0; V3 col; float colW = 0; uint32_t srcAnd = 0xFFFFFFFFu;
+    V3 Mean() const { return p0 + n0 * (sd / c) + t1 * (sx / c) + t2 * (sy / c); }
+    V3 NormalMean() const { float l = Len(nSum); return l > 1e-12f ? nSum * (1.f / l) : n0; }
+    float SigmaN() const { return sqrtf(c / fmaxf(wN, 1e-12f)); }
+    float SigmaT() const { return sqrtf(c / fmaxf(wT, 1e-12f)); }
+    void Moments(float& mxx, float& myy, float& mxy, float& varNorm) const {
+        float mx = sx / c, my = sy / c, md = sd / c, f2 = sfp2 / c;
+        mxx = fmaxf(sxx / c - mx * mx, 0.f) + f2; myy = fmaxf(syy / c - my * my, 0.f) + f2; mxy = sxy / c - mx * my;
+        float s = SigmaN(); varNorm = fmaxf(sdd / c - md * md, 0.f) / fmaxf(s * s, 1e-12f);
+    }
+    void Add(V3 pm, V3 nm, float sN, float sT, float f, uint32_t colorWord, uint32_t src) {
+        V3 o = pm - p0; float ox = Dot(o, t1), oy = Dot(o, t2), od = Dot(o, n0);
+        c += 1.f; sd += od; sdd += od * od; sx += ox; sy += oy; sxx += ox * ox; syy += oy * oy; sxy += ox * oy; sfp2 += f * f;
+        nSum = nSum + nm * (1.f / (sN * sN)); wN += 1.f / (sN * sN); wT += 1.f / (sT * sT); fp = fmaxf(fp, f); srcAnd &= src;
+        if (colorWord & FS_MEAS_COLOR_VALID) { col = col + ColorOf(colorWord); colW += 1.f; }
+    }
+};
 inline uint32_t ClusterSegment(const std::vector<FsSurfaceMeasurement>& seg, V3 origin, Cand cands[FS_CELL_NEW_MAX], bool& overflowed) {
     uint32_t nc = 0; overflowed = false;
     for (size_t k = 0; k < seg.size(); ++k) {
@@ -205,37 +227,23 @@ inline uint32_t ClusterSegment(const std::vector<FsSurfaceMeasurement>& seg, V3 
         const FsSurfaceMeasurement& m = seg[k];
         V3 pm = MeasPos(m) - origin, nm = MeasNormal(m);
         float sN = MeasSigmaN(m), sT = MeasSigmaT(m), fp = MeasFootprint(m);
-        float wN = 1.f / (sN * sN), wT = 1.f / (sT * sT);
         int hit = -1;
-        for (uint32_t c = 0; c < nc; ++c) {
-            const Cand& q = cands[c];
-            if (Dot(q.n, nm) < (float)FS_ASSOC_MIN_DOT) continue;
-            V3 delta = pm - q.p; float d = Dot(q.n, delta);
-            float gate = (float)FS_ASSOC_SIGMA_GATE * sqrtf(q.sigmaN * q.sigmaN + sN * sN);
-            if (fabsf(d) > gate) continue;
-            V3 tv = delta - q.n * d;
-            if (Dot(tv, tv) > 4.f * fp * fp) continue;
-            hit = (int)c; break;
+        for (uint32_t ci = 0; ci < nc; ++ci) {
+            const Cand& q = cands[ci];
+            V3 nq = q.NormalMean();
+            if (Dot(nq, nm) < (float)FS_ASSOC_MIN_DOT) continue;
+            V3 delta = pm - q.Mean(); float d = Dot(nq, delta);
+            if (fabsf(d) > PlaneGate(q.SigmaN(), sN)) continue;
+            V3 tv = delta - nq * d; float reach = fmaxf(2.f * fp, (float)FS_ASSOC_REACH_MIN_M);
+            if (Dot(tv, tv) > reach * reach) continue;
+            hit = (int)ci; break;
         }
         if (hit < 0) {
             if (nc >= FS_CELL_NEW_MAX) continue;
-            Cand q; q.p = pm; q.n = nm; q.wN = wN; q.wT = wT; q.nSum = nm * wN; q.mxx = fp * fp; q.myy = fp * fp; q.mxy = 0; q.d2 = 0; q.fp = fp; q.cnt = 1; q.sigmaN = sN; q.sigmaT = sT;
-            if (m.reserved & FS_MEAS_COLOR_VALID) { q.col = ColorOf(m.reserved); q.colW = 1.f; }
+            Cand q; q.p0 = pm; q.n0 = nm; Frame(nm, q.t1, q.t2);
+            q.Add(pm, nm, sN, sT, fp, m.reserved, m.sourceFlags);
             cands[nc++] = q;
-        } else {
-            Cand& q = cands[hit];
-            V3 delta = pm - q.p; float d = Dot(q.n, delta);
-            float aN = wN / (q.wN + wN), aT = wT / (q.wT + wT);
-            V3 tv = delta - q.n * d;
-            q.p = q.p + q.n * (d * aN) + tv * aT;
-            q.wN += wN; q.wT += wT; q.nSum = q.nSum + nm * wN; q.cnt++;
-            q.d2 += d * d; q.fp = fmaxf(q.fp, fp);
-            V3 t1, t2; Frame(q.n, t1, t2);
-            float tvx = Dot(tv, t1), tvy = Dot(tv, t2);
-            q.mxx += tvx * tvx + fp * fp; q.myy += tvy * tvy + fp * fp; q.mxy += tvx * tvy;
-            q.sigmaN = fmaxf(sqrtf(1.f / q.wN), (float)FS_SIGMA_N_FLOOR_M); q.sigmaT = fmaxf(sqrtf(1.f / q.wT), (float)FS_SIGMA_T_FLOOR_M);
-            if (m.reserved & FS_MEAS_COLOR_VALID) { q.col = q.col + ColorOf(m.reserved); q.colW += 1.f; }
-        }
+        } else cands[hit].Add(pm, nm, sN, sT, fp, m.reserved, m.sourceFlags);
     }
     return nc;
 }

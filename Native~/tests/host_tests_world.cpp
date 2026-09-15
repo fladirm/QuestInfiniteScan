@@ -235,21 +235,28 @@ static void TestFusionDeterminism() {
     FsPageKey key{0, 0, 0, 0}; V3 origin = PageOrigin3(key);
     SurfelSample smp{{0.31f, 0.52f, 0.73f}, {0, 0, 1}, 0.01f, 0.002f, 0.004f, 7};
     FsSurfel s = MakeSurfel(smp, key); s.evidenceFlags = (uint16_t)(2 | kFlagTransient);   // transient candidate, 2 observations
-    FsSurfelEvidence ev{}; ev.staticEvidence = 2; ev.varianceQ = EncodeLog(1.f, (float)FS_VAR_NORM_BASE);
+    FsSurfelEvidence ev{}; ev.staticEvidence = 2; ev.varianceQ = EncodeLog(1.f, (float)FS_VAR_NORM_BASE); ev.lastObservationId = 99;
     std::mt19937 rng(11); std::normal_distribution<float> nz(0.f, 0.001f), nt(0.f, 0.004f);
-    std::vector<FsSurfaceMeasurement> seq;
-    for (int i = 0; i < 40; ++i) seq.push_back(Meas(v3(0.31f + nt(rng), 0.52f + nt(rng), 0.73f + 0.0015f + nz(rng)), Norm(v3(0.02f * nz(rng) * 100.f, 0.f, 1.f)), 0.002f, 0.004f, 0.006f, 100u + (uint32_t)i));
+    std::vector<FsSurfaceMeasurement> seq;                                                            // 40 pixels of ONE depth frame (observation 100)
+    for (int i = 0; i < 40; ++i) seq.push_back(Meas(v3(0.31f + nt(rng), 0.52f + nt(rng), 0.73f + 0.0015f + nz(rng)), Norm(v3(0.02f * nz(rng) * 100.f, 0.f, 1.f)), 0.002f, 0.004f, 0.006f, 100u));
     ReduceResult r1 = ReduceSegment(s, ev, seq, origin, 5);
     ReduceResult r2 = ReduceSegment(s, ev, seq, origin, 5);
     CHECK(r1.changed && r1.folded == 40 && !r1.overflow);
     CHECK(SameSurfel(r1.surfel, r2.surfel) && memcmp(&r1.evidence, &r2.evidence, sizeof ev) == 0);   // replay: bit-identical
     Patch q0 = Unpack(s), q1 = Unpack(r1.surfel);
-    CHECK(q1.sigmaN < q0.sigmaN && q1.sigmaT < q0.sigmaT);                                           // precision grows
-    CHECK((q1.flags & kEvidenceCountMask) == 42);
-    CHECK((q1.flags & kFlagPromoted) && !(q1.flags & kFlagTransient));                                // 2 + 40 >= FS_PROMOTE_STATIC
-    CHECK(r1.evidence.staticEvidence == 42 && r1.evidence.lastSeenFrame == 5);
-    CHECK(CellOfV(q1.p) == CellOfV(q0.p));                                                            // owner invariant: never leaves its cell
+    CHECK(q1.sigmaN < q0.sigmaN && q1.sigmaT < q0.sigmaT);                                           // precision grows ...
+    CHECK(q1.sigmaN > 0.7f * q0.sigmaN);                                                              // ... by ONE measurement, not by 40 correlated pixels (E4)
+    CHECK((q1.flags & kEvidenceCountMask) == 3);                                                      // one observation of support
+    CHECK((q1.flags & kFlagPromoted) && !(q1.flags & kFlagTransient));                                // 2 + 1 distinct observations >= FS_PROMOTE_STATIC
+    CHECK(r1.evidence.staticEvidence == 3 && r1.evidence.lastSeenFrame == 5 && r1.evidence.lastObservationId == 100u);
     CHECK(q1.p.z > q0.p.z && q1.p.z < q0.p.z + 0.0016f);                                              // moved toward the measured plane
+    // the same observation again (a later slice of the frame) is not new evidence
+    ReduceResult rDup = ReduceSegment(r1.surfel, r1.evidence, seq, origin, 6);
+    CHECK(rDup.duplicate && !rDup.changed && rDup.evidence.staticEvidence == 3);
+    // one frame of 40 pixels never promotes a fresh candidate: support 1 -> 2 only
+    FsSurfel fresh = s; fresh.evidenceFlags = (uint16_t)(1 | kFlagTransient); FsSurfelEvidence evF = ev; evF.staticEvidence = 1;
+    ReduceResult rF = ReduceSegment(fresh, evF, seq, origin, 5);
+    CHECK((Unpack(rF.surfel).flags & kFlagTransient) && rF.evidence.staticEvidence == 2);
     // permutation of the same set: identical associations (all match the same surfel) and equal within fp order
     std::vector<FsSurfaceMeasurement> perm = seq; std::shuffle(perm.begin(), perm.end(), rng);
     ReduceResult r3 = ReduceSegment(s, ev, perm, origin, 5);
@@ -258,13 +265,27 @@ static void TestFusionDeterminism() {
     CHECK_NEAR(q3.sigmaN, q1.sigmaN, 1e-5); CHECK(Dot(q3.n, q1.n) > 0.9999f);
     std::vector<FsSurfel> pool{s}; std::vector<uint32_t> hs{0};
     for (const FsSurfaceMeasurement& m : perm) CHECK(AssocBest(pool, hs, MeasPos(m) - origin, MeasNormal(m), MeasSigmaN(m), MeasFootprint(m)) == 0u);
+    // robust (Huber): 5 outlier pixels 4 cm off the plane pull the centre far less than an unweighted mean would (8 of 45 = 4.4 mm)
+    std::vector<FsSurfaceMeasurement> withOut = seq;
+    for (int i = 0; i < 5; ++i) withOut.push_back(Meas(v3(0.31f, 0.52f, 0.77f), v3(0, 0, 1), 0.002f, 0.004f, 0.006f, 100u));
+    ReduceResult rO = ReduceSegment(s, ev, withOut, origin, 5);
+    CHECK(Unpack(rO.surfel).p.z - q1.p.z < 0.0015f);
     // a removed surfel never fuses; a measurement 5 cm off the plane never associates
     FsSurfel dead = s; dead.evidenceFlags |= kFlagRemoved; CHECK(!ReduceSegment(dead, ev, seq, origin, 5).changed);
     FsSurfaceMeasurement far = Meas(v3(0.31f, 0.52f, 0.78f), v3(0, 0, 1), 0.002f, 0.004f, 0.006f, 1); std::vector<FsSurfaceMeasurement> one{far};
     CHECK(AssocBest(pool, hs, MeasPos(far) - origin, MeasNormal(far), MeasSigmaN(far), MeasFootprint(far)) == FS_INDEX_NONE);
+    // topological bound: a broad depth-prior sigma (19 cm at 3 m) never joins a sheet 10 cm away
+    FsSurfaceMeasurement broad = Meas(v3(0.31f, 0.52f, 0.83f), v3(0, 0, 1), 0.19f, 0.02f, 0.02f, 1);
+    CHECK(AssocBest(pool, hs, MeasPos(broad) - origin, MeasNormal(broad), MeasSigmaN(broad), MeasFootprint(broad)) == FS_INDEX_NONE);
+    CHECK_NEAR(PlaneGate(0.19f, 0.19f), FS_ASSOC_PLANE_MAX_M, 1e-6);
     // the anti-parallel sheet of a thin wall is a different surfel (normal dot < FS_ASSOC_MIN_DOT)
     FsSurfaceMeasurement back = Meas(v3(0.31f, 0.52f, 0.73f), v3(0, 0, -1), 0.002f, 0.004f, 0.006f, 1);
     CHECK(AssocBest(pool, hs, MeasPos(back) - origin, MeasNormal(back), MeasSigmaN(back), MeasFootprint(back)) == FS_INDEX_NONE);
+    // depth-prior-only observations keep the systematic sigma floor
+    std::vector<FsSurfaceMeasurement> prior = seq; for (auto& m : prior) m.sourceFlags = 4u;
+    FsSurfel acc = s; FsSurfelEvidence evA = ev;
+    for (uint32_t o = 0; o < 50; ++o) { for (auto& m : prior) m.observationId = 200u + o; ReduceResult rr = ReduceSegment(acc, evA, prior, origin, 10 + o); acc = rr.surfel; evA = rr.evidence; }
+    CHECK(Unpack(acc).sigmaN >= (float)FS_DEPTH_PRIOR_SIGMA_FLOOR_M * 0.999f); CHECK(evA.staticEvidence == 52);
     // stable sort twin: keys grouped, ties in measurement order, radix == std::stable_sort
     std::vector<FsAssociation> recs; std::uniform_int_distribution<uint32_t> kd(0, 5);
     for (uint32_t i = 0; i < 5000; ++i) { FsAssociation a{}; a.meas = i; uint32_t k = kd(rng); a.key = k == 5 ? UnmatchedKey(3, i & 32767u) : (k * 977u); recs.push_back(a); }
@@ -273,6 +294,28 @@ static void TestFusionDeterminism() {
     bool same = true; for (size_t i = 0; i < recs.size(); ++i) if (recs[i].key != ref[i].key || recs[i].meas != ref[i].meas) same = false;
     CHECK(same);
     for (size_t i = 1; i < recs.size(); ++i) { CHECK(recs[i - 1].key <= recs[i].key); if (recs[i - 1].key == recs[i].key) CHECK(recs[i - 1].meas < recs[i].meas); }
+}
+
+// C09R-E4: the index follows the geometry. A surfel observed repeatedly across a 12.5 cm cell boundary moves there
+// without any clamp; the reduce reports the relocation (the kernel emits a record) and the SurfaceID stays.
+static void TestRelocationAcrossCell() {
+    FsPageKey key{0, 0, 0, 0}; V3 origin = PageOrigin3(key);
+    float bmin[3], bmax[3]; uint32_t cell = CellOf(0.30f, 0.30f, 0.30f); CellBounds(cell, bmin, bmax);
+    const float edgeX = bmax[0];
+    FsSurfel s = MakeSurfel(SurfelSample{{edgeX - 0.004f + origin.x, 0.30f + origin.y, 0.30f + origin.z}, {0, 0, 1}, 0.01f, 0.002f, 0.004f, 77}, key);
+    FsSurfelEvidence ev{}; ev.varianceQ = EncodeLog(1.f, (float)FS_VAR_NORM_BASE);
+    bool relocated = false; uint32_t newCell = 0;
+    for (uint32_t o = 1; o <= 30 && !relocated; ++o) {
+        std::vector<FsSurfaceMeasurement> seg;
+        for (int i = 0; i < 10; ++i) seg.push_back(Meas(v3(edgeX + 0.012f + origin.x, 0.30f + origin.y, 0.30f + origin.z), v3(0, 0, 1), 0.002f, 0.004f, 0.006f, o));
+        ReduceResult r = ReduceSegment(s, ev, seg, origin, o);
+        CHECK(r.changed);
+        s = r.surfel; ev = r.evidence; relocated = r.relocated; newCell = r.newCell;
+    }
+    CHECK(relocated);
+    CHECK(newCell != cell && newCell == CellOf(DecodePos(s.px), DecodePos(s.py), DecodePos(s.pz)));
+    CHECK(DecodePos(s.px) > edgeX);                                                                   // the centre really crossed: no clamp
+    CHECK(s.surfaceId == 77u);
 }
 
 // C16a: measured colours fuse precision-weighted into the appearance; uncoloured measurements leave it untouched.
@@ -286,10 +329,10 @@ static void TestAppearanceFusion() {
     ReduceResult r = ReduceSegment(s, ev, seq, origin, 3);
     Patch q = Unpack(r.surfel);
     CHECK(q.appearance & FS_APPEARANCE_MEASURED); CHECK((q.appearance & 0xFFFFFFu) == 0x0040C0u);         // first colour: taken as is
-    ReduceResult r2 = ReduceSegment(r.surfel, r.evidence, std::vector<FsSurfaceMeasurement>{[&]{ FsSurfaceMeasurement m = seq[0]; m.reserved = FS_MEAS_COLOR_VALID | 0x000000u; return m; }()}, origin, 4);
+    ReduceResult r2 = ReduceSegment(r.surfel, r.evidence, std::vector<FsSurfaceMeasurement>{[&]{ FsSurfaceMeasurement m = seq[0]; m.reserved = FS_MEAS_COLOR_VALID | 0x000000u; m.observationId = 2; return m; }()}, origin, 4);
     Patch q2 = Unpack(r2.surfel);
-    CHECK((q2.appearance & 0xFFu) < 0xC0u && (q2.appearance & 0xFFu) > 0x80u);                          // one black sample against support 9: a small step toward black
-    ReduceResult r3 = ReduceSegment(r2.surfel, r2.evidence, std::vector<FsSurfaceMeasurement>{seq[4]}, origin, 5);
+    CHECK((q2.appearance & 0xFFu) > 0x70u && (q2.appearance & 0xFFu) < 0x90u);                          // one black observation against support 2 (observations, not pixels): 1/3 step
+    ReduceResult r3 = ReduceSegment(r2.surfel, r2.evidence, std::vector<FsSurfaceMeasurement>{[&]{ FsSurfaceMeasurement m = seq[4]; m.observationId = 3; return m; }()}, origin, 5);
     CHECK(Unpack(r3.surfel).appearance == q2.appearance);                                               // uncoloured contribution: appearance untouched
     Cand c[FS_CELL_NEW_MAX]; bool over = false;
     CHECK(ClusterSegment(seq, origin, c, over) == 1 && c[0].colW == 4.f); CHECK_NEAR(c[0].col.x / c[0].colW, 192.f / 255.f, 1e-6);
@@ -301,11 +344,14 @@ static void TestConcurrentCandidates() {
     std::vector<FsSurfaceMeasurement> seg;
     // one plane, 20 measurements -> ONE candidate (no duplicate surfels from concurrent measurements)
     for (int i = 0; i < 20; ++i) seg.push_back(Meas(v3(0.01f + 0.0005f * (float)i, 0.02f, 0.5f + 0.0002f * (float)(i % 3)), v3(0, 0, 1), 0.002f, 0.004f, 0.006f, 1));
-    CHECK(ClusterSegment(seg, origin, c, over) == 1 && !over && c[0].cnt == 20);
+    CHECK(ClusterSegment(seg, origin, c, over) == 1 && !over && c[0].c == 20.f);
+    CHECK_NEAR(c[0].SigmaN(), 0.002, 1e-6);                                                  // 20 correlated pixels: still one measurement's sigma (E4)
+    { float mxx, myy, mxy, vn; c[0].Moments(mxx, myy, mxy, vn);                              // Welford: spread of x = 0.5 mm steps over 20 = std 2.9 mm (+ footprint^2)
+      CHECK_NEAR(mxx - 0.006f * 0.006f, (0.0005 * 0.0005) * (20.0 * 20.0 - 1.0) / 12.0, 2e-7); CHECK(myy - 0.006f * 0.006f < 1e-8f); }
     // two sheets 3 cm apart (thin partition, same facing) -> TWO candidates, deterministic order (first sheet first)
     for (int i = 0; i < 20; ++i) seg.push_back(Meas(v3(0.01f + 0.0005f * (float)i, 0.02f, 0.53f), v3(0, 0, 1), 0.002f, 0.004f, 0.006f, 2));
     uint32_t n = ClusterSegment(seg, origin, c, over);
-    CHECK(n == 2 && c[0].cnt == 20 && c[1].cnt == 20 && c[1].p.z > c[0].p.z + 0.02f);
+    CHECK(n == 2 && c[0].c == 20.f && c[1].c == 20.f && c[1].Mean().z > c[0].Mean().z + 0.02f);
     // opposite facing at the same position -> separate candidate (the other side of the wall)
     seg.push_back(Meas(v3(0.012f, 0.02f, 0.5f), v3(0, 0, -1), 0.002f, 0.004f, 0.006f, 3));
     CHECK(ClusterSegment(seg, origin, c, over) == 3);
@@ -325,13 +371,13 @@ static void TestDenseBucket() {
     for (int i = 0; i < 400; ++i) seg.push_back(Meas(v3(0.001f * (float)(i % 20), 0.001f * (float)(i / 20), 0.5f), v3(0, 0, 1), 0.002f, 0.004f, 0.004f, 1));
     uint32_t n = ClusterSegment(seg, origin, c, over);
     CHECK(over && n >= 1 && n <= FS_CELL_NEW_MAX);
-    uint32_t folded = 0; for (uint32_t i = 0; i < n; ++i) folded += c[i].cnt;
+    uint32_t folded = 0; for (uint32_t i = 0; i < n; ++i) folded += (uint32_t)c[i].c;
     CHECK(folded == FS_SEG_CLUSTER_MAX);                                                   // bounded, counted, never unbounded
     FsPageKey key{0, 0, 0, 0}; FsSurfel s = MakeSurfel(SurfelSample{{0.01f, 0.01f, 0.5f}, {0, 0, 1}, 0.01f, 0.002f, 0.004f, 1}, key);
     FsSurfelEvidence ev{}; ev.varianceQ = EncodeLog(1.f, (float)FS_VAR_NORM_BASE);
     ReduceResult r = ReduceSegment(s, ev, seg, PageOrigin3(key), 1);
     CHECK(r.overflow && r.folded == FS_SEG_REDUCE_MAX);
-    CHECK((Unpack(r.surfel).flags & kEvidenceCountMask) == 1 + FS_SEG_REDUCE_MAX);
+    CHECK((Unpack(r.surfel).flags & kEvidenceCountMask) == 2);                             // 256 pixels of one frame = one observation
 }
 
 static void TestDeterministicMerge() {
@@ -478,7 +524,7 @@ static void TestIndexGeneration() {
 
 int main() {
     TestPageHash(); TestEncodings(); TestSynthetic(); TestResidency(); TestHzbBand(); TestHzbDisagreement(); TestCullMath();
-    TestFusionDeterminism(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCrossPageFreeRay(); TestIndexGeneration();
+    TestFusionDeterminism(); TestRelocationAcrossCell(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCrossPageFreeRay(); TestIndexGeneration();
     std::printf("finalscan host world tests: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

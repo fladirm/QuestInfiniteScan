@@ -1,11 +1,31 @@
-// Unmatched-measurement clustering shared by fuse_cluster_count / fuse_cluster_write (C09R-B F3): the
+// Unmatched-measurement clustering shared by fuse_cluster_count / fuse_cluster_write (C09R-B F3, C09R-E4): the
 // measurements of one owner cell segment (sorted, deterministic order) are greedily clustered into at most
-// FS_CELL_NEW_MAX candidates: a measurement joins the first candidate whose plane distance is inside the
-// sigma gate, normal dot >= FS_ASSOC_MIN_DOT and tangent distance <= 2 x footprint; otherwise it seeds a new
-// candidate. Both kernels run the identical function so counts and contents agree without a scratch record.
+// FS_CELL_NEW_MAX candidates. A candidate keeps plain sums of its members in the frame of its seed (offsets along the seed
+// tangents and normal, their squares and products), so its mean position, mean normal and tangent covariance are exact
+// about the CURRENT mean (Welford); a measurement joins the first candidate whose MEAN normal is within FS_ASSOC_MIN_DOT,
+// whose mean plane is within the bounded plane gate and whose mean centre is within the association reach; otherwise it
+// seeds a new candidate. All members come from ONE observation: the candidate carries a single-measurement sigma.
 #ifndef FS_CLUSTER_GLSL
 #define FS_CLUSTER_GLSL
-struct FsCand { vec3 p; vec3 n; float wN, wT; vec3 nSum; float mxx, myy, mxy; float d2; float fp; uint cnt; float sigmaN, sigmaT; vec3 col; float colW; };
+struct FsCand { vec3 p0; vec3 n0; vec3 t1; vec3 t2; float c; float sd, sdd, sx, sy, sxx, syy, sxy, sfp2; vec3 nSum; float wN, wT; float fp; vec3 col; float colW; uint srcAnd; };
+vec3 fsCandMean(FsCand q) { return q.p0 + q.n0 * (q.sd / q.c) + q.t1 * (q.sx / q.c) + q.t2 * (q.sy / q.c); }
+vec3 fsCandNormal(FsCand q) { float l = length(q.nSum); return l > 1e-12 ? q.nSum / l : q.n0; }
+float fsCandSigmaN(FsCand q) { return sqrt(q.c / max(q.wN, 1e-12)); }   // mean single-measurement sigma (members are correlated)
+float fsCandSigmaT(FsCand q) { return sqrt(q.c / max(q.wT, 1e-12)); }
+void fsCandAdd(inout FsCand q, vec3 pm, vec3 nm, float sN, float sT, float fp, uint colorWord, uint srcFlags) {
+    vec3 o = pm - q.p0;
+    float ox = dot(o, q.t1), oy = dot(o, q.t2), od = dot(o, q.n0);
+    q.c += 1.0; q.sd += od; q.sdd += od * od; q.sx += ox; q.sy += oy; q.sxx += ox * ox; q.syy += oy * oy; q.sxy += ox * oy; q.sfp2 += fp * fp;
+    q.nSum += nm / (sN * sN); q.wN += 1.0 / (sN * sN); q.wT += 1.0 / (sT * sT); q.fp = max(q.fp, fp); q.srcAnd &= srcFlags;
+    if ((colorWord & FS_MEAS_COLOR_VALID) != 0u) { q.col += fsColorOf(colorWord); q.colW += 1.0; }
+}
+// Covariance about the mean in the seed tangent frame (+ mean squared footprint), and the normalised normal-offset variance.
+void fsCandMoments(FsCand q, out float mxx, out float myy, out float mxy, out float varNorm) {
+    float mx = q.sx / q.c, my = q.sy / q.c, md = q.sd / q.c, f2 = q.sfp2 / q.c;
+    mxx = max(q.sxx / q.c - mx * mx, 0.0) + f2; myy = max(q.syy / q.c - my * my, 0.0) + f2; mxy = q.sxy / q.c - mx * my;
+    float sN = fsCandSigmaN(q);
+    varNorm = max(q.sdd / q.c - md * md, 0.0) / max(sN * sN, 1e-12);
+}
 uint fsClusterSegment(uint start, uint count, uint key, vec3 origin, out FsCand cands[FS_CELL_NEW_MAX], out uint overflowed) {
     uint nc = 0u; overflowed = 0u;
     for (uint k = 0u; k < uint(FS_SEG_CLUSTER_MAX) + 1u; ++k) {
@@ -17,37 +37,29 @@ uint fsClusterSegment(uint start, uint count, uint key, vec3 origin, out FsCand 
         vec3 nm = normalize(vec3(m.nx, m.ny, m.nz));
         float sN = max(m.sigmaN, FS_SIGMA_N_FLOOR_M), sT = max(m.sigmaT, FS_SIGMA_T_FLOOR_M);
         float fp = clamp(m.footprint, FS_RADIUS_MIN_M, FS_RADIUS_MAX_M);
-        float wN = 1.0 / (sN * sN), wT = 1.0 / (sT * sT);
         int hit = -1;
         for (uint c = 0u; c < uint(FS_CELL_NEW_MAX); ++c) {
             if (c >= nc) break;
             FsCand q = cands[c];
-            if (dot(q.n, nm) < FS_ASSOC_MIN_DOT) continue;
-            vec3 delta = pm - q.p; float d = dot(q.n, delta);
-            float gate = FS_ASSOC_SIGMA_GATE * sqrt(q.sigmaN * q.sigmaN + sN * sN);
-            if (abs(d) > gate) continue;
-            vec3 tv = delta - d * q.n;
-            if (dot(tv, tv) > 4.0 * fp * fp) continue;
+            vec3 nq = fsCandNormal(q);
+            if (dot(nq, nm) < FS_ASSOC_MIN_DOT) continue;
+            vec3 delta = pm - fsCandMean(q); float d = dot(nq, delta);
+            if (abs(d) > fsPlaneGate(fsCandSigmaN(q), sN)) continue;
+            vec3 tv = delta - d * nq;
+            float reach = max(2.0 * fp, FS_ASSOC_REACH_MIN_M);
+            if (dot(tv, tv) > reach * reach) continue;
             hit = int(c); break;
         }
         if (hit < 0) {
-            if (nc >= uint(FS_CELL_NEW_MAX)) continue;                     // dedupe bound: extra sheets wait for the next epoch
-            FsCand q; q.p = pm; q.n = nm; q.wN = wN; q.wT = wT; q.nSum = nm * wN; q.mxx = fp * fp; q.myy = fp * fp; q.mxy = 0.0; q.d2 = 0.0; q.fp = fp; q.cnt = 1u; q.sigmaN = sN; q.sigmaT = sT;
-            q.col = vec3(0.0); q.colW = 0.0; if ((m.reserved & FS_MEAS_COLOR_VALID) != 0u) { q.col = fsColorOf(m.reserved); q.colW = 1.0; }
+            if (nc >= uint(FS_CELL_NEW_MAX)) continue;                     // dedupe bound: extra sheets wait for the next observation
+            FsCand q; q.p0 = pm; q.n0 = nm; fsTangentFrame(nm, q.t1, q.t2);
+            q.c = 0.0; q.sd = 0.0; q.sdd = 0.0; q.sx = 0.0; q.sy = 0.0; q.sxx = 0.0; q.syy = 0.0; q.sxy = 0.0; q.sfp2 = 0.0;
+            q.nSum = vec3(0.0); q.wN = 0.0; q.wT = 0.0; q.fp = 0.0; q.col = vec3(0.0); q.colW = 0.0; q.srcAnd = 0xFFFFFFFFu;
+            fsCandAdd(q, pm, nm, sN, sT, fp, m.reserved, m.sourceFlags);
             cands[nc] = q; nc++;
         } else {
             FsCand q = cands[hit];
-            vec3 delta = pm - q.p; float d = dot(q.n, delta);
-            float aN = wN / (q.wN + wN), aT = wT / (q.wT + wT);
-            vec3 tv = delta - d * q.n;
-            q.p = q.p + q.n * (d * aN) + tv * aT;
-            q.wN += wN; q.wT += wT; q.nSum += nm * wN; q.cnt++;
-            q.d2 += d * d; q.fp = max(q.fp, fp);
-            vec3 t1, t2; fsTangentFrame(q.n, t1, t2);
-            vec2 tvv = vec2(dot(tv, t1), dot(tv, t2));
-            q.mxx += tvv.x * tvv.x + fp * fp; q.myy += tvv.y * tvv.y + fp * fp; q.mxy += tvv.x * tvv.y;
-            q.sigmaN = max(sqrt(1.0 / q.wN), FS_SIGMA_N_FLOOR_M); q.sigmaT = max(sqrt(1.0 / q.wT), FS_SIGMA_T_FLOOR_M);
-            if ((m.reserved & FS_MEAS_COLOR_VALID) != 0u) { q.col += fsColorOf(m.reserved); q.colW += 1.0; }
+            fsCandAdd(q, pm, nm, sN, sT, fp, m.reserved, m.sourceFlags);
             cands[hit] = q;
         }
     }

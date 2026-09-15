@@ -14,6 +14,7 @@
 #define FS_USE_INDEX_RO
 #define FS_USE_GCTR
 #define FS_USE_ASSOC_A
+#define FS_USE_FREESPACE_RO
 #include "fs_world_blocks.glsl"
 #include "fs_index.glsl"
 layout(local_size_x = FS_WG_SMALL) in;
@@ -59,6 +60,11 @@ void main() {
         ivec3 c = c0 + ivec3((k & 1u) != 0u ? dir.x : 0, (k & 2u) != 0u ? dir.y : 0, (k & 4u) != 0u ? dir.z : 0);
         if (any(lessThan(c, ivec3(0))) || any(greaterThan(c, ivec3(31)))) continue;
         uint nc = uint(c.x) | (uint(c.y) << 5) | (uint(c.z) << 10);
+        // free-space side (contract §8.4 multi-sheet: visibility ordering / free-space side): the previous observation saw
+        // through this cell, so a surfel indexed there is not the same visible sheet this measurement hits (ghost candidate)
+        { uint byteIndex = pages[slot].freeSpaceBase + nc; uint st = (freeSpace[byteIndex >> 2u] >> ((byteIndex & 3u) * 8u)) & 0xFFu;
+          uint prevStamp = 1u + ((FS_TK(FS_T_TICK) + 254u) % 255u);
+          if (st == prevStamp) continue; }
         uint leaf = fsIndexFindLeaf(slot, nc, local);
         for (uint ch = 0u; ch < uint(FS_INDEX_CHAIN_MAX); ++ch) {
             if (leaf == FS_INDEX_NONE) break;
@@ -76,7 +82,7 @@ void main() {
                 vec3 delta = local - sp;
                 float d = dot(sn, delta);
                 float sigmaNs = fsDecodeLogSigma(fsGet_FsSurfel_sigmaN(s));
-                float gate = FS_ASSOC_SIGMA_GATE * sqrt(sigmaNs * sigmaNs + sigmaNm * sigmaNm);
+                float gate = min(FS_ASSOC_SIGMA_GATE * sqrt(sigmaNs * sigmaNs + sigmaNm * sigmaNm), FS_ASSOC_PLANE_MAX_M);   // topological bound (E4)
                 if (abs(d) > gate) continue;
                 vec3 tv = delta - d * sn;
                 float rM = fsDecodeLogRadius(fsGet_FsSurfel_radiusMajor(s));

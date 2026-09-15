@@ -144,13 +144,14 @@ namespace FinalScan.World
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public struct FsSurfelEvidence  // 8 B
+    public struct FsSurfelEvidence  // 12 B
     {
         public ushort staticEvidence;
         public ushort motionEvidence;
         public ushort varianceQ;
         public ushort lastSeenFrame;
-        public const int SizeBytes = 8;
+        public uint lastObservationId;
+        public const int SizeBytes = 12;
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]

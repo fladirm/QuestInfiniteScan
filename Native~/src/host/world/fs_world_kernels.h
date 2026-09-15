@@ -25,6 +25,7 @@
 #include "world_erase_spirv.inc"
 #include "world_page_release_spirv.inc"
 #include "world_page_load_spirv.inc"
+#include "world_relocate_spirv.inc"
 
 namespace fs {
 namespace world {
@@ -47,14 +48,14 @@ struct PushPage      { uint32_t page; };
 enum WorldKernel : uint32_t {
     K_INGEST = 0, K_ASSOC, K_FREESPACE, K_SORT_HIST, K_SORT_SCAN, K_SORT_SCATTER, K_REDUCE, K_CLUSTER_COUNT, K_PREFIX, K_PREFIX_CARRY,
     K_CLUSTER_WRITE, K_DIRTY_PAGES, K_DIRTY_PREFIX, K_DIRTY_EMIT, K_MAINT_COUNT, K_MAINT_APPLY, K_PUBLISH_LEAVES, K_PUBLISH_LEVEL,
-    K_PUBLISH_ROOTS, K_ERASE, K_PAGE_RELEASE, K_PAGE_LOAD, K_COUNT
+    K_PUBLISH_ROOTS, K_ERASE, K_PAGE_RELEASE, K_PAGE_LOAD, K_RELOCATE, K_COUNT
 };
 struct KernelSpec { const char* name; const uint32_t* spirv; size_t words; uint32_t pushBytes; uint32_t bindings[12]; uint32_t bindingCount; };
 #define FS_KS(sym) sym, sizeof(sym) / 4
 static const KernelSpec kWorldKernels[K_COUNT] = {
     {"fuse_ingest",          FS_KS(kFuseIngestSpirv),         sizeof(PushIngest),    {B_MEAS, B_GCTR, B_MEAS_RING, B_MEAS_CTR}, 4},
-    {"fuse_associate",       FS_KS(kFuseAssociateSpirv),      sizeof(PushAssoc),     {B_MEAS, B_HASH, B_PAGES, B_SURFELS, B_INDEX, B_GCTR, B_ASSOC_A}, 7},
-    {"fuse_freespace",       FS_KS(kFuseFreespaceSpirv),      sizeof(PushFreeSpace), {B_MEAS, B_HASH, B_PAGES, B_GCTR, B_FREESPACE}, 5},
+    {"fuse_associate",       FS_KS(kFuseAssociateSpirv),      sizeof(PushAssoc),     {B_MEAS, B_HASH, B_PAGES, B_SURFELS, B_INDEX, B_GCTR, B_ASSOC_A, B_FREESPACE}, 8},
+    {"fuse_freespace",       FS_KS(kFuseFreespaceSpirv),      sizeof(PushFreeSpace), {B_MEAS, B_HASH, B_PAGES, B_GCTR, B_FREESPACE, B_INDEX, B_DIRTY}, 7},
     {"sort_histogram",       FS_KS(kSortHistogramSpirv),      sizeof(PushShift),     {B_GCTR, B_ASSOC_A, B_SORT}, 3},
     {"sort_scan",            FS_KS(kSortScanSpirv),           0,                     {B_GCTR, B_SORT}, 2},
     {"sort_scatter",         FS_KS(kSortScatterSpirv),        sizeof(PushShift),     {B_GCTR, B_ASSOC_A, B_ASSOC_B, B_SORT}, 4},
@@ -74,6 +75,7 @@ static const KernelSpec kWorldKernels[K_COUNT] = {
     {"world_erase",          FS_KS(kWorldEraseSpirv),         sizeof(PushErase),     {B_PAGES, B_SURFELS, B_INDEX, B_GCTR, B_DIRTY}, 5},
     {"world_page_release",   FS_KS(kWorldPageReleaseSpirv),   sizeof(PushPage),      {B_PAGES, B_INDEX, B_GCTR, B_RENDER, B_RDIR, B_RETIRE}, 6},
     {"world_page_load",      FS_KS(kWorldPageLoadSpirv),      sizeof(PushPage),      {B_PAGES, B_SURFELS, B_INDEX, B_GCTR, B_SORT, B_POOLS, B_DIRTY, B_RETIRE}, 8},
+    {"world_relocate",       FS_KS(kWorldRelocateSpirv),      0,                     {B_PAGES, B_SURFELS, B_INDEX, B_GCTR, B_POOLS, B_DIRTY, B_RETIRE}, 7},
 };
 #undef FS_KS
 

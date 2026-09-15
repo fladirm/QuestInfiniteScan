@@ -9,6 +9,8 @@
 #define FS_USE_PAGES_RO
 #define FS_USE_GCTR
 #define FS_USE_FREESPACE
+#define FS_USE_INDEX_RO
+#define FS_USE_DIRTY
 #include "fs_world_blocks.glsl"
 layout(local_size_x = FS_WG_SMALL) in;
 layout(push_constant) uniform Push { uint hashMask; int anchorId; uint flags; uint pad; vec4 eye0; vec4 eye1; } pc;
@@ -66,6 +68,7 @@ void main() {
             lastCell = cell;
             if (cell == hitCell && kx == hitPageX && ky == hitPageY && kz == hitPageZ) continue;   // the surface cell itself is never "seen through"
             fsStamp(slot, cell, stamp); stamped++;
+            if (idx[fsIdxDirWord(slot, cell)] != 0u) fsMarkDirtyCell(slot, cell);   // C09R-E4: an occupied cell seen through gets maintained (ghost rule)
         }
     }
     if (stamped != 0u) atomicAdd(gctr[FS_GCTR_FREE_STAMPS], stamped);

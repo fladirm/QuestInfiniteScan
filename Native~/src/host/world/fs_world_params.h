@@ -49,7 +49,11 @@
 #define FS_PRED_ROW0_TOP      1         // C09R-E2: the previous rendered depth (Unity RT, GPU projection) stores row 0 at the TOP: prediction and
                                         // HZB scatter flip v; receipt: FS-MEAS consistent vs consistentAlt (the other convention)
 #define FS_MOTION_BAND_M      0.05      // outside the sigma gate but within this band: motion evidence
-#define FS_PROMOTE_STATIC     3         // consistent observations before a transient candidate becomes canonical
+#define FS_PROMOTE_STATIC     3         // DISTINCT consistent observations (frames, not pixels) before a transient candidate becomes canonical
+#define FS_HUBER_K            1.345     // C09R-E4 robust update: contribution weight min(1, k * gate_sigma / |plane residual|)
+#define FS_ASSOC_PLANE_MAX_M  0.08      // C09R-E4 topological bound of the plane gate: a broad depth-prior sigma never joins sheets farther apart (provisional)
+#define FS_DEPTH_PRIOR_SIGMA_FLOOR_M 0.005  // C09R-E4 systematic floor of a depth-prior-only surfel (random noise averages, bias does not; C01 characterises it)
+#define FS_RELOC_MAX          1024      // C09R-E4 relocation records per epoch (centre crossed its index cell); beyond: the position update waits (counted)
 #define FS_GHOST_MOTION_MIN   3         // free-space contradictions before a candidate / weak surfel is removed
 #define FS_GHOST_STATIC_K     2         // + staticEvidence / K contradictions for supported surfels
 #define FS_SPLIT_VAR_K        4.0       // split when the residual std exceeds K x the MEASUREMENT sigma (normalised variance) and support >= FS_SPLIT_MIN_SUPPORT
@@ -135,7 +139,9 @@
 #define FS_GCTR_FREE_STAMPS        26
 #define FS_GCTR_SEGMENTS_UNMATCHED 27     // owner-cell segments (unmatched)
 #define FS_GCTR_FREE_HOP_OVERFLOW  28     // rays that hit the page-hop bound
+#define FS_GCTR_RELOCATIONS        29     // index relocations applied (surfel centre moved to another cell, SurfaceID kept)
 #define FS_GCTR_NEXT_SURFACE_ID    30     // deterministic id base for the epoch (CPU advances it by the epoch's total)
+#define FS_GCTR_RELOC_DEFERRED     31     // relocations refused by FS_RELOC_MAX (position update deferred to a later observation)
 #define FS_GCTR_COUNT              32
 
 // ---- fusion scratch layout (u32 words in the `tick` buffer; per epoch) -------------------------------------
@@ -148,6 +154,7 @@
 #define FS_T_RETIRE_COUNT    6
 #define FS_T_PENDING_COUNT   7
 #define FS_T_COW_COUNT       8          // dirty nodes at the current level (per-level indirect args reuse)
+#define FS_T_RELOC_COUNT     9          // relocation records (written by fuse_reduce / fuse_maint_apply, consumed and zeroed by world_relocate)
 #define FS_T_ARGS_MEAS       16         // {ceil(count/64), 1, 1, 0}
 #define FS_T_ARGS_SORTBLK    20         // {blocks, 1, 1, 0}
 #define FS_T_ARGS_DIRTY      24         // {ceil(dirty/64), 1, 1, 0}
