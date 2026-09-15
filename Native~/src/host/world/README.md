@@ -53,6 +53,14 @@ C09R-E4.1C adaptive coarsen / refine (no major-axis split any more):
   `Ecollapse = plane error/σ + W_CURV·RMS/σ + W_N·(1−n·n_fit) + W_B·(K−degree) + W_C·|Δcolour|` below
   `FS_CONTRACT_BUDGET`; the survivor keeps its SurfaceID and absorbs (`fsAbsorbPatch`), the loser is removed and its
   neighbours relink. The lowest-priority rule rules out chains. Receipts `edgeContractions`, `refinementBirths`.
+C09R-E4.2R derived micro-surface readout: `sheet_fit` computes each graph node's Voronoi cell restricted to its sheet
+(8 directions in the canonical tangent frame; boundary = nearest perpendicular bisector of a mutual same-sheet
+neighbour; a direction no neighbour supports within 60° is capped by the statistical support ellipse). `sheet_apply`
+stores it (node words 8/9) and republishes the owner cell when it changed; `publish_leaves` writes it into the render
+copy only (`FS_RENDER_CELL_MARK`); the cull encodes `FS_DRAW_FLAG_CELL` records whose 8-gon fan vertices lie on the
+cell boundary (`Shaders/FinalScanSurfel.shader`). Sites with fewer than `FS_SHEET_CELL_MIN_DEGREE` edges stay
+ellipses. Appearance state: bits 24..27 of `appearanceHandle` count coloured observations — NONE / PROVISIONAL /
+CONFIRMED (≥ `FS_APPEARANCE_CONFIRM_OBS`); SCAN draws CONFIRMED photometry only, GEOMETRY is neutral grey.
 Determinism: the result of an epoch is a pure function of the measurement sequence (ring order) and the
 generation it read; replay is bit-identical (`TestFusionDeterminism`). CPU twins: `fs_fusion_ref.h`.
 Budget: `QuantumGate` halves `epochMeasCap`/`epochDirtyCap` when the SCAN class overran its quantum and

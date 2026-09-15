@@ -126,10 +126,13 @@ struct Accum { float wN = 0, dN = 0; V3 nSum; float wT = 0; float tx = 0, ty = 0
                uint32_t oCnt[2] = {0, 0}; V3 oP[2], oN[2]; float oFp[2] = {0, 0}, oS[2] = {0, 0}, worstD = 0; uint32_t worstSide = 0; };   // E4.1C unexplained surface per residual sign
 inline V3 ColorOf(uint32_t w) { return v3((float)(w & 0xFFu), (float)((w >> 8) & 0xFFu), (float)((w >> 16) & 0xFFu)) * (1.f / 255.f); }
 inline uint32_t ColorPack(V3 c) { auto q = [](float x) { x = x < 0.f ? 0.f : (x > 1.f ? 1.f : x); return (uint32_t)(x * 255.f + 0.5f); }; return q(c.x) | (q(c.y) << 8) | (q(c.z) << 16); }
+inline uint32_t AppearanceObs(uint32_t w) { return (w & FS_APPEARANCE_MEASURED) ? (w & FS_APPEARANCE_OBS_MASK) >> FS_APPEARANCE_OBS_SHIFT : 0u; }
+inline bool AppearanceConfirmed(uint32_t w) { return AppearanceObs(w) >= FS_APPEARANCE_CONFIRM_OBS; }
+inline uint32_t AppearanceWord(V3 c, uint32_t obs) { return FS_APPEARANCE_MEASURED | (std::min<uint32_t>(obs, 15u) << FS_APPEARANCE_OBS_SHIFT) | ColorPack(c); }
 inline uint32_t BlendAppearance(uint32_t old, V3 meanCol, float wPrior, float wMeas) {
-    if ((old & FS_APPEARANCE_MEASURED) == 0u) return FS_APPEARANCE_MEASURED | ColorPack(meanCol);
+    if ((old & FS_APPEARANCE_MEASURED) == 0u) return AppearanceWord(meanCol, 1u);
     V3 o = ColorOf(old); float t = wMeas / (wPrior + wMeas);
-    return FS_APPEARANCE_MEASURED | ColorPack(o + (meanCol - o) * t);
+    return AppearanceWord(o + (meanCol - o) * t, AppearanceObs(old) + 1u);
 }
 inline float Huber(float d, float sigmaComb) { float ad = fabsf(d), c = (float)FS_HUBER_K * sigmaComb; return ad <= c ? 1.f : c / fmaxf(ad, 1e-12f); }
 inline float SigmaFloor(uint32_t srcAnd) { return (srcAnd & 4u) ? fmaxf((float)FS_SIGMA_N_FLOOR_M, (float)FS_DEPTH_PRIOR_SIGMA_FLOOR_M) : (float)FS_SIGMA_N_FLOOR_M; }
@@ -449,10 +452,13 @@ inline std::vector<uint32_t> SheetProposals(const SheetSite& a, const std::vecto
     std::vector<uint32_t> out; for (auto& x : best) out.push_back(x.second);
     return out;
 }
-struct SheetDelta { float offset = 0.f; V3 normal; bool flat = false; uint32_t degree = 0; float coverR = 0.f; float planeRms = 0.f; float overlap = 0.f, hole = 0.f; std::vector<uint32_t> frontier;
+struct SheetCell { uint32_t word = 0; float rMax = 0.f; float Radius(uint32_t k) const { return rMax * (float)(((word >> (4u * (k & 7u))) & 15u) + 1u) / 16.f; } };
+struct SheetDelta { float offset = 0.f; V3 normal; bool flat = false; uint32_t degree = 0; SheetCell cell; float rho[8] = {}; float planeRms = 0.f; float overlap = 0.f, hole = 0.f; std::vector<uint32_t> frontier;
                     uint32_t contractTarget = UINT32_MAX; float contractE = 0.f; };   // E4.1C: survivor id when this node contracts
 // Fit pass over the MUTUAL ring (both ends propose each other); proposals of non-mutual neighbours become frontier marks.
-inline SheetDelta SheetFitR(const SheetSite& a, const std::vector<uint32_t>& aProps, const std::vector<SheetSite>& sites, const std::vector<std::vector<uint32_t>>& props, const std::vector<float>& coverOf) {
+inline float Angle8(float x, float y) { float t = atan2f(y, x) / (0.25f * 3.14159265f); return t < 0.f ? t + 8.f : t; }
+// Fit pass (twin: sheet_fit.comp); `cellOf` = the stored cells of every site (zero = none yet).
+inline SheetDelta SheetFitR(const SheetSite& a, const std::vector<uint32_t>& aProps, const std::vector<SheetSite>& sites, const std::vector<std::vector<uint32_t>>& props, const std::vector<SheetCell>& cellOf) {
     SheetDelta r;
     std::vector<size_t> mut;
     for (uint32_t id : aProps) {
@@ -462,13 +468,29 @@ inline SheetDelta SheetFitR(const SheetSite& a, const std::vector<uint32_t>& aPr
     r.degree = (uint32_t)mut.size();
     if (mut.empty()) return r;
     std::vector<float> dists; for (size_t id : mut) dists.push_back(Len(sites[id].world - a.world));
-    std::vector<float> sd = dists; std::sort(sd.begin(), sd.end());
-    r.coverR = fminf(fmaxf(0.5f * sd[sd.size() / 2], a.q.rM), (float)FS_SHEET_COVER_MAX_M);
+    // E4.2R restricted Voronoi cell (twin of sheet_fit.comp)
+    V3 ct1, ct2; Frame(a.q.n, ct1, ct2);
+    V3 f1, f2; Frame(a.q.n, f1, f2); V3 eM = f1 * cosf(a.q.angle) + f2 * sinf(a.q.angle), em = Cross(a.q.n, eM);
+    float rMaxCell = 0.f;
+    auto tangentOffset = [&](size_t id) { V3 d = sites[id].world - a.world; return d - a.q.n * Dot(d, a.q.n); };
+    for (uint32_t k = 0; k < 8; ++k) {
+        float ang = (float)k * 0.25f * 3.14159265f; V3 u = ct1 * cosf(ang) + ct2 * sinf(ang);
+        float rr = (float)FS_SHEET_COVER_MAX_M; bool supported = false;
+        for (size_t id : mut) { V3 d = tangentOffset(id); float L2 = Dot(d, d), c = Dot(u, d); if (c <= 1e-6f) continue; rr = fminf(rr, 0.5f * L2 / c); if (c >= 0.5f * sqrtf(L2)) supported = true; }
+        if (!supported) { float x = Dot(u, eM) / fmaxf(a.q.rM, 1e-5f), y = Dot(u, em) / fmaxf(a.q.rm, 1e-5f); rr = fminf(rr, 1.f / sqrtf(fmaxf(x * x + y * y, 1e-12f))); }
+        r.rho[k] = fmaxf(rr, (float)FS_RADIUS_MIN_M); rMaxCell = fmaxf(rMaxCell, r.rho[k]);
+    }
+    uint32_t word = 0; for (uint32_t k = 0; k < 8; ++k) { int q = (int)ceilf(r.rho[k] / rMaxCell * 16.f) - 1; word |= (uint32_t)(q < 0 ? 0 : (q > 15 ? 15 : q)) << (4u * k); }
     for (size_t k = 0; k < mut.size(); ++k) {
-        float rb = coverOf[mut[k]] > 0.f ? coverOf[mut[k]] : sites[mut[k]].q.rM;
-        float gap = dists[k] - r.coverR - rb, w = 2.f * fminf(r.coverR, rb);
+        V3 d = tangentOffset(mut[k]); float L = Len(d); if (L < 1e-6f) continue;
+        SheetCell mine{word, rMaxCell};
+        float ra = mine.Radius((uint32_t)floorf(Angle8(Dot(d, ct1), Dot(d, ct2)) + 0.5f));
+        const SheetSite& b = sites[mut[k]]; float rb = b.q.rM;
+        if (cellOf[mut[k]].rMax > 0.f) { V3 bt1, bt2; Frame(b.q.n, bt1, bt2); rb = cellOf[mut[k]].Radius((uint32_t)floorf(Angle8(-Dot(d, bt1), -Dot(d, bt2)) + 0.5f)); }
+        float gap = L - ra - rb, w = 2.f * fminf(ra, rb);
         if (gap < 0.f) r.overlap += -gap * w; else r.hole += gap * w;
     }
+    if (r.degree >= FS_SHEET_CELL_MIN_DEGREE) r.cell = SheetCell{word, rMaxCell};
     const float L2 = (float)(FS_SHEET_LINK_R_M * FS_SHEET_LINK_R_M);
     float wA = 1.f / (a.q.sigmaN * a.q.sigmaN);
     V3 cSum = a.world * wA, nSum = a.q.n * wA; float wSum = wA, s2Sum = wA * a.q.sigmaN * a.q.sigmaN;
@@ -511,7 +533,7 @@ inline Patch AbsorbPatch(const Patch& ps, const Patch& pd) {
     r.sigmaN = fmaxf(sqrtf(1.f / (ws + wd)), (float)FS_SIGMA_N_FLOOR_M);
     r.flags = (ps.flags & ~(uint32_t)kEvidenceCountMask) | std::min<uint32_t>((ps.flags & kEvidenceCountMask) + (pd.flags & kEvidenceCountMask), FS_EVIDENCE_COUNT_MAX);
     bool ms = ps.appearance & FS_APPEARANCE_MEASURED, md = pd.appearance & FS_APPEARANCE_MEASURED;
-    if (ms && md) r.appearance = FS_APPEARANCE_MEASURED | ColorPack((ColorOf(ps.appearance) * cs + ColorOf(pd.appearance) * cd) * (1.f / (cs + cd)));
+    if (ms && md) r.appearance = AppearanceWord((ColorOf(ps.appearance) * cs + ColorOf(pd.appearance) * cd) * (1.f / (cs + cd)), AppearanceObs(ps.appearance) + AppearanceObs(pd.appearance));
     else if (md) r.appearance = pd.appearance;
     return r;
 }

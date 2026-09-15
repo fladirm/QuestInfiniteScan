@@ -2,8 +2,7 @@
 // E4.1R 2/3 immutable surface analysis (one dispatch over the batch): reads canonical surfels and every node's proposals, writes only
 // its own SheetDelta slot. Mutual edges (both ends propose each other) form the SurfaceGraph; a proposed neighbour that does not
 // propose back is marked graph-dirty (frontier), so the graph converges without scanning unchanged regions. Over the mutual ring:
-// local plane fit (flat -> normal offset + normal target; curved -> none), derived coverage radius = half the median mutual edge
-// length (readout only), component label = min packed id, receipts (plane / normal RMS, coverage overlap / hole along edges).
+// local plane fit (flat -> normal offset + normal target; curved -> none), derived micro-surface cell (E4.2R, readout only), component label = min packed id, receipts (plane / normal RMS, coverage overlap / hole along edges).
 // C09R-E4.1C coarsening decision (delta word 4): a converged interior node of a flat ring that has the LOWEST survival priority
 // of its whole mutual ring contracts into the mutual neighbour of minimum Ecollapse below FS_CONTRACT_BUDGET (fs_world_params.h).
 // The lowest-priority rule makes every chosen target a non-loser of the same batch: no chains, order-independent decisions.
@@ -16,6 +15,8 @@
 #include "fs_world_blocks.glsl"
 #include "fs_fusion.glsl"
 #include "fs_sheet.glsl"
+// angle of a tangent vector in units of 45 deg, [0, 8)
+float fsAngle8(float x, float y) { float t = atan(y, x) / (0.25 * FS_PI); return t < 0.0 ? t + 8.0 : t; }
 layout(local_size_x = FS_WG_SMALL) in;
 void main() {
     uint i = gl_GlobalInvocationID.x;
@@ -48,22 +49,54 @@ void main() {
     if (nm == 0u) { sheet[dw + 2u] = 0u; sheet[dw + 3u] = e; return; }
     atomicAdd(gctr[FS_GCTR_SHEET_EDGES], nm);
     if (cross != 0u) atomicAdd(gctr[FS_GCTR_CROSS_PAGE_EDGES], cross);
-    // ---- derived coverage radius: half the median mutual edge length (insertion sort of <= 6)
-    float sd[FS_SHEET_K]; for (uint k = 0u; k < uint(FS_SHEET_K); ++k) sd[k] = k < nm ? md[k] : 1e30;
-    for (uint x = 1u; x < nm; ++x) { float v = sd[x]; uint y = x; while (y > 0u && sd[y - 1u] > v) { sd[y] = sd[y - 1u]; y--; } sd[y] = v; }
-    float coverR = clamp(0.5 * sd[nm / 2u], a.rM, FS_SHEET_COVER_MAX_M);
-    // ---- coverage receipts along mutual edges (neighbour coverage from its node meta; its statistical radius when not yet derived)
+    // ---- E4.2R derived micro-surface cell: the site's Voronoi cell restricted to its sheet (dual of the local triangulation over the
+    //      mutual same-sheet edges). Direction k (k x 45 deg in the canonical tangent frame of the normal): boundary = the nearest
+    //      perpendicular bisector of a mutual neighbour; a direction no neighbour supports (none within 60 deg) is capped by the
+    //      site's statistical support ellipse (surfel fallback where the evidence does not reach). No edge -> no cell across
+    //      corners, openings, leaf gaps or thin wall sides (the edge gate and the free-space separator already refused them).
+    vec3 ct1, ct2; fsTangentFrame(a.n, ct1, ct2);
+    vec3 eM, em; fsPatchFrame(a, eM, em);
+    float rho[8]; float rMaxCell = 0.0; uint cellWord = 0u;
+    for (uint k = 0u; k < 8u; ++k) {
+        float ang = float(k) * 0.25 * FS_PI;
+        vec3 u = cos(ang) * ct1 + sin(ang) * ct2;
+        float r = FS_SHEET_COVER_MAX_M; bool supported = false;
+        for (uint j = 0u; j < uint(FS_SHEET_K); ++j) {
+            if (j >= nm) break;
+            vec3 d = mp[j] - pa; d -= dot(d, a.n) * a.n;
+            float L2 = dot(d, d), c = dot(u, d);
+            if (c <= 1e-6) continue;
+            r = min(r, 0.5 * L2 / c);
+            if (c >= 0.5 * sqrt(L2)) supported = true;
+        }
+        if (!supported) { float x = dot(u, eM) / max(a.rM, 1e-5), y = dot(u, em) / max(a.rm, 1e-5); r = min(r, 1.0 / sqrt(max(x * x + y * y, 1e-12))); }
+        rho[k] = max(r, FS_RADIUS_MIN_M); rMaxCell = max(rMaxCell, rho[k]);
+    }
+    for (uint k = 0u; k < 8u; ++k) cellWord |= uint(clamp(int(ceil(rho[k] / rMaxCell * 16.0)) - 1, 0, 15)) << (4u * k);
+    // ---- coverage receipts along mutual edges: extent of this cell toward b + b's stored cell toward this site vs their distance
     float overlap = 0.0, hole = 0.0;
     for (uint k = 0u; k < uint(FS_SHEET_K); ++k) {
         if (k >= nm) break;
         uint nbH = mut[k] & 0x3FFFFFu;
-        uint meta = sheet[fsSheetNodeWord(nbH, 6u)];
-        float rb = (meta & 0xFFFFu) != 0u ? float(meta & 0xFFFFu) * 1e-5 : fsDecodeLogRadius(fsGet_FsSurfel_radiusMajor(surfels[nbH]));
-        float gap = md[k] - coverR - rb, w = 2.0 * min(coverR, rb);
+        FsPatch b = fsUnpack(surfels[nbH]);
+        vec3 d = mp[k] - pa; d -= dot(d, a.n) * a.n; float L = length(d);
+        if (L < 1e-6) continue;
+        uint ka = uint(floor(fsAngle8(dot(d, ct1), dot(d, ct2)) + 0.5)) & 7u;
+        float ra = rMaxCell * float(((cellWord >> (4u * ka)) & 15u) + 1u) / 16.0;
+        float rbMax = uintBitsToFloat(sheet[fsSheetNodeWord(nbH, 9u)]), rb = b.rM;
+        if (rbMax > 0.0) {
+            vec3 bt1, bt2; fsTangentFrame(b.n, bt1, bt2);
+            uint kb = uint(floor(fsAngle8(-dot(d, bt1), -dot(d, bt2)) + 0.5)) & 7u;
+            rb = rbMax * float(((sheet[fsSheetNodeWord(nbH, 8u)] >> (4u * kb)) & 15u) + 1u) / 16.0;
+        }
+        float gap = L - ra - rb, w = 2.0 * min(ra, rb);
         if (gap < 0.0) overlap += -gap * w; else hole += gap * w;
     }
     atomicAdd(gctr[FS_GCTR_COVER_OVERLAP_MM2], uint(overlap * 1e6));
     atomicAdd(gctr[FS_GCTR_COVER_HOLE_MM2], uint(hole * 1e6));
+    bool hasCell = nm >= uint(FS_SHEET_CELL_MIN_DEGREE);
+    sheet[dw + 5u] = hasCell ? cellWord : 0u;
+    sheet[dw + 6u] = hasCell ? floatBitsToUint(rMaxCell) : 0u;
     // ---- local plane fit over {a} + mutual ring
     float wA = 1.0 / (a.sigmaN * a.sigmaN);
     vec3 cSum = pa * wA, nSum = a.n * wA; float wSum = wA, s2Sum = wA * a.sigmaN * a.sigmaN;
@@ -88,7 +121,7 @@ void main() {
     float offset = isFlat ? dot(nFit, cFit - pa) : 0.0;
     sheet[dw] = floatBitsToUint(offset);
     sheet[dw + 1u] = isFlat ? fsEncodeOct32(nFit) : 0u;
-    sheet[dw + 2u] = (isFlat ? 1u : 0u) | (min(nm, 15u) << 4) | (min(uint(coverR * 1e5 + 0.5), 0xFFFFu) << 16);
+    sheet[dw + 2u] = (isFlat ? 1u : 0u) | (min(nm, 15u) << 4);
     sheet[dw + 3u] = component;
     // ---- E4.1C edge contraction decision
     FsSurfelEvidence ea = evidence[h];

@@ -355,17 +355,32 @@ static void TestSurfaceComplex() {
     std::vector<SheetSite> shuffled = sites; std::reverse(shuffled.begin(), shuffled.end());
     CHECK(SheetProposals(sites[centre], shuffled) == props[centre]);
     for (size_t k = 0; k < 4; ++k) CHECK_NEAR(Len(sites[props[centre][k]].world - sites[centre].world), 0.025, 0.004);
-    std::vector<float> cover(sites.size(), 0.f);
+    std::vector<SheetCell> cover(sites.size());
     SheetDelta d = SheetFitR(sites[centre], props[centre], sites, props, cover);
     CHECK(d.degree >= 4 && d.flat);
-    CHECK(d.coverR >= 0.012f && d.coverR <= 0.018f);                                                 // half the median mutual edge (~2.5-3.5 cm)
+    // E4.2R restricted Voronoi cell of a 2.5 cm grid site: bisector 1.25 cm toward the axis neighbours; the diagonal directions reach
+    // the square corner (1.77 cm) or the nearest bisector; quantisation rounds outward (never a hole)
+    CHECK(d.cell.rMax > 0.f);
+    for (uint32_t k = 0; k < 8; ++k) { CHECK(d.cell.Radius(k) >= d.rho[k] - 1e-6f && d.cell.Radius(k) <= d.rho[k] + d.cell.rMax / 16.f + 1e-6f); }
+    { V3 t1, t2; Frame(sites[centre].q.n, t1, t2); (void)t1; (void)t2; }
+    // a flat regular grid tiles: once every site stores its cell, the edge receipts show neither holes nor more than quantisation overlap
+    { std::vector<Patch> flat; for (int y = -3; y <= 3; ++y) for (int x = -3; x <= 3; ++x) flat.push_back(SheetPatch(v3(0.025f * x, 0.025f * y, 0.f), v3(0, 0, 1), 0.004f, 0.004f));
+      std::vector<SheetSite> fs = Sites(flat); std::vector<std::vector<uint32_t>> fp; for (auto& s : fs) fp.push_back(SheetProposals(s, fs));
+      std::vector<SheetCell> cells(fs.size()); for (auto& s : fs) cells[s.id] = SheetFitR(s, fp[s.id], fs, fp, cells).cell;
+      SheetDelta dc = SheetFitR(fs[centre], fp[centre], fs, fp, cells);
+      std::printf("cell: rMax %.4f rho0 %.4f rho1 %.4f overlap %.2f mm2 hole %.2f mm2\n", dc.cell.rMax, dc.rho[0], dc.rho[1], dc.overlap * 1e6f, dc.hole * 1e6f);
+      CHECK_NEAR(dc.rho[0], 0.0125, 1e-4); CHECK(dc.hole < 1e-9f);
+      CHECK(dc.overlap <= (float)dc.degree * 2.f * (dc.cell.rMax / 16.f) * 2.f * dc.cell.rMax); }   // overlap = outward quantisation only
+    // boundary site (corner of the grid): unsupported directions are capped by the statistical ellipse (4 mm), not extended
+    { SheetDelta corner = SheetFitR(sites[0], props[0], sites, props, cover); CHECK(corner.cell.rMax > 0.f); for (uint32_t k : {0u, 1u, 2u}) CHECK(corner.rho[k] <= 0.004f + 1e-4f);    // frame of +z: t1 = -x, t2 = -y -> directions 0..2 face outward
+      CHECK_NEAR(corner.rho[4], 0.0125, 1e-4); }
     Patch moved = SheetApplyR(ps[centre], d);
     CHECK(moved.rM == ps[centre].rM && moved.rm == ps[centre].rm);                                    // canonical statistical support untouched
     CHECK(Dot(moved.n, v3(0, 0, 1)) >= Dot(ps[centre].n, v3(0, 0, 1)) - 1e-6f);
     // mutual only: a site that proposes the centre but the centre (with 6 closer neighbours) does not propose back -> frontier, no edge
     std::vector<Patch> ps2 = ps; ps2.push_back(SheetPatch(v3(0.05f, 0.0f, 0.0f), v3(0, 0, 1), 0.004f, 0.004f));   // duplicate of (2,0) spot
     std::vector<SheetSite> s2 = Sites(ps2); std::vector<std::vector<uint32_t>> p2; for (auto& s : s2) p2.push_back(SheetProposals(s, s2));
-    SheetDelta dFar = SheetFitR(s2.back(), p2.back(), s2, p2, std::vector<float>(s2.size(), 0.f));
+    SheetDelta dFar = SheetFitR(s2.back(), p2.back(), s2, p2, std::vector<SheetCell>(s2.size()));
     CHECK(dFar.degree + dFar.frontier.size() == p2.back().size());
     // 90 deg corner never connects
     std::vector<Patch> corner{SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.004f, 0.004f), SheetPatch(v3(0.01f, 0, 0.01f), v3(1, 0, 0), 0.004f, 0.004f), SheetPatch(v3(0.01f, 0.02f, 0.01f), v3(1, 0, 0), 0.004f, 0.004f)};
@@ -380,7 +395,7 @@ static void TestSurfaceComplex() {
     std::vector<Patch> sph{SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.004f, 0.0005f)};
     for (int k = 0; k < 8; ++k) { float ang = 6.2831853f * (float)k / 8.f; V3 p = v3(0.02f * cosf(ang), 0.02f * sinf(ang), 0.f); p.z = 0.05f - sqrtf(0.05f * 0.05f - Dot(p, p)); sph.push_back(SheetPatch(p, v3(-p.x, -p.y, 0.05f - p.z), 0.004f, 0.0005f)); }
     std::vector<SheetSite> ss = Sites(sph); std::vector<std::vector<uint32_t>> psph; for (auto& s : ss) psph.push_back(SheetProposals(s, ss));
-    SheetDelta dsp = SheetFitR(ss[0], psph[0], ss, psph, std::vector<float>(ss.size(), 0.f));
+    SheetDelta dsp = SheetFitR(ss[0], psph[0], ss, psph, std::vector<SheetCell>(ss.size()));
     CHECK(dsp.degree >= 3 && !dsp.flat && SheetApplyR(sph[0], dsp).p.z == sph[0].p.z);
     // cross page: world positions of sites in different pages connect exactly like same-page sites
     SheetSite pa; pa.q = SheetPatch(v3(1.99f, 0, 0), v3(0, 0, 1), 0.004f, 0.004f); pa.world = v3(3.99f, 0, 0); pa.id = 0;
@@ -450,6 +465,17 @@ static void TestDeterministicMerge() {
     CHECK_NEAR(ColorOf(m.appearance).x, 0.5, 0.01);
 }
 
+static void TestAppearanceState() {
+    // E4.2R NONE -> PROVISIONAL -> CONFIRMED by distinct coloured observations; SCAN shows CONFIRMED only
+    uint32_t w = 0x00336699u;                                                                    // preview (not measured)
+    CHECK(AppearanceObs(w) == 0 && !AppearanceConfirmed(w));
+    w = BlendAppearance(w, v3(0.5f, 0.5f, 0.5f), 1.f, 1.f); CHECK(AppearanceObs(w) == 1 && !AppearanceConfirmed(w));
+    w = BlendAppearance(w, v3(0.5f, 0.5f, 0.5f), 1.f, 1.f); CHECK(AppearanceObs(w) == 2 && !AppearanceConfirmed(w));
+    w = BlendAppearance(w, v3(0.5f, 0.5f, 0.5f), 2.f, 1.f); CHECK(AppearanceObs(w) == FS_APPEARANCE_CONFIRM_OBS && AppearanceConfirmed(w));
+    for (int i = 0; i < 40; ++i) w = BlendAppearance(w, v3(0.5f, 0.5f, 0.5f), 3.f, 1.f);
+    CHECK(AppearanceObs(w) == 15 && (w & 0xFFFFFFu) == ColorPack(v3(0.5f, 0.5f, 0.5f)));          // saturates, colour intact
+}
+
 static void TestCoarsenRefine() {
     // converged flat wall, 2.5 cm grid: static evidence 10 everywhere; the centre has the lowest priority of its ring (largest id)
     std::vector<Patch> ps;
@@ -458,7 +484,7 @@ static void TestCoarsenRefine() {
     for (auto& s : sites) { s.ev.staticEvidence = 10; s.q.surfaceId = s.id; }
     const uint32_t centre = 24; sites[centre].q.surfaceId = 1000;
     std::vector<std::vector<uint32_t>> props; for (auto& s : sites) props.push_back(SheetProposals(s, sites));
-    std::vector<float> cover(sites.size(), 0.f);
+    std::vector<SheetCell> cover(sites.size());
     SheetDelta d = SheetFitR(sites[centre], props[centre], sites, props, cover);
     std::printf("coarsen: degree %u flat %d target %u E %.3f\n", d.degree, (int)d.flat, d.contractTarget, d.contractE);
     CHECK(d.flat && d.degree >= FS_CONTRACT_MIN_DEGREE && d.contractTarget != UINT32_MAX && d.contractE < (float)FS_CONTRACT_BUDGET);   // flat wall coarsens
@@ -483,13 +509,13 @@ static void TestCoarsenRefine() {
     std::vector<Patch> strip{SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.01f, 0.002f), SheetPatch(v3(0.025f, 0, 0), v3(0, 0, 1), 0.01f, 0.002f), SheetPatch(v3(0.05f, 0, 0), v3(0, 0, 1), 0.01f, 0.002f)};
     std::vector<SheetSite> st = Sites(strip); for (auto& s : st) { s.ev.staticEvidence = 10; s.q.surfaceId = s.id; } st[1].q.surfaceId = 99;
     std::vector<std::vector<uint32_t>> pst; for (auto& s : st) pst.push_back(SheetProposals(s, st));
-    CHECK(SheetFitR(st[1], pst[1], st, pst, std::vector<float>(3, 0.f)).contractTarget == UINT32_MAX);
+    CHECK(SheetFitR(st[1], pst[1], st, pst, std::vector<SheetCell>(3)).contractTarget == UINT32_MAX);
     // curved ring (5 cm sphere) never contracts
     std::vector<Patch> sph{SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.004f, 0.0005f)};
     for (int k = 0; k < 8; ++k) { float ang = 6.2831853f * (float)k / 8.f; V3 p = v3(0.02f * cosf(ang), 0.02f * sinf(ang), 0.f); p.z = 0.05f - sqrtf(0.05f * 0.05f - Dot(p, p)); sph.push_back(SheetPatch(p, v3(-p.x, -p.y, 0.05f - p.z), 0.004f, 0.0005f)); }
     std::vector<SheetSite> ss = Sites(sph); for (auto& s : ss) { s.ev.staticEvidence = 10; s.q.surfaceId = s.id; } ss[0].q.surfaceId = 99;
     std::vector<std::vector<uint32_t>> psph; for (auto& s : ss) psph.push_back(SheetProposals(s, ss));
-    CHECK(SheetFitR(ss[0], psph[0], ss, psph, std::vector<float>(ss.size(), 0.f)).contractTarget == UINT32_MAX);
+    CHECK(SheetFitR(ss[0], psph[0], ss, psph, std::vector<SheetCell>(ss.size())).contractTarget == UINT32_MAX);
 
     // ---- refinement: a converged surfel receives an observation whose part lies 2 cm in front of its plane (an ornament / step)
     FsPageKey key{0, 0, 0, 0}; V3 origin = PageOrigin3(key);
@@ -638,7 +664,7 @@ static void TestIndexGeneration() {
 
 int main() {
     TestPageHash(); TestEncodings(); TestSynthetic(); TestResidency(); TestHzbBand(); TestHzbDisagreement(); TestCullMath();
-    TestFusionDeterminism(); TestRelocationAcrossCell(); TestSurfaceComplex(); TestCoarsenRefine(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCrossPageFreeRay(); TestIndexGeneration();
+    TestFusionDeterminism(); TestRelocationAcrossCell(); TestSurfaceComplex(); TestCoarsenRefine(); TestAppearanceState(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCrossPageFreeRay(); TestIndexGeneration();
     std::printf("finalscan host world tests: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

@@ -92,9 +92,14 @@ void main() {
                 curBlock = fsPoolAlloc(FS_POOL_RBLOCK); fill = 0u;
                 if (curBlock == FS_INDEX_NONE) { atomicAdd(gctr[FS_GCTR_POOL_RBLOCK_EMPTY], 1u); break; }
             }
-            // E4.1R derived readout coverage (mutual degree >= 2): isotropic half median edge length; the canonical radii stay statistical
-            uint meta = sheet[fsSheetNodeWord(h, 6u)];
-            if ((meta >> 24) >= 2u && (meta & 0xFFFFu) != 0u) { uint r16 = fsEncodeLogRadius(float(meta & 0xFFFFu) * 1e-5); fsSet_FsSurfel_radiusMajor(s, r16); fsSet_FsSurfel_radiusMinor(s, r16); }
+            // E4.2R derived micro-surface readout: a site with a cell (>= FS_SHEET_CELL_MIN_DEGREE mutual same-sheet neighbours) publishes its
+            // restricted Voronoi cell (rMajor = cell rMax, ratios in sigmaN_sigmaTMajor, marked); others keep the statistical ellipse
+            // (surfel fallback). The canonical surfel is never modified: this is the render copy only.
+            float cellR = uintBitsToFloat(sheet[fsSheetNodeWord(h, 9u)]);
+            if (cellR > 0.0) {
+                uint r16 = fsEncodeLogRadius(cellR); fsSet_FsSurfel_radiusMajor(s, r16); fsSet_FsSurfel_radiusMinor(s, r16);
+                fsSet_FsSurfel_tangentAngle(s, 0u); s.sigmaN_sigmaTMajor = sheet[fsSheetNodeWord(h, 8u)]; fsSet_FsSurfel_sigmaTMinor(s, FS_RENDER_CELL_MARK);
+            } else fsSet_FsSurfel_sigmaTMinor(s, 0u);
             rsurfels[curBlock * uint(FS_RENDER_BLOCK_SURFELS) + fill] = s; fill++; total++;
         }
     }

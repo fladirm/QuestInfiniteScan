@@ -24,7 +24,7 @@ void fsAggLeaf(uint base, uint n, uint blockId, inout FsRenderNode r) {
         vec3 p = fsSurfelLocalPos(s); vec3 nn = fsSurfelNormal(s);
         float rM = fsDecodeLogRadius(fsGet_FsSurfel_radiusMajor(s));
         bmin = min(bmin, p - vec3(rM)); bmax = max(bmax, p + vec3(rM)); csum += p; nsum += nn;
-        if ((s.appearanceHandle & FS_APPEARANCE_MEASURED) != 0u) { colsum += vec3(float(s.appearanceHandle & 0xFFu), float((s.appearanceHandle >> 8) & 0xFFu), float((s.appearanceHandle >> 16) & 0xFFu)); colN += 1.0; }
+        if ((s.appearanceHandle & FS_APPEARANCE_MEASURED) != 0u && ((s.appearanceHandle & FS_APPEARANCE_OBS_MASK) >> FS_APPEARANCE_OBS_SHIFT) >= uint(FS_APPEARANCE_CONFIRM_OBS)) { colsum += vec3(float(s.appearanceHandle & 0xFFu), float((s.appearanceHandle >> 8) & 0xFFu), float((s.appearanceHandle >> 16) & 0xFFu)); colN += 1.0; }
         rmax = max(rmax, rM); used++;
     }
     if (used == 0u) { bmin = vec3(0.0); bmax = vec3(0.0); }
@@ -62,7 +62,7 @@ void fsAggLeaf(uint base, uint n, uint blockId, inout FsRenderNode r) {
     r.node.repRadius = max(0.5 * length(d), rmax);
     r.node.repNormalOct32 = fsEncodeOct32(axis);
     uvec3 col = uvec3(clamp(colsum / max(colN, 1.0) + vec3(0.5), vec3(0.0), vec3(255.0)));
-    r.node.repColorOrHandle = col.x | (col.y << 8) | (col.z << 16) | (colN > 0.0 ? 0xFF000000u : 0u);   // alpha byte = appearance measured (E4.2)
+    r.node.repColorOrHandle = col.x | (col.y << 8) | (col.z << 16) | (colN > 0.0 ? 0xFF000000u : 0u);   // alpha byte = CONFIRMED appearance present (E4.2R)
     fsSet_FsClusterNode_coverage(r.node, uint(cov * 65535.0 + 0.5)); fsSet_FsClusterNode_surfelCount(r.node, min(used, 65535u));
     r.node.firstChildOrSurfel = blockId; fsSet_FsClusterNode_childCount(r.node, 0u); fsSet_FsClusterNode_leafSurfelCount(r.node, used);
     r.node.footprint = fsPackFootprint(fa, fb);

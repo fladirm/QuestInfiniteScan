@@ -29,6 +29,7 @@ namespace FinalScan.Render
         public const uint FlagErasedPreview = 1u << 2;
         public const uint FlagAggregate = (uint)WorldAbi.DrawFlagAggregate;   // 1 << 3
         public const uint FlagTransient = (uint)WorldAbi.DrawFlagTransient;   // 1 << 4
+        public const uint FlagCell = (uint)WorldAbi.DrawFlagCell;             // 1 << 6, E4.2R derived micro-surface cell (8-gon, per-direction radii)
 
         public const float RadiusBaseM = 0.0005f;        // 0.5 mm
         public const float RadiusLogStepsU16 = 4096f;     // FsSurfel u16: r = base * 2^(v/4096)

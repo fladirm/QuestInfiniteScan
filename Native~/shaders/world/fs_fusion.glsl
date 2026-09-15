@@ -78,10 +78,14 @@ FsAccum fsAccumInit() { FsAccum a; a.wN = 0.0; a.dN = 0.0; a.nSum = vec3(0.0); a
 vec3 fsColorOf(uint word) { return vec3(float(word & 0xFFu), float((word >> 8) & 0xFFu), float((word >> 16) & 0xFFu)) / 255.0; }
 uint fsColorPack(vec3 c) { uvec3 u = uvec3(clamp(c, 0.0, 1.0) * 255.0 + 0.5); return u.x | (u.y << 8) | (u.z << 16); }
 // Precision-weighted appearance blend (contract §14, C16a): prior weight = distinct observations, measurement weight = 1 observation.
-// appearanceHandle bit 31 (FS_APPEARANCE_MEASURED) = measured colour present; the draw record keeps the low 24 bits.
+// appearanceHandle bit 31 (FS_APPEARANCE_MEASURED) = measured colour present, bits 24..27 = coloured observations (E4.2R state);
+// the draw record keeps the low 24 bits.
+uint fsAppearanceObs(uint word) { return (word & FS_APPEARANCE_MEASURED) != 0u ? (word & FS_APPEARANCE_OBS_MASK) >> FS_APPEARANCE_OBS_SHIFT : 0u; }
+bool fsAppearanceConfirmed(uint word) { return fsAppearanceObs(word) >= uint(FS_APPEARANCE_CONFIRM_OBS); }
+uint fsAppearanceWord(vec3 col, uint obs) { return FS_APPEARANCE_MEASURED | (min(obs, 15u) << FS_APPEARANCE_OBS_SHIFT) | fsColorPack(col); }
 uint fsBlendAppearance(uint old, vec3 meanCol, float wPrior, float wMeas) {
-    if ((old & FS_APPEARANCE_MEASURED) == 0u) return FS_APPEARANCE_MEASURED | fsColorPack(meanCol);
-    return FS_APPEARANCE_MEASURED | fsColorPack(mix(fsColorOf(old), meanCol, wMeas / (wPrior + wMeas)));
+    if ((old & FS_APPEARANCE_MEASURED) == 0u) return fsAppearanceWord(meanCol, 1u);
+    return fsAppearanceWord(mix(fsColorOf(old), meanCol, wMeas / (wPrior + wMeas)), fsAppearanceObs(old) + 1u);
 }
 // Merge priority: higher static evidence, then lower sigma, then lower SurfaceID survives.
 bool fsSurvives(FsPatch a, FsSurfelEvidence ea, FsPatch b, FsSurfelEvidence eb) {
@@ -113,7 +117,7 @@ FsPatch fsAbsorbPatch(FsPatch ps, FsPatch pd) {
     r.sigmaN = max(sqrt(1.0 / (ws + wd)), FS_SIGMA_N_FLOOR_M);
     r.flags = (ps.flags & ~FS_EVIDENCE_COUNT_MASK) | min((ps.flags & FS_EVIDENCE_COUNT_MASK) + (pd.flags & FS_EVIDENCE_COUNT_MASK), uint(FS_EVIDENCE_COUNT_MAX));
     bool ms = (ps.appearance & FS_APPEARANCE_MEASURED) != 0u, md = (pd.appearance & FS_APPEARANCE_MEASURED) != 0u;
-    if (ms && md) r.appearance = FS_APPEARANCE_MEASURED | fsColorPack((fsColorOf(ps.appearance) * cs + fsColorOf(pd.appearance) * cd) / (cs + cd));
+    if (ms && md) r.appearance = fsAppearanceWord((fsColorOf(ps.appearance) * cs + fsColorOf(pd.appearance) * cd) / (cs + cd), fsAppearanceObs(ps.appearance) + fsAppearanceObs(pd.appearance));
     else if (md) r.appearance = pd.appearance;
     return r;
 }

@@ -30,8 +30,10 @@ void main() {
     uint flags = 0u; uint block = 0u;
     if (live) { block = rnodes[node].node.firstChildOrSurfel; s = rsurfels[block * uint(FS_RENDER_BLOCK_SURFELS) + lane]; flags = fsGet_FsSurfel_evidenceFlags(s); }
     bool transient = live && (flags & FS_FLAG_TRANSIENT) != 0u;
-    bool measured = (s.appearanceHandle & FS_APPEARANCE_MEASURED) != 0u;
-    if (live && !measured && F.misc.x == uint(FS_RENDER_MODE_SCAN)) live = false;   // E4.2: SCAN never draws geometry without measured appearance
+    // E4.2R appearance state: SCAN shows CONFIRMED photometry only (>= FS_APPEARANCE_CONFIRM_OBS coloured observations);
+    // NONE / PROVISIONAL geometry is hidden in SCAN and neutral grey in XRAY / PLAN
+    bool measured = (s.appearanceHandle & FS_APPEARANCE_MEASURED) != 0u && ((s.appearanceHandle & FS_APPEARANCE_OBS_MASK) >> FS_APPEARANCE_OBS_SHIFT) >= uint(FS_APPEARANCE_CONFIRM_OBS);
+    if (live && !measured && F.misc.x == uint(FS_RENDER_MODE_SCAN)) live = false;
     if (F.misc.x == uint(FS_RENDER_MODE_GEOMETRY)) measured = false;                // E4.1R GEOMETRY debug: every promoted surface neutral grey
     bool opaque = live && !transient;
     sRank[lane] = opaque ? 1u : 0u;

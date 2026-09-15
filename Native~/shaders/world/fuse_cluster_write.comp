@@ -54,7 +54,7 @@ void main() {
         pt.sigmaN = max(fsCandSigmaN(q), fsSigmaFloor(q.srcAnd)); pt.sigmaT = max(fsCandSigmaT(q), FS_SIGMA_T_FLOOR_M);
         // C09R-E4: a candidate is ALWAYS transient with one observation of support, whatever the number of pixels
         pt.flags = 1u | FS_FLAG_TRANSIENT | FS_FLAG_SIDED_A;
-        pt.surfaceId = idBase + c; pt.appearance = q.colW > 0.0 ? (FS_APPEARANCE_MEASURED | fsColorPack(q.col / q.colW)) : fsPreviewColorFromNormal(nn);
+        pt.surfaceId = idBase + c; pt.appearance = q.colW > 0.0 ? fsAppearanceWord(q.col / q.colW, 1u) : fsPreviewColorFromNormal(nn);
         surfels[h] = fsPack(pt);
         FsSurfelEvidence ev; ev.staticEvidence_motionEvidence = 1u; ev.varianceQ_lastSeenFrame = (tick16 << 16) | fsEncodeLog(max(varNorm, 1e-3), FS_VAR_NORM_BASE);
         ev.lastObservationId = obs;

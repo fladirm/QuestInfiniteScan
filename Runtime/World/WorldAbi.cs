@@ -248,11 +248,16 @@ namespace FinalScan.World
         public const uint AssocKeyNone = 4294967295u;
         public const uint MeasColorValid = 2147483648u;
         public const uint AppearanceMeasured = 2147483648u;
+        public const int AppearanceObsShift = 24;
+        public const uint AppearanceObsMask = 251658240u;
+        public const int AppearanceConfirmObs = 3;
+        public const uint RenderCellMark = 65535u;
         public const int RenderBlockSurfels = 64;
         public const int RenderChildren = 8;
         public const float ClusterErrorInf = 1e+30f;
         public const int DrawFlagAggregate = 8;
         public const int DrawFlagTransient = 16;
+        public const int DrawFlagCell = 64;
         public const int DrawFlagNoAppearance = 32;
 
         /// <summary>Throws when the managed layouts drift from the native header (call once at startup).</summary>

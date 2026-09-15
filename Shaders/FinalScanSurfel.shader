@@ -24,7 +24,9 @@
 // Record encodings mirror Runtime/Render/SurfelDrawAbi.cs exactly (tests pin the managed side):
 //   normalOct32       oct u16|u16 → [-1,1]; tangentAndRadii angle u16 | rMajor u8 log | rMinor u8 log (r = 0.5 mm * 2^(v/16));
 //   colorOrHandle     RGBA8 (R low byte); alpha byte = coverage when FS_DRAW_FLAG_AGGREGATE (bit 3);
-//   flags             bit0 detail, bit1 selected, bit2 erased-preview, bit3 aggregate, bit4 transient, bit5 no measured appearance.
+//   flags             bit0 detail, bit1 selected, bit2 erased-preview, bit3 aggregate, bit4 transient, bit5 no confirmed appearance,
+//                     bit6 micro-surface cell (E4.2R): the 8-gon fan vertex k sits at rMajor x (q_k + 1) / 16 along direction k x 45 deg of
+//                     the tangent frame (angle field); q_0..1 = rMinor byte nibbles, q_2..7 = flags bits 8..31. Records without bit 6 are ellipses.
 Shader "FinalScan/Surfel"
 {
     Properties
@@ -69,6 +71,7 @@ Shader "FinalScan/Surfel"
     #define FS_FLAG_AGGREGATE  8u
     #define FS_FLAG_TRANSIENT  16u
     #define FS_FLAG_NO_APPEARANCE 32u   // E4.2: geometry without measured appearance (XRAY / PLAN only): neutral grey, never normal pseudo-colour
+    #define FS_FLAG_CELL       64u      // E4.2R derived micro-surface cell
 
     #define FS_RADIUS_BASE_M   0.0005
     #define FS_TWO_PI          6.28318530718
@@ -187,6 +190,23 @@ Shader "FinalScan/Surfel"
 
         float2 q = FsEllipseVertex(input.vertexID, vertexCount);
         float3 posWS = r.center + tMajor * (rMajor * q.x) + tMinor * (rMinor * q.y);
+        if ((r.flags & FS_FLAG_CELL) != 0u)
+        {
+            // E4.2R micro-surface cell: polygon vertices ON the restricted Voronoi boundary (no circumscription, no rim discard);
+            // quad geometry (6 vertices) falls back to the circle of the cell's largest radius.
+            uint nib = ((r.tangentAndRadii >> 24) & 0xFFu) | ((r.flags >> 8) << 8);
+            if (vertexCount >= 9u)
+            {
+                uint k = vertexCount / 3u, tri = input.vertexID / 3u, corner = input.vertexID % 3u;
+                uint dirIndex = (tri + (corner == 2u ? 1u : 0u)) % k;
+                float a = dirIndex * (FS_TWO_PI / k);
+                uint d8 = (dirIndex * 8u) / k;
+                float rad = corner == 0u ? 0.0 : rMajor * (((nib >> (4u * d8)) & 15u) + 1u) / 16.0;
+                posWS = r.center + (tMajor * cos(a) + tMinor * sin(a)) * rad;
+            }
+            else posWS = r.center + (tMajor * q.x + tMinor * q.y) * rMajor;
+            q = float2(0, 0);
+        }
         if (collapse || ((r.flags & FS_FLAG_ERASED) != 0u && _Mode == 0)) posWS = r.center;   // degenerate: rasterizes nothing
 
         o.positionWS = posWS;

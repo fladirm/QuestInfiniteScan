@@ -47,7 +47,7 @@ void main() {
             sheet[fsSheetNodeWord(lh, k)] = FS_INDEX_NONE;
             if (nbE != FS_INDEX_NONE && nbE != target) fsSheetMark(nbE >> 22, nbE & 0x3FFFFFu);
         }
-        sheet[fsSheetNodeWord(lh, 6u)] = 0u; sheet[fsSheetNodeWord(lh, 7u)] = 0u;
+        sheet[fsSheetNodeWord(lh, 6u)] = 0u; sheet[fsSheetNodeWord(lh, 7u)] = 0u; sheet[fsSheetNodeWord(lh, 8u)] = 0u; sheet[fsSheetNodeWord(lh, 9u)] = 0u;
         fsSheetMark(sp, shh);
         contractions++;
     }

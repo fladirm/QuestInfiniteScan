@@ -86,6 +86,17 @@ FsDrawRecord fsDrawRecordOf(FsSurfel s, mat4 A, vec3 origin) {
     r.colorOrHandle = (s.appearanceHandle & 0x00FFFFFFu) | 0xFF000000u;
     r.surfaceId = s.surfaceId;
     r.flags = ((flags & FS_FLAG_DETAIL) != 0u ? 1u : 0u) | ((flags & FS_FLAG_TRANSIENT) != 0u ? uint(FS_DRAW_FLAG_TRANSIENT) : 0u);
+    if (fsGet_FsSurfel_sigmaTMinor(s) == uint(FS_RENDER_CELL_MARK)) {
+        // E4.2R micro-surface cell: ratios were measured in the canonical tangent frame of the page-local normal; the angle field
+        // carries that frame's rotation into the canonical frame of the anchored world normal (shader: FsTangentFrame(n, angle)).
+        vec3 pt1, pt2; fsTangentFrame(fsSurfelNormal(s), pt1, pt2);
+        vec3 wt1, wt2; fsTangentFrame(n, wt1, wt2);
+        vec3 at = mat3(A) * pt1;
+        float ang = atan(dot(at, wt2), dot(at, wt1)); if (ang < 0.0) ang += 2.0 * FS_PI;
+        uint ratios = s.sigmaN_sigmaTMajor;
+        r.tangentAndRadii = (uint(ang / (2.0 * FS_PI) * 65536.0) & 0xFFFFu) | (fsRadius8FromLog16(fsGet_FsSurfel_radiusMajor(s)) << 16) | ((ratios & 0xFFu) << 24);
+        r.flags |= uint(FS_DRAW_FLAG_CELL) | ((ratios >> 8) << 8);
+    }
     return r;
 }
 // ---- HZB buffer (u32 words: float bits; 0 = no occluder) -----------------------------------------------

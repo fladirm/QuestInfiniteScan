@@ -62,6 +62,7 @@
 #define FS_SHEET_PLANE_MAX_M  0.02      // edge: signed plane distance bound in the mean-normal frame (no depth discontinuity)
 #define FS_SHEET_FLAT_K       1.5       // flat when the mutual ring's plane RMS <= K x its mean sigma (else curvature is preserved)
 #define FS_SHEET_BLEND        0.5       // flat sheet: fraction of the fitted normal offset / normal applied per graph update
+#define FS_SHEET_CELL_MIN_DEGREE 2    // E4.2R: a site with >= 2 mutual same-sheet neighbours reads out as a micro-surface cell
 #define FS_SHEET_COVER_MAX_M  0.05      // derived coverage radius bound (readout only)
 #define FS_SHEET_MOVE_MIN_M   0.002     // reduce marks a promoted surfel graph-dirty when its centre moved more than this ...
 #define FS_SHEET_TURN_MIN_COS 0.9994    // ... or its normal turned more than ~2 deg (converged in-plane updates cost no graph work)
@@ -85,7 +86,7 @@
 #define FS_REFINE_MIN_OUTLIERS  3       // ... in one observation, at least this many
 #define FS_REFINE_MIN_SUPPORT   4       // ... on a surfel with this much support: insert a site at the worst residual
 #define FS_REFINE_BIRTHS_MAX    256     // site insertions per epoch (bounded sequential pass)
-#define FS_SHEET_NODE_WORDS   8         // per handle: nbr[6] (page << 22 | handle), meta (degree << 24 | coverage 0.01 mm), component
+#define FS_SHEET_NODE_WORDS   10        // per handle: nbr[6] (page << 22 | handle), meta (degree << 24), component, cell ratios (8 x 4 bit), cell rMax (float bits)
 #define FS_RELOC_MAX          1024      // C09R-E4 relocation records per epoch (centre crossed its index cell); beyond: the position update waits (counted)
 #define FS_GHOST_MOTION_MIN   3         // free-space contradictions before a candidate / weak surfel is removed
 #define FS_GHOST_STATIC_K     2         // + staticEvidence / K contradictions for supported surfels
