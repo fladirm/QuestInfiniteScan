@@ -113,7 +113,7 @@ void main() {
     if (!first && coveredUntil < firstStart + 2.0 * FS_PI - 1e-3) interior = false;
     flags |= (interior ? FS_TOPO_FLAG_INTERIOR : FS_TOPO_FLAG_BOUNDARY) << 1u;
     topo[td] = flags | (nf << 8);
-    topo[td + 11u] = uint(min(holeMm2, 4.0e9));
+    topo[td + 1u + 2u * uint(FS_TOPO_FACES)] = uint(min(holeMm2, 4.0e9));
     if (holeMm2 > 0.0) atomicAdd(gctr[FS_GCTR_MESH_HOLE_MM2], uint(min(holeMm2, 1.0e6)));
     if (foldMm2 > 0.0) atomicAdd(gctr[FS_GCTR_MESH_OVERLAP_MM2], uint(min(foldMm2, 1.0e6)));
     if (!interior) atomicAdd(gctr[FS_GCTR_BOUNDARY_VERTICES], 1u);

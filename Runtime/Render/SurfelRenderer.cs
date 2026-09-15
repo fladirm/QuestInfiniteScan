@@ -115,10 +115,15 @@ namespace FinalScan.Render
             ReleaseResources();
         }
 
-        /// <summary>Initial args: both buckets empty (instanceCount 0 draws nothing) with the vertex count the shader expects.</summary>
+        /// <summary>Initial args: opaque, aggregate and E6R mesh-triangle buckets are all empty.</summary>
         public static uint[] InitialArgs(uint opaqueVertexCount)
         {
-            return new[] { opaqueVertexCount, 0u, 0u, 0u, SurfelDrawAbi.VerticesPerSurfel, 0u, 0u, 0u };
+            return new[]
+            {
+                opaqueVertexCount, 0u, 0u, 0u,
+                SurfelDrawAbi.VerticesPerSurfel, 0u, 0u, 0u,
+                3u, 0u, 0u, 0u
+            };
         }
 
         void CreateResources()
@@ -189,7 +194,7 @@ namespace FinalScan.Render
                 int rc = FinalScanHostNative.RegisterRenderBuffers(records, (uint)((long)drawRecordCapacity * SurfelDrawAbi.DrawRecordStride), args);
                 _registered = rc == FinalScanHostNative.ResultOk;
                 if (!_registered) _lastError = "FsRender_RegisterBuffers rc=" + rc;
-                else Debug.Log($"[FinalScan] render buffers registered: {drawRecordCapacity} records x {SurfelDrawAbi.DrawRecordStride} B, args {ArgsUintCount * 4} B (2 buckets), opaque vertexCount {ExpectedOpaqueVertexCount}");
+                else Debug.Log($"[FinalScan] render buffers registered: {drawRecordCapacity} records x {SurfelDrawAbi.DrawRecordStride} B, args {ArgsUintCount * 4} B (3 buckets), opaque vertexCount {ExpectedOpaqueVertexCount}");
             }
             catch (Exception e) { _lastError = e.GetType().Name + ": " + e.Message; }
             return _registered;

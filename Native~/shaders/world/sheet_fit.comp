@@ -87,6 +87,10 @@ void main() {
     // ---- E4.1C edge contraction decision
     FsSurfelEvidence ea = evidence[h];
     if (!isFlat || nm < uint(FS_CONTRACT_MIN_DEGREE) || fsGet_FsSurfelEvidence_positiveSupport(ea) < uint(FS_CONTRACT_MIN_STATIC) || fsLifeState(ea) != FS_LIFE_ACTIVE) return;
+    // Graph/topology work can requeue the same handle repeatedly. Coarsening is geometry/evidence work, not a topology clock:
+    // one distinct observation may drive this control vertex at most once.
+    uint lastObs = ea.lastObservationId;
+    if (lastObs == 0u || sheet[fsSheetNodeWord(h, uint(FS_SHEET_REG_OBS_WORD))] == lastObs) return;
     // E6R: only an interior vertex of the face topology contracts (a boundary, an opening edge or DETAIL keep their control sites)
     if ((a.flags & FS_FLAG_DETAIL) != 0u) return;
     { uint tid = sheet[fsSheetNodeWord(h, 9u)]; if (tid == FS_INDEX_NONE || (topo[fsTopoVertexWord(tid, 1u)] & FS_TOPO_FLAG_INTERIOR) == 0u) return; }

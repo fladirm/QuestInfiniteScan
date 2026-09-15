@@ -45,6 +45,7 @@ void main() {
         fsSet_FsSurfelEvidence_contradictionDebt(es, min(fsGet_FsSurfelEvidence_contradictionDebt(es), fsGet_FsSurfelEvidence_contradictionDebt(ed)));   // E6R: absorbed support never inherits the worse debt
         fsSet_FsSurfelEvidence_viewDiversity(es, fsGet_FsSurfelEvidence_viewDiversity(es) | fsGet_FsSurfelEvidence_viewDiversity(ed));
         evidence[shh] = es;
+        sheet[fsSheetNodeWord(shh, uint(FS_SHEET_REG_OBS_WORD))] = es.lastObservationId;
         FsSurfel ls = surfels[lh]; fsSet_FsSurfel_evidenceFlags(ls, fsGet_FsSurfel_evidenceFlags(ls) | FS_FLAG_REMOVED); surfels[lh] = ls;
         fsMarkDirtyCell(lp, fsCellOf(fsUnpack(ls).p));
         fsMarkDirtyCell(sp, oldCell);

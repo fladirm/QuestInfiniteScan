@@ -28,12 +28,19 @@ void main() {
     FsSurfel s = surfels[h];
     FsPatch a = fsUnpack(s);
     if ((a.flags & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) != 0u) return;
+    FsSurfelEvidence ev = evidence[h];
+    uint obs = ev.lastObservationId;
+    uint stampWord = fsSheetNodeWord(h, uint(FS_SHEET_REG_OBS_WORD));
+    if (obs == 0u || sheet[stampWord] == obs) return;                     // do not iteratively drift geometry on topology-only requeues
     uint oldCell = fsCellOf(a.p);
     vec3 nFit = fsDecodeOct32(sheet[dw + 1u]);
-    a.p = fsPageRangeGuard(a.p + nFit * (uintBitsToFloat(sheet[dw]) * FS_SHEET_BLEND));
-    a.n = normalize(mix(a.n, nFit, FS_SHEET_BLEND));
-    uint newCell = fsCellOf(a.p);
+    vec3 np = fsPageRangeGuard(a.p + nFit * (uintBitsToFloat(sheet[dw]) * FS_SHEET_BLEND));
+    vec3 nn = normalize(mix(a.n, nFit, FS_SHEET_BLEND));
+    uint newCell = fsCellOf(np);
     if (newCell != oldCell && !fsPushRelocation(h, page, oldCell, newCell, s)) return;   // list full: the fit waits
+    sheet[stampWord] = obs;
+    if (length(np - a.p) < FS_SHEET_APPLY_POS_EPS_M && dot(nn, a.n) >= FS_SHEET_APPLY_NORMAL_COS) return;
+    a.p = np; a.n = nn;
     surfels[h] = fsPack(a);
     fsMarkDirtyCell(page, oldCell);
     atomicAdd(gctr[FS_GCTR_SHEET_SMOOTHED], 1u);

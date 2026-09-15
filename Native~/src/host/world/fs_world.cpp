@@ -172,7 +172,7 @@ public:
         for (uint32_t p = 0; p < 6; ++p) { rings_[p].Init(caps[p], pools + p * FS_POOL_HEADER_WORDS, pools + ringBase, ringBase); ringBase += caps[p]; }
         cpuRec_ = (FsSurfaceMeasurement*)cpuRecords_.mapped; cpuCtr_ = (uint32_t*)cpuCounters_.mapped; memset(cpuCtr_, 0, 64);
         fuseInFlight_ = publishInFlight_ = releaseInFlight_ = sheetInFlight_ = 0; pubStage_ = PUB_IDLE; publishWanted_ = false; cpuSlotReady_ = false; cpuSlotBusy_ = false; liveLease_ = 0;
-        idBase_ = kSurfaceIdBase; tick_ = 0; toPublish_.clear(); publishSeq_ = 0;
+        idBase_ = kSurfaceIdBase; tick_ = 0; toPublish_.clear(); publishSeq_ = 0; lastFuseServiceNs_ = NowNs();
         Log("FS-WORLD pools: %.1f MiB total (surfels %.1f, evidence %.1f, index %.1f, render nodes %.1f, render blocks %.1f, rdir %.1f)",
             bytesTotal_ / 1048576.0, buf_.surfels.size / 1048576.0, buf_.evidence.size / 1048576.0, buf_.index.size / 1048576.0, buf_.render.size / 1048576.0, buf_.rblocks.size / 1048576.0, buf_.rdir.size / 1048576.0);
         return true;
@@ -423,6 +423,7 @@ public:
             if (ok) {
                 stats_.fuseUs = e > s ? (int64_t)((e - s) / 1000) : 0;
                 const uint32_t items = AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_COUNT);
+                lastFuseServiceNs_ = NowNs();
                 AfterJob(false);
                 fuseCost_.Add(items, stats_.fuseUs); Charge(ST_FUSE, stats_.fuseUs);
                 epochMeasCap_ = fuseCost_.Batch(ClassQuantumUs(FS_JOB_SCAN), FS_EPOCH_MEAS_MIN, FS_TICK_MEAS_MAX, 4096u);
@@ -691,7 +692,13 @@ public:
     }
     void FoldGpuCounters() {
         if (!gctr_) return;
-        for (uint32_t i = 0; i < FS_GCTR_COUNT; ++i) { uint32_t v = AtomicLoadU32(&gctr_[i]); gctrTotal_[i] += (uint64_t)(v - gctrLast_[i]); gctrLast_[i] = v; }
+        for (uint32_t i = 0; i < FS_GCTR_COUNT; ++i) {
+            uint32_t v = AtomicLoadU32(&gctr_[i]);
+            if (i == FS_GCTR_ACTIVE_SHEETS || i == FS_GCTR_ACTIVE_FACES || i == FS_GCTR_TOPO_VERTICES) {
+                gctrTotal_[i] = v; gctrLast_[i] = v; gctrFolded_[i] = v; continue;     // gauges, not monotonic counters
+            }
+            gctrTotal_[i] += (uint64_t)(v - gctrLast_[i]); gctrLast_[i] = v;
+        }
         static const int32_t map[FS_GCTR_COUNT] = { FS_CTR_PAGE_LOOKUPS, FS_CTR_PAGE_MISSES, -1, -1, -1, FS_CTR_SURFEL_UPDATE, -1, -1, FS_CTR_SURFEL_CREATE, -1,
             FS_CTR_SURFEL_SPLIT, FS_CTR_SURFEL_MERGE, FS_CTR_SURFEL_DELETE, -1, -1, FS_CTR_INDEX_OVERFLOW, -1, -1, -1, FS_CTR_PUBLISH, FS_CTR_MEASUREMENTS_DROPPED, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
         for (uint32_t i = 0; i < FS_GCTR_COUNT; ++i) if (map[i] >= 0 && gctrTotal_[i] != gctrFolded_[i]) { CounterAdd((FsCounter)map[i], (int64_t)(gctrTotal_[i] - gctrFolded_[i])); gctrFolded_[i] = gctrTotal_[i]; }
@@ -830,19 +837,17 @@ public:
         if (sheetRunnable) sheetAge = WorkAgeMs(SheetEntryTick(AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_SHEET_HEAD)), now);
         pubPendingAgeMs_ = pubAge; sheetPendingAgeMs_ = sheetAge;
         const float pubOver = pubRunnable ? pubAge / (float)FS_SCHED_PUBLISH_DEADLINE_MS : 0.f, sheetOver = sheetRunnable ? sheetAge / (float)FS_SCHED_SHEET_DEADLINE_MS : 0.f;
-        // drop older observations, never display frames: a newer depth frame supersedes the rest of the current one (stride slices)
-        if (slice_.count != 0 && slice_.live && slice_.phase > 0 && slice_.phase < slice_.stride && meas::MeasGpu_ReadyFrames() > 0) {
-            const uint32_t left = slice_.stride - slice_.phase;
-            framesAbandoned_++; measAbandoned_ += (uint64_t)slice_.count * left / slice_.stride;
-            CounterAdd(FS_CTR_MEASUREMENTS_DROPPED, (int64_t)((uint64_t)slice_.count * left / slice_.stride));
-            meas::MeasGpu_ReleaseFrame(slice_.seq);
-            slice_.count = 0;
-        }
+        // Latest-only is enforced at lease boundaries by MeasGpu_PeekFrame (older READY frames are superseded there).
+        // Once an observation is leased, finish its bounded slices. Aborting mid-observation made almost every depth frame
+        // contribute one fragment, then disappear before it could provide coherent evidence/refinement.
         const bool fuseRunnable = slice_.count != 0 || (liveBound_ && meas::MeasGpu_ReadyFrames() > 0) || cpuSlotReady_;
-        // FUSE age: the observation being sliced, else the newest READY one (a CPU synthetic slot counts as fresh)
-        float fuseAge = 0;
-        if (slice_.count != 0 && slice_.readyNs) fuseAge = (float)((now - slice_.readyNs) / 1e6);
-        else if (liveBound_) { const int64_t r = meas::MeasGpu_NewestReadyNs(); if (r) fuseAge = (float)((now - r) / 1e6); }
+        // Newest READY age alone is not a starvation clock: a 25 Hz producer can keep it permanently small. Also age the
+        // FUSE service itself; if no fuse slice has completed for one deadline, FUSE becomes overdue regardless of new arrivals.
+        float observationAge = 0;
+        if (slice_.count != 0 && slice_.readyNs) observationAge = (float)((now - slice_.readyNs) / 1e6);
+        else if (liveBound_) { const int64_t r = meas::MeasGpu_NewestReadyNs(); if (r) observationAge = (float)((now - r) / 1e6); }
+        float serviceAge = lastFuseServiceNs_ > 0 ? (float)((now - lastFuseServiceNs_) / 1e6) : observationAge;
+        float fuseAge = fuseRunnable ? std::max(observationAge, serviceAge) : 0.f;
         fusePendingAgeMs_ = fuseAge;
         const float fuseOver = fuseRunnable ? fuseAge / (float)FS_SCHED_FUSE_DEADLINE_MS : 0.f;
         // E6R: overdue = normalized lateness > 1; the most late runnable class wins; otherwise the weighted deficit decides. No class can
@@ -1052,6 +1057,7 @@ private:
     CostModel fuseCost_, maintCost_, leavesCost_, sheetCost_;
     uint32_t workSerial_ = 0; std::vector<int64_t> workTimeNs_ = std::vector<int64_t>(FS_SCHED_SERIAL_WINDOW, 0); std::vector<uint32_t> workTimeSerial_ = std::vector<uint32_t>(FS_SCHED_SERIAL_WINDOW, 0u); int64_t pubStartNs_ = 0;
     AgeWindow fuseAge_; float fusePendingAgeMs_ = 0; uint64_t fuseDeferred_ = 0; uint64_t deadlineMiss_[3] = {0, 0, 0}, observationsLeased_ = 0, observationsFused_ = 0;
+    int64_t lastFuseServiceNs_ = 0;
     std::vector<uint32_t> pubAgeTicks_, sheetAgeTicks_; AgeWindow pubAge_, sheetAge_, pubChainMs_;
     double deficit_[3] = {0, 0, 0}; uint64_t schedJobs_[3] = {0, 0, 0}, schedOverdue_[3] = {0, 0, 0}; float pubPendingAgeMs_ = 0, sheetPendingAgeMs_ = 0;
     uint64_t pubChunks_ = 0, sheetJobs_ = 0, framesAbandoned_ = 0, measAbandoned_ = 0; std::vector<uint32_t> chainRenderRetire_;

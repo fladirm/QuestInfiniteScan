@@ -23,8 +23,8 @@
 // ---- device measurement ring (fs_meas_gpu.h): two slots so compaction(N+1) overlaps integrate(N) --------------
 #define FS_MEAS_GPU_RING_CAPACITY    65536     // FsSurfaceMeasurement records per slot (3 MiB), power of two
 #define FS_MEAS_GPU_RING_SLOTS       2
-#define FS_MEAS_DEFAULT_BUDGET       16384     // C09R-E2 (contract §7.6, provisional 16-64 k): measurements selected per depth frame
-#define FS_MEAS_DEFAULT_MAX_OUT      32768     // hard cap of the emitted records (>= budget; the fraction rounding of the threshold bin never reaches it)
+#define FS_MEAS_DEFAULT_BUDGET       4096      // device-derived bounded information set: finish the observation instead of abandoning 16k partial work
+#define FS_MEAS_DEFAULT_MAX_OUT      8192      // hard cap with threshold-bin/C11R2 headroom; ring capacity remains unchanged
 #define FS_MEAS_MAX_GROUPS           4096      // workgroups of a 320x320x2 frame = 3200 (count/prefix scratch)
 #define FS_MEAS_ROW_PHASE_STRIDE     97        // rows the texel order rotates per frame (the emit order is a pure function of frame + selection)
 

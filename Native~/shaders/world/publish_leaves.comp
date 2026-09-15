@@ -92,12 +92,12 @@ void main() {
             // C09R-E4 authoritative FRONT: only PROMOTED geometry is published (it feeds the canonical prediction, the HZB and
             // persistence); transient candidates never reach the render tree, so a wrong depth pixel cannot confirm itself.
             if ((fsGet_FsSurfel_evidenceFlags(s) & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) != 0u) continue;
-            // E6R shared surface mesh: a vertex of the persistent topology publishes the faces it OWNS as triangle render records (positions
-            // from the canonical control vertices now); its own ellipse is the fallback only while it is not a mesh member (no incident
-            // face) or sits on a boundary. The canonical surfels are never modified: these are render copies.
+            // E6R shared surface mesh: a vertex of the persistent topology publishes the faces it OWNS as triangle render records.
+            // Ellipse fallback is ONLY for an unresolved vertex with no incident face. A mesh boundary is represented by an open shared
+            // edge; painting an ellipse over it reintroduces overlap/dot-cloud artefacts.
             uint tid = sheet[fsSheetNodeWord(h, 9u)];
             if (tid != FS_INDEX_NONE && topo[fsTopoVertexWord(tid, 4u)] != s.surfaceId) tid = FS_INDEX_NONE;
-            bool meshMember = tid != FS_INDEX_NONE && topo[fsTopoVertexWord(tid, 5u)] > 0u && (topo[fsTopoVertexWord(tid, 1u)] & FS_TOPO_FLAG_BOUNDARY) == 0u;
+            bool meshMember = tid != FS_INDEX_NONE && topo[fsTopoVertexWord(tid, 5u)] > 0u;
             uint emitCount = meshMember ? 0u : 1u;
             FsSurfel records[1 + FS_TOPO_FACES];
             if (!meshMember) { FsSurfel e0 = s; fsSet_FsSurfel_sigmaTMinor(e0, 0u); records[0] = e0; }

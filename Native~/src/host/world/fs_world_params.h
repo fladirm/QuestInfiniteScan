@@ -68,13 +68,13 @@
 #define FS_FREE_GRAZE_COS     0.15      // narrow phase: rays more grazing than this never contradict a support
 // ---- E6R persistent surface topology --------------------------------------------------------------------------------------------
 #define FS_TOPO_VERTEX_CAP      262144   // topology vertex records (promoted surfels in faces); pooled
-#define FS_TOPO_VERTEX_WORDS    32       // header 7 + FS_TOPO_FACES x FS_TOPO_FACE_WORDS
 #define FS_TOPO_HEADER_WORDS    7        // sheet index, flags, label, label generation, SurfaceID guard, incident faces, label stable count
-#define FS_TOPO_FACES           5        // faces owned by one vertex (owner = minimum SurfaceID of the face)
-#define FS_TOPO_FACE_WORDS      5        // b packed, c packed, SurfaceID b, SurfaceID c, meta (state | bridge evidence | last tick | attempts)
+#define FS_TOPO_FACES           8        // owner fan capacity must cover FS_SHEET_K=8; device run overflowed thousands of 5-face records
+#define FS_TOPO_FACE_WORDS      6        // b packed, c packed, SurfaceID b, SurfaceID c, meta, consecutive derivation-miss count
+#define FS_TOPO_VERTEX_WORDS    (FS_TOPO_HEADER_WORDS + FS_TOPO_FACES * FS_TOPO_FACE_WORDS)
 #define FS_SHEET_REC_CAP        65536    // sheet records (union-find); pooled
 #define FS_SHEET_REC_WORDS      8        // sheetId, parent, vertices, faces, area mm2, refs, relabel generation, min label
-#define FS_TOPO_DELTA_WORDS     12       // per batch node: flags, 5 x (b packed, c packed), hole receipt
+#define FS_TOPO_DELTA_WORDS     (2 + 2 * FS_TOPO_FACES) // flags, N x (b packed, c packed), hole receipt
 #define FS_TOPO_FREE_MAX        16384    // released ids per topology job (host-visible)
 #define FS_TEMPORAL_TARGETS     256      // C11R2 targets per topology job
 #define FS_TEMPORAL_TARGET_WORDS 8       // world xyz, normal oct, sigmaN, SurfaceID, positive support, pad
@@ -91,6 +91,8 @@
 #define FS_FACE_PENDING         0u       // face states (meta bits 0..1)
 #define FS_FACE_ACTIVE          1u
 #define FS_FACE_SUSPECT         2u
+#define FS_FACE_MISS_SUSPECT    2        // a persistent face tolerates isolated local triangulation misses
+#define FS_FACE_MISS_RETIRE     12       // destruction is deliberately slower than construction
 #define FS_TOPO_FLAG_INTERIOR   1u       // vertex flags: fan closed
 #define FS_TOPO_FLAG_BOUNDARY   2u
 #define FS_TRI_OFFSET_RANGE_M   0.128    // render copy: triangle vertex offsets from the owner vertex, 10 bits signed per axis
@@ -110,6 +112,8 @@
 #define FS_SHEET_COVER_MAX_M  0.05      // derived coverage radius bound (readout only)
 #define FS_SHEET_MOVE_MIN_M   0.002     // reduce marks a promoted surfel graph-dirty when its centre moved more than this ...
 #define FS_SHEET_TURN_MIN_COS 0.9994    // ... or its normal turned more than ~2 deg (converged in-plane updates cost no graph work)
+#define FS_SHEET_APPLY_POS_EPS_M 0.00025 // one q0.25mm canonical position quantum
+#define FS_SHEET_APPLY_NORMAL_COS 0.99996 // ~0.5 degree; below this the render/publish state is materially unchanged
 #define FS_SHEET_RING_CAP     262144    // graph-dirty ring (power of two; dedupe bit per handle)
 #define FS_SHEET_BATCH_MAX    4096      // graph-dirty surfels processed per publication (bounded work)
 // ---- C09R-E4.1C adaptive coarsen / refine (provisional numbers)
@@ -130,7 +134,8 @@
 #define FS_REFINE_MIN_OUTLIERS  3       // ... in one observation, at least this many
 #define FS_REFINE_MIN_SUPPORT   4       // ... on a surfel with this much support: insert a site at the worst residual
 #define FS_REFINE_BIRTHS_MAX    256     // site insertions per epoch (bounded sequential pass)
-#define FS_SHEET_NODE_WORDS   11        // per handle: nbr[8] (page << 22 | handle), meta (degree), topology vertex record id, contraction generation stamp
+#define FS_SHEET_NODE_WORDS   12        // nbr[8], degree, topology record, contraction generation, last observation regularised
+#define FS_SHEET_REG_OBS_WORD 11        // topology-only requeues must not move/coarsen canonical geometry again
 #define FS_RELOC_MAX          1024      // C09R-E4 relocation records per epoch (centre crossed its index cell); beyond: the position update waits (counted)
 #define FS_VAR_NORM_BASE      0.001     // log base of the normalised residual variance (varianceQ): 0.001 .. ~6e4 (E3b; run 00:12: 111 k splits against the fused sigma)
 #define FS_MERGE_MIN_DOT      0.98      // coplanar within ~11 deg ...

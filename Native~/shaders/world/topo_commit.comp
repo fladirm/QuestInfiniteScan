@@ -2,7 +2,8 @@
 // E6R topology 2/2 (one sequential invocation over the batch in ring order: deterministic). Commits the derived faces of every changed
 // vertex into the persistent topology:
 //  - vertex records (pooled, SurfaceID guard against recycled handles) with sheet, flags, component label, incident face count;
-//  - owned faces keyed by SurfaceIDs: kept faces keep their state, vanished ones retire, new ones are created exactly once (the owner);
+//  - owned faces keyed by SurfaceIDs: kept faces keep their state; ACTIVE faces tolerate bounded derivation misses before retirement;
+//    new ones are created exactly once (the owner). Persistent topology is not a frame-to-frame triangulation cache;
 //  - face state from the vertex lifecycles: ACTIVE, SUSPECT (a vertex SUSPECT / RETIRING), retired (two RETIRING vertices);
 //  - sheets (pooled union-find records): a face of unsheeted vertices founds a sheet (id = minimum SurfaceID), a face touching one sheet
 //    joins it, a face bridging different sheets waits for repeated evidence (FS_BRIDGE_EVIDENCE derivations in distinct observation
@@ -80,7 +81,10 @@ uint fsVertexRecord(uint e, bool create) {
     if (tid == NONE) { atomicAdd(gctr[FS_GCTR_TOPO_POOL_EMPTY], 1u); return NONE; }
     topo[fsTopoVertexWord(tid, 0u)] = NONE; topo[fsTopoVertexWord(tid, 1u)] = 0u; topo[fsTopoVertexWord(tid, 2u)] = sid; topo[fsTopoVertexWord(tid, 3u)] = 0u;
     topo[fsTopoVertexWord(tid, 4u)] = sid; topo[fsTopoVertexWord(tid, 5u)] = 0u; topo[fsTopoVertexWord(tid, 6u)] = 0u;
-    for (uint f = 0u; f < uint(FS_TOPO_FACES); ++f) { topo[fsTopoFaceWord(tid, f, 0u)] = NONE; topo[fsTopoFaceWord(tid, f, 1u)] = NONE; topo[fsTopoFaceWord(tid, f, 4u)] = 0u; }
+    for (uint f = 0u; f < uint(FS_TOPO_FACES); ++f) {
+        topo[fsTopoFaceWord(tid, f, 0u)] = NONE; topo[fsTopoFaceWord(tid, f, 1u)] = NONE;
+        topo[fsTopoFaceWord(tid, f, 4u)] = 0u; topo[fsTopoFaceWord(tid, f, 5u)] = 0u;
+    }
     sheet[fsSheetNodeWord(h, 9u)] = tid;
     atomicAdd(gctr[FS_GCTR_TOPO_VERTICES], 1u);
     return tid;
@@ -100,7 +104,8 @@ void fsRetireFace(uint ownerE, uint tid, uint f) {
     atomicAdd(gctr[FS_GCTR_FACES_RETIRED], 1u);
     fsIncident(ownerE, -1); fsIncident(bE, -1); fsIncident(cE, -1);
     uint s = topo[fsTopoVertexWord(tid, 0u)]; if (s != NONE) { uint r = fsRoot(s); if (topo[fsSheetRecWord(r, 3u)] > 0u) topo[fsSheetRecWord(r, 3u)]--; }
-    topo[fsTopoFaceWord(tid, f, 0u)] = NONE; topo[fsTopoFaceWord(tid, f, 1u)] = NONE; topo[fsTopoFaceWord(tid, f, 4u)] = 0u;
+    topo[fsTopoFaceWord(tid, f, 0u)] = NONE; topo[fsTopoFaceWord(tid, f, 1u)] = NONE;
+    topo[fsTopoFaceWord(tid, f, 4u)] = 0u; topo[fsTopoFaceWord(tid, f, 5u)] = 0u;
 }
 void fsMarkGraphNeighbours(uint h) {
     for (uint k = 0u; k < uint(FS_SHEET_K); ++k) { uint nb = sheet[fsSheetNodeWord(h, k)]; if (nb != NONE) fsSheetMark(nb >> 22, nb & 0x3FFFFFu); }
@@ -148,9 +153,32 @@ void main() {
                 if (k >= nNew || matched[k]) continue;
                 uint nb = topo[td + 1u + 2u * k], ncE = topo[td + 2u + 2u * k];
                 uint nsB = surfels[nb & 0x3FFFFFu].surfaceId, nsC = surfels[ncE & 0x3FFFFFu].surfaceId;
-                if ((nsB == sB && nsC == sC) || (nsB == sC && nsC == sB)) { matched[k] = true; keep = true; topo[fsTopoFaceWord(tid, f, 0u)] = nb; topo[fsTopoFaceWord(tid, f, 1u)] = ncE; break; }
+                if ((nsB == sB && nsC == sC) || (nsB == sC && nsC == sB)) {
+                    matched[k] = true; keep = true;
+                    topo[fsTopoFaceWord(tid, f, 0u)] = nb; topo[fsTopoFaceWord(tid, f, 1u)] = ncE;
+                    topo[fsTopoFaceWord(tid, f, 5u)] = 0u;
+                    break;
+                }
             }
-            if (!keep) { fsRetireFace(e, tid, f); changed = true; }
+            if (!keep) {
+                uint cE = topo[fsTopoFaceWord(tid, f, 1u)];
+                uint metaW = fsTopoFaceWord(tid, f, 4u), meta = topo[metaW], st = meta & 3u;
+                // PENDING bridge faces were never authoritative. Invalid/recycled vertices also retire immediately.
+                if (st == FS_FACE_PENDING || cE == NONE
+                    || !fsVertexUsable(bE & 0x3FFFFFu) || !fsVertexUsable(cE & 0x3FFFFFu)
+                    || surfels[bE & 0x3FFFFFu].surfaceId != sB || surfels[cE & 0x3FFFFFu].surfaceId != sC) {
+                    fsRetireFace(e, tid, f); changed = true; continue;
+                }
+                // ACTIVE/SUSPECT faces are persistent. One local Delaunay/graph miss is not evidence that the physical surface vanished.
+                uint missW = fsTopoFaceWord(tid, f, 5u);
+                uint miss = min(topo[missW] + 1u, 255u); topo[missW] = miss;
+                if (miss >= uint(FS_FACE_MISS_RETIRE)) { fsRetireFace(e, tid, f); changed = true; continue; }
+                if (miss >= uint(FS_FACE_MISS_SUSPECT) && st == FS_FACE_ACTIVE) {
+                    topo[metaW] = (meta & ~3u) | FS_FACE_SUSPECT;
+                    atomicAdd(gctr[FS_GCTR_FACES_SUSPECT], 1u); changed = true;
+                }
+                fsSheetMark(page, h);                                             // bounded retry until recovered or persistently absent
+            }
         }
         for (uint k = 0u; k < uint(FS_TOPO_FACES); ++k) {
             if (k >= nNew || matched[k]) continue;
@@ -160,7 +188,8 @@ void main() {
             uint sB = surfels[nb & 0x3FFFFFu].surfaceId, sC = surfels[ncE & 0x3FFFFFu].surfaceId;
             if (sidA > sB || sidA > sC) { atomicAdd(gctr[FS_GCTR_FACE_OWNER_VIOL], 1u); continue; }
             topo[fsTopoFaceWord(tid, slot, 0u)] = nb; topo[fsTopoFaceWord(tid, slot, 1u)] = ncE;
-            topo[fsTopoFaceWord(tid, slot, 2u)] = sB; topo[fsTopoFaceWord(tid, slot, 3u)] = sC; topo[fsTopoFaceWord(tid, slot, 4u)] = FS_FACE_PENDING;
+            topo[fsTopoFaceWord(tid, slot, 2u)] = sB; topo[fsTopoFaceWord(tid, slot, 3u)] = sC;
+            topo[fsTopoFaceWord(tid, slot, 4u)] = FS_FACE_PENDING; topo[fsTopoFaceWord(tid, slot, 5u)] = 0u;
             fsIncident(e, 1); fsIncident(nb, 1); fsIncident(ncE, 1);
             atomicAdd(gctr[FS_GCTR_FACES_CREATED], 1u); changed = true;
         }
@@ -177,6 +206,7 @@ void main() {
             uint tB = fsVertexRecord(bE, true), tC = fsVertexRecord(cE, true);
             if (tB == NONE || tC == NONE) continue;
             uint meta = topo[fsTopoFaceWord(tid, f, 4u)], st = meta & 3u;
+            uint missing = topo[fsTopoFaceWord(tid, f, 5u)];
             uint sa = fsRoot(topo[fsTopoVertexWord(tid, 0u)]), sb = fsRoot(topo[fsTopoVertexWord(tB, 0u)]), sc = fsRoot(topo[fsTopoVertexWord(tC, 0u)]);
             uint root = sa != NONE ? sa : (sb != NONE ? sb : sc);
             bool bridge = (sa != NONE && sa != root) || (sb != NONE && sb != root) || (sc != NONE && sc != root);
@@ -218,7 +248,7 @@ void main() {
                 if (root == NONE) { uint minSid = min(sidA, min(surfels[hB].surfaceId, surfels[hC].surfaceId)); root = fsSheetNew(minSid); if (root == NONE) continue; }
             }
             fsVertexSetSheet(tid, root); fsVertexSetSheet(tB, root); fsVertexSetSheet(tC, root);
-            uint nst = (life != FS_LIFE_ACTIVE || lB != FS_LIFE_ACTIVE || lC != FS_LIFE_ACTIVE) ? FS_FACE_SUSPECT : FS_FACE_ACTIVE;
+            uint nst = (missing != 0u || life != FS_LIFE_ACTIVE || lB != FS_LIFE_ACTIVE || lC != FS_LIFE_ACTIVE) ? FS_FACE_SUSPECT : FS_FACE_ACTIVE;
             if (st == FS_FACE_PENDING) {
                 atomicAdd(gctr[FS_GCTR_ACTIVE_FACES], 1u); topo[fsSheetRecWord(root, 3u)]++; changed = true;
                 vec3 pa = fsSurfelLocalPos(surfels[h]) + fsPageOrigin3(pages[page].key), pb = fsSurfelLocalPos(surfels[hB]) + fsPageOrigin3(pages[bE >> 22].key), pc = fsSurfelLocalPos(surfels[hC]) + fsPageOrigin3(pages[cE >> 22].key);
@@ -247,19 +277,11 @@ void main() {
             if (L < label) { topo[fsTopoVertexWord(tid, 2u)] = L; topo[fsTopoVertexWord(tid, 6u)] = 0u; fsMarkGraphNeighbours(h); label = L; }
             else topo[fsTopoVertexWord(tid, 6u)] = min(topo[fsTopoVertexWord(tid, 6u)] + 1u, 255u);
             uint mw = fsSheetRecWord(r, 7u); topo[mw] = min(topo[mw], label);
-            if (label > topo[mw]) {
-                if (topo[fsTopoVertexWord(tid, 6u)] >= uint(FS_SPLIT_CONFIRM)) {
-                    uint target = NONE;
-                    for (uint k = 0u; k < uint(FS_SHEET_K); ++k) {
-                        uint nb = sheet[fsSheetNodeWord(h, k)]; if (nb == NONE) continue;
-                        uint nt = fsVertexRecord(nb, false); if (nt == NONE) continue;
-                        uint nr = fsRoot(topo[fsTopoVertexWord(nt, 0u)]);
-                        if (nr != NONE && nr != r && topo[fsSheetRecWord(nr, 0u)] == label) { target = nr; break; }
-                    }
-                    if (target == NONE) { target = fsSheetNew(label); if (target != NONE) { topo[fsSheetRecWord(target, 6u)] = gen; atomicAdd(gctr[FS_GCTR_SHEET_SPLITS], 1u); } }
-                    if (target != NONE) { fsVertexSetSheet(tid, target); topo[fsTopoVertexWord(tid, 3u)] = topo[fsSheetRecWord(target, 6u)]; fsMarkGraphNeighbours(h); fsMarkVertexCell(e); }
-                } else fsSheetMark(page, h);                                           // settle first
-            }
+            if (label > topo[mw] && topo[fsTopoVertexWord(tid, 6u)] < uint(FS_SPLIT_CONFIRM))
+                fsSheetMark(page, h);                                                  // settle labels only
+            // IMPORTANT: label != sheet minimum is not a physical cut proof. The previous branch created a new SheetID here;
+            // on device, with canonical geometry completely frozen, sheets continued splitting and re-unioning indefinitely.
+            // Keep the stable sheet identity. A future split must be driven by a confirmed retired-face cut, not async propagation.
         }
         // ---- C11R2 temporal target: an uncertain vertex of existing faces
         FsPatch q = fsUnpack(surfels[h]);
