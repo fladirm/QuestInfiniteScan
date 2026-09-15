@@ -165,8 +165,11 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
 
     int lower0 = M8MembraneFloorDiv2(halfAddress[tangentAxis0]);
     int lower1 = M8MembraneFloorDiv2(halfAddress[tangentAxis1]);
-    float heightSum = 0.0;
-    uint accepted = 0u;
+    float heights[12];
+    uint signatures[12];
+    int3 coords[12];
+    uint columns[12];
+    uint count = 0u;
     [loop]
     for (int first = 0; first < 2; first++)
     [loop]
@@ -177,12 +180,6 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
             lower0 + first);
         column = M8MembraneSetIntComponent(column, tangentAxis1,
             lower1 + second);
-        bool found = false;
-        bool bestSignature = false;
-        float bestResidual = 3.402823466e+38;
-        int bestLayerDistance = 2147483647;
-        int3 bestCoord = 0;
-        float bestHeight = 0.0;
         [loop]
         for (int normalOffset = -1; normalOffset <= 1; normalOffset++)
         {
@@ -237,28 +234,110 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
                 }
                 continue;
             }
-            bool signature = freeSignature == mainFreeSignature;
-            float residual = abs(height - mainHeight);
-            int layerDistance = abs(normalOffset);
-            if (!found || (signature && !bestSignature) ||
-                (signature == bestSignature &&
-                 (residual < bestResidual - M8_MEMBRANE_NUMERICAL_EPSILON ||
-                  (abs(residual - bestResidual) <=
-                       M8_MEMBRANE_NUMERICAL_EPSILON &&
-                   (layerDistance < bestLayerDistance ||
-                    (layerDistance == bestLayerDistance &&
-                     M8MembraneLexLess(coord, bestCoord)))))))
+            heights[count] = height;
+            signatures[count] = freeSignature;
+            coords[count] = coord;
+            columns[count] = (uint)(first * 2 + second);
+            count++;
+        }
+    }
+    if (count == 0u)
+    {
+        position = 0.0;
+        return false;
+    }
+
+    // MAIN chooses only WHICH sheet branch this corner belongs to.
+    uint seed = 0u;
+    [loop]
+    for (uint index = 1u; index < count; index++)
+    {
+        bool signature = signatures[index] == mainFreeSignature;
+        bool seedSignature = signatures[seed] == mainFreeSignature;
+        float residual = abs(heights[index] - mainHeight);
+        float seedResidual = abs(heights[seed] - mainHeight);
+        if ((signature && !seedSignature) ||
+            (signature == seedSignature &&
+             (residual < seedResidual - M8_MEMBRANE_NUMERICAL_EPSILON ||
+              (abs(residual - seedResidual) <=
+                   M8_MEMBRANE_NUMERICAL_EPSILON &&
+               M8MembraneLexLess(coords[index], coords[seed])))))
+            seed = index;
+    }
+
+    // Branch membership, median and per-column contributors depend only on
+    // the corner neighbourhood, so one branch resolves one shared corner.
+    uint order[12];
+    uint ordered = 0u;
+    [loop]
+    for (uint candidateIndex = 0u; candidateIndex < count; candidateIndex++)
+        if (signatures[candidateIndex] == signatures[seed])
+        {
+            order[ordered] = candidateIndex;
+            ordered++;
+        }
+    [loop]
+    for (uint sortIndex = 1u; sortIndex < ordered; sortIndex++)
+    {
+        uint value = order[sortIndex];
+        uint slot = sortIndex;
+        [loop]
+        while (slot > 0u &&
+            (heights[value] < heights[order[slot - 1u]] ||
+             (heights[value] == heights[order[slot - 1u]] &&
+              M8MembraneLexLess(coords[value], coords[order[slot - 1u]]))))
+        {
+            order[slot] = order[slot - 1u];
+            slot--;
+        }
+        order[slot] = value;
+    }
+    uint seedPosition = 0u;
+    [loop]
+    while (seedPosition + 1u < ordered && order[seedPosition] != seed)
+        seedPosition++;
+    uint low = seedPosition;
+    uint high = seedPosition;
+    [loop]
+    while (low > 0u && heights[order[low]] - heights[order[low - 1u]] <=
+        M8_MEMBRANE_PATCH_PITCH * 0.6)
+        low--;
+    [loop]
+    while (high + 1u < ordered &&
+        heights[order[high + 1u]] - heights[order[high]] <=
+        M8_MEMBRANE_PATCH_PITCH * 0.6)
+        high++;
+    uint members = high - low + 1u;
+    uint middle = low + (members >> 1u);
+    float median = (members & 1u) != 0u
+        ? heights[order[middle]]
+        : (heights[order[middle - 1u]] + heights[order[middle]]) * 0.5;
+
+    float heightSum = 0.0;
+    uint accepted = 0u;
+    [loop]
+    for (uint columnIndex = 0u; columnIndex < 4u; columnIndex++)
+    {
+        int best = -1;
+        float bestDistance = 3.402823466e+38;
+        [loop]
+        for (uint position2 = low; position2 <= high; position2++)
+        {
+            uint index = order[position2];
+            if (columns[index] != columnIndex) continue;
+            float distance = abs(heights[index] - median);
+            if (best < 0 ||
+                distance < bestDistance - M8_MEMBRANE_NUMERICAL_EPSILON ||
+                (abs(distance - bestDistance) <=
+                     M8_MEMBRANE_NUMERICAL_EPSILON &&
+                 M8MembraneLexLess(coords[index], coords[(uint)best])))
             {
-                found = true;
-                bestSignature = signature;
-                bestResidual = residual;
-                bestLayerDistance = layerDistance;
-                bestCoord = coord;
-                bestHeight = height;
+                best = (int)index;
+                bestDistance = distance;
             }
         }
-        if (!found) continue;
-        heightSum += bestHeight;
+        if (best < 0) continue;
+        heightSum += heights[(uint)best];
         accepted++;
     }
     if (accepted == 0u)

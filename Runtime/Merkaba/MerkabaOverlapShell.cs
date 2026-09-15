@@ -229,8 +229,11 @@ namespace Genesis.RoomScan
 
             int lower0 = MerkabaConstants.FloorDiv(halfAddress[tangentAxis0], 2);
             int lower1 = MerkabaConstants.FloorDiv(halfAddress[tangentAxis1], 2);
-            float heightSum = 0f;
-            int accepted = 0;
+            Span<float> heights = stackalloc float[CornerCandidateCapacity];
+            Span<int> signatures = stackalloc int[CornerCandidateCapacity];
+            Span<int3> coords = stackalloc int3[CornerCandidateCapacity];
+            Span<int> columns = stackalloc int[CornerCandidateCapacity];
+            int count = 0;
 
             // Tangent axes are returned in ascending coordinate order, so this
             // fixed enumeration is lexicographic and MAIN-independent.
@@ -240,12 +243,6 @@ namespace Genesis.RoomScan
                 int3 column = main;
                 column[tangentAxis0] = lower0 + first;
                 column[tangentAxis1] = lower1 + second;
-                bool found = false;
-                bool bestSignature = false;
-                float bestResidual = float.PositiveInfinity;
-                int bestLayerDistance = int.MaxValue;
-                int3 bestCoord = default;
-                float bestHeight = 0f;
                 for (int normalOffset = -1; normalOffset <= 1;
                      normalOffset++)
                 {
@@ -267,30 +264,96 @@ namespace Genesis.RoomScan
                             candidateOffset, dominantAxis, line,
                             out float height))
                         continue;
+                    heights[count] = height;
+                    signatures[count] = FreeSideSignature(coord, dominantAxis,
+                        context, main, mainState);
+                    coords[count] = coord;
+                    columns[count] = first * 2 + second;
+                    count++;
+                }
+            }
+            if (count == 0)
+            {
+                position = default;
+                return false;
+            }
 
-                    bool signature = FreeSideSignature(coord, dominantAxis,
-                        context, main, mainState) == mainFreeSignature;
-                    float residual = math.abs(height - mainHeight);
-                    int layerDistance = math.abs(normalOffset);
-                    if (!found || (signature && !bestSignature) ||
-                        (signature == bestSignature &&
-                         (residual < bestResidual - NumericalEpsilon ||
-                          (math.abs(residual - bestResidual) <=
-                               NumericalEpsilon &&
-                           (layerDistance < bestLayerDistance ||
-                            (layerDistance == bestLayerDistance &&
-                             LexicographicallyLess(coord, bestCoord)))))))
+            // MAIN chooses only WHICH sheet branch this corner belongs to:
+            // same free side first, then nearest to its own measured plane.
+            int seed = 0;
+            for (int index = 1; index < count; index++)
+            {
+                bool signature = signatures[index] == mainFreeSignature;
+                bool seedSignature = signatures[seed] == mainFreeSignature;
+                float residual = math.abs(heights[index] - mainHeight);
+                float seedResidual = math.abs(heights[seed] - mainHeight);
+                if ((signature && !seedSignature) ||
+                    (signature == seedSignature &&
+                     (residual < seedResidual - NumericalEpsilon ||
+                      (math.abs(residual - seedResidual) <= NumericalEpsilon &&
+                       LexicographicallyLess(coords[index], coords[seed])))))
+                    seed = index;
+            }
+
+            // The branch is the connected height interval of its free side:
+            // membership, median and per-column contributors are functions of
+            // the corner neighbourhood alone, so every patch of the same
+            // branch resolves a bit-identical shared corner.
+            Span<int> order = stackalloc int[CornerCandidateCapacity];
+            int ordered = 0;
+            for (int index = 0; index < count; index++)
+                if (signatures[index] == signatures[seed])
+                    order[ordered++] = index;
+            for (int index = 1; index < ordered; index++)
+            {
+                int value = order[index];
+                int slot = index;
+                while (slot > 0 && CornerCandidateBefore(value, order[slot - 1],
+                           heights, coords))
+                {
+                    order[slot] = order[slot - 1];
+                    slot--;
+                }
+                order[slot] = value;
+            }
+            int seedPosition = 0;
+            while (order[seedPosition] != seed) seedPosition++;
+            int low = seedPosition;
+            int high = seedPosition;
+            while (low > 0 && heights[order[low]] - heights[order[low - 1]] <=
+                   BranchHeightGap)
+                low--;
+            while (high + 1 < ordered &&
+                   heights[order[high + 1]] - heights[order[high]] <=
+                   BranchHeightGap)
+                high++;
+            int members = high - low + 1;
+            float median = (members & 1) != 0
+                ? heights[order[low + members / 2]]
+                : (heights[order[low + members / 2 - 1]] +
+                   heights[order[low + members / 2]]) * 0.5f;
+
+            float heightSum = 0f;
+            int accepted = 0;
+            for (int columnIndex = 0; columnIndex < 4; columnIndex++)
+            {
+                int best = -1;
+                float bestDistance = float.PositiveInfinity;
+                for (int position2 = low; position2 <= high; position2++)
+                {
+                    int index = order[position2];
+                    if (columns[index] != columnIndex) continue;
+                    float distance = math.abs(heights[index] - median);
+                    if (best < 0 || distance < bestDistance - NumericalEpsilon ||
+                        (math.abs(distance - bestDistance) <= NumericalEpsilon &&
+                         LexicographicallyLess(coords[index], coords[best])))
                     {
-                        found = true;
-                        bestSignature = signature;
-                        bestResidual = residual;
-                        bestLayerDistance = layerDistance;
-                        bestCoord = coord;
-                        bestHeight = height;
+                        best = index;
+                        bestDistance = distance;
                     }
                 }
-                if (!found) continue;
-                heightSum += bestHeight;
+                if (best < 0) continue;
+                heightSum += heights[best];
                 accepted++;
             }
 
@@ -303,6 +366,15 @@ namespace Genesis.RoomScan
             position = line;
             return math.all(math.isfinite(position));
         }
+
+        internal const int CornerCandidateCapacity = 12;
+        internal const float BranchHeightGap = MembranePatchPitch * 0.6f;
+
+        private static bool CornerCandidateBefore(int left, int right,
+            Span<float> heights, Span<int3> coords) =>
+            heights[left] < heights[right] ||
+            (heights[left] == heights[right] &&
+             LexicographicallyLess(coords[left], coords[right]));
 
         private static bool TryPlaneLineHeight(int3 owner, float3 normal,
             float signedOffset, int dominantAxis, float3 line,
@@ -712,8 +784,11 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
 
     int lower0 = M8MembraneFloorDiv2(halfAddress[tangentAxis0]);
     int lower1 = M8MembraneFloorDiv2(halfAddress[tangentAxis1]);
-    float heightSum = 0.0;
-    uint accepted = 0u;
+    float heights[12];
+    uint signatures[12];
+    int3 coords[12];
+    uint columns[12];
+    uint count = 0u;
     [loop]
     for (int first = 0; first < 2; first++)
     [loop]
@@ -724,12 +799,6 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
             lower0 + first);
         column = M8MembraneSetIntComponent(column, tangentAxis1,
             lower1 + second);
-        bool found = false;
-        bool bestSignature = false;
-        float bestResidual = 3.402823466e+38;
-        int bestLayerDistance = 2147483647;
-        int3 bestCoord = 0;
-        float bestHeight = 0.0;
         [loop]
         for (int normalOffset = -1; normalOffset <= 1; normalOffset++)
         {
@@ -784,28 +853,110 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
                 }
                 continue;
             }
-            bool signature = freeSignature == mainFreeSignature;
-            float residual = abs(height - mainHeight);
-            int layerDistance = abs(normalOffset);
-            if (!found || (signature && !bestSignature) ||
-                (signature == bestSignature &&
-                 (residual < bestResidual - M8_MEMBRANE_NUMERICAL_EPSILON ||
-                  (abs(residual - bestResidual) <=
-                       M8_MEMBRANE_NUMERICAL_EPSILON &&
-                   (layerDistance < bestLayerDistance ||
-                    (layerDistance == bestLayerDistance &&
-                     M8MembraneLexLess(coord, bestCoord)))))))
+            heights[count] = height;
+            signatures[count] = freeSignature;
+            coords[count] = coord;
+            columns[count] = (uint)(first * 2 + second);
+            count++;
+        }
+    }
+    if (count == 0u)
+    {
+        position = 0.0;
+        return false;
+    }
+
+    // MAIN chooses only WHICH sheet branch this corner belongs to.
+    uint seed = 0u;
+    [loop]
+    for (uint index = 1u; index < count; index++)
+    {
+        bool signature = signatures[index] == mainFreeSignature;
+        bool seedSignature = signatures[seed] == mainFreeSignature;
+        float residual = abs(heights[index] - mainHeight);
+        float seedResidual = abs(heights[seed] - mainHeight);
+        if ((signature && !seedSignature) ||
+            (signature == seedSignature &&
+             (residual < seedResidual - M8_MEMBRANE_NUMERICAL_EPSILON ||
+              (abs(residual - seedResidual) <=
+                   M8_MEMBRANE_NUMERICAL_EPSILON &&
+               M8MembraneLexLess(coords[index], coords[seed])))))
+            seed = index;
+    }
+
+    // Branch membership, median and per-column contributors depend only on
+    // the corner neighbourhood, so one branch resolves one shared corner.
+    uint order[12];
+    uint ordered = 0u;
+    [loop]
+    for (uint candidateIndex = 0u; candidateIndex < count; candidateIndex++)
+        if (signatures[candidateIndex] == signatures[seed])
+        {
+            order[ordered] = candidateIndex;
+            ordered++;
+        }
+    [loop]
+    for (uint sortIndex = 1u; sortIndex < ordered; sortIndex++)
+    {
+        uint value = order[sortIndex];
+        uint slot = sortIndex;
+        [loop]
+        while (slot > 0u &&
+            (heights[value] < heights[order[slot - 1u]] ||
+             (heights[value] == heights[order[slot - 1u]] &&
+              M8MembraneLexLess(coords[value], coords[order[slot - 1u]]))))
+        {
+            order[slot] = order[slot - 1u];
+            slot--;
+        }
+        order[slot] = value;
+    }
+    uint seedPosition = 0u;
+    [loop]
+    while (seedPosition + 1u < ordered && order[seedPosition] != seed)
+        seedPosition++;
+    uint low = seedPosition;
+    uint high = seedPosition;
+    [loop]
+    while (low > 0u && heights[order[low]] - heights[order[low - 1u]] <=
+        M8_MEMBRANE_PATCH_PITCH * 0.6)
+        low--;
+    [loop]
+    while (high + 1u < ordered &&
+        heights[order[high + 1u]] - heights[order[high]] <=
+        M8_MEMBRANE_PATCH_PITCH * 0.6)
+        high++;
+    uint members = high - low + 1u;
+    uint middle = low + (members >> 1u);
+    float median = (members & 1u) != 0u
+        ? heights[order[middle]]
+        : (heights[order[middle - 1u]] + heights[order[middle]]) * 0.5;
+
+    float heightSum = 0.0;
+    uint accepted = 0u;
+    [loop]
+    for (uint columnIndex = 0u; columnIndex < 4u; columnIndex++)
+    {
+        int best = -1;
+        float bestDistance = 3.402823466e+38;
+        [loop]
+        for (uint position2 = low; position2 <= high; position2++)
+        {
+            uint index = order[position2];
+            if (columns[index] != columnIndex) continue;
+            float distance = abs(heights[index] - median);
+            if (best < 0 ||
+                distance < bestDistance - M8_MEMBRANE_NUMERICAL_EPSILON ||
+                (abs(distance - bestDistance) <=
+                     M8_MEMBRANE_NUMERICAL_EPSILON &&
+                 M8MembraneLexLess(coords[index], coords[(uint)best])))
             {
-                found = true;
-                bestSignature = signature;
-                bestResidual = residual;
-                bestLayerDistance = layerDistance;
-                bestCoord = coord;
-                bestHeight = height;
+                best = (int)index;
+                bestDistance = distance;
             }
         }
-        if (!found) continue;
-        heightSum += bestHeight;
+        if (best < 0) continue;
+        heightSum += heights[(uint)best];
         accepted++;
     }
     if (accepted == 0u)
