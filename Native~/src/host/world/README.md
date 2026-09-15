@@ -99,6 +99,23 @@ cull math, and the C09R §32 suite: fusion determinism, concurrent candidates, d
 pools/retirement, sparse dirty list, cross-page free ray + hop bound, index generation (split/chain/overflow/
 pool exhaustion/reset).
 
+## C09R-E5R execution / dataflow closure (replaces the E5 alternation)
+- **Persistent dirty frontier:** `fsMarkDirtyCell` sets the dedupe bit and enqueues `{page<<15|cell, tick}` into the dirty-cell
+  ring (`FS_DIRTY_RING_CAP`); `dirty_take` consumes a batch into the publication list and clears the bits; a released page
+  clears its bits so its stale entries are skipped. No pass rescans page masks (the pages/prefix/emit compaction is gone).
+  A full ring refuses and counts (`dirtyRingDrop`, must stay 0).
+- **Deadline / deficit scheduler (`World::Tick`):** one job per tick among FUSE, PUBLISH (next chain stage or a new chain) and
+  SHEET. Overdue work first: oldest pending dirty cell older than `FS_SCHED_PUBLISH_DEADLINE_MS`, oldest pending graph
+  node older than `FS_SCHED_SHEET_DEADLINE_MS` (ages from the enqueue ticks); otherwise the runnable stage with the
+  largest GPU-time deficit (`FS_SCHED_SHARE_*`). A new depth frame is not leased while work is overdue.
+- **Per-stage cost models (`fs_cost_model.h`):** `t = fixed + n·perItem` by EWMA least squares per stage (fuse, maint,
+  leaves, sheet, measurement refine); the batch follows the variable cost; near-empty jobs are not learned; `fixed ≥
+  target` is reported structural (the batch spends one target of variable work, it is never halved to the floor).
+- **Fusion dispatch domain = actual N:** cluster count / prefix over the epoch's whole blocks, the carry sums only those.
+- **Receipts:** publication age p50/p95 (change → FRONT commit), sheet age p50/p95, chain duration p95, promoted-live
+  (FRONT/BACK ratio), scheduler jobs / overdue picks, cost-model fits.
+- Refinement coverage (`sheet_refine`) searches the 27 global cells across resident pages through the page hash.
+
 ## C09R-E5 bounded GPU / executor closure
 - **One bounded job per scheduler tick.** Fuse slices are stride subsamples of one depth frame
   (`phase + k·stride`, stride from `epochMeasCap`, floor `FS_EPOCH_MEAS_MIN` 512) so the SCAN quantum gate can

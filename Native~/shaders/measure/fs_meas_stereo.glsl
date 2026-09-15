@@ -10,6 +10,35 @@ const uint FS_STEREO_OK = 0u, FS_STEREO_ST_LOWTEX = 1u, FS_STEREO_ST_AMBIG = 2u,
 mat4 fsCamM(uint e) { return e == 2u ? blk.keyCamFromWorld : blk.camFromWorld[e]; }
 vec4 fsCamK(uint e) { return e == 2u ? blk.keyIntrinsics : blk.camIntrinsics[e]; }
 vec3 fsCamCentre(uint e) { mat4 M = fsCamM(e); return -(transpose(mat3(M)) * M[3].xyz); }
+// Appearance sample (contract §14, C16a; twin: SampleColor): the world point projected into PCA camera `eye` (0 left, 1 right); RGB8 |
+// FS_MEAS_COLOR_VALID, else 0.
+uint fsSampleColor(uint eye, vec3 pWorld) {
+    if ((blk.camInfo.z & (1u << eye)) == 0u || blk.camInfo.x == 0u || blk.camInfo.y == 0u) return 0u;
+    vec3 pcam = (blk.camFromWorld[eye] * vec4(pWorld, 1.0)).xyz;
+    if (pcam.z <= 0.05) return 0u;
+    vec4 k = blk.camIntrinsics[eye];
+    float u = k.z + k.x * pcam.x / pcam.z, v = k.w + k.y * pcam.y / pcam.z;
+    if (u < 0.0 || v < 0.0 || u >= float(blk.camInfo.x) || v >= float(blk.camInfo.y)) return 0u;
+    ivec2 px = ivec2(int(u), int(v));
+    if (blk.camInfo.w != 0u) px.y = int(blk.camInfo.y) - 1 - px.y;
+    vec4 c = eye == 0u ? texelFetch(camL, px, 0) : texelFetch(camR, px, 0);
+    uvec3 c8 = uvec3(clamp(c.rgb, 0.0, 1.0) * 255.0 + 0.5);
+    return FS_MEAS_COLOR_VALID | c8.r | (c8.g << 8) | (c8.b << 16);
+}
+// pixel position (bottom-left origin) of world point pw in camera e; false behind the camera
+bool fsCamPixel(uint e, vec3 pw, out vec2 px, out float zc) {
+    vec3 pcam = (fsCamM(e) * vec4(pw, 1.0)).xyz; zc = pcam.z; px = vec2(-1.0);
+    if (pcam.z <= 0.05) return false;
+    vec4 k = fsCamK(e); px = vec2(k.z + k.x * pcam.x / pcam.z, k.w + k.y * pcam.y / pcam.z);
+    return true;
+}
+float fsCamW(uint e) { return float(e == 2u ? blk.keyInfo.x : blk.camInfo.x); }
+float fsCamH(uint e) { return float(e == 2u ? blk.keyInfo.y : blk.camInfo.y); }
+// effective (ray-perpendicular) baseline of camera `other` against the left camera ray through pw (twin: EffectiveBaseline)
+float fsEffectiveBaseline(uint other, vec3 pw) {
+    vec3 cL = fsCamCentre(0u), dv = fsCamCentre(other) - cL, dir = normalize(pw - cL);
+    return length(dv - dot(dv, dir) * dir);
+}
 // luma of world point pw in camera e; false when a bilinear footprint leaves the image
 bool fsCamLuma(uint e, vec3 pw, out float luma) {
     luma = 0.0;
@@ -26,12 +55,12 @@ bool fsCamLuma(uint e, vec3 pw, out float luma) {
     return true;
 }
 // Solves one texel against camera `other`. pPrior / nPrior world (n facing the viewer), sigmaPrior (m), bandMaxPx = band cap.
-uint fsStereoSolve(uint other, vec3 pPrior, vec3 nPrior, float sigmaPrior, float bandMaxPx, out vec3 pOut, out float sigmaOut, out float znccOut) {
+uint fsStereoSolve(uint other, vec3 pPrior, vec3 nPrior, float sigmaPrior, float bandMaxPx, float bMin, out vec3 pOut, out float sigmaOut, out float znccOut) {
     pOut = pPrior; sigmaOut = sigmaPrior; znccOut = 0.0;
-    vec3 cL = fsCamCentre(0u), cO = fsCamCentre(other);
-    float b = length(cO - cL), fx = blk.camIntrinsics[0].x;
+    vec3 cL = fsCamCentre(0u);
+    float b = fsEffectiveBaseline(other, pPrior), fx = blk.camIntrinsics[0].x;   // C11R: ray-perpendicular baseline (forward motion has no parallax)
     vec3 pcL = (blk.camFromWorld[0] * vec4(pPrior, 1.0)).xyz;
-    if (pcL.z <= 0.1 || b < 0.01) return FS_STEREO_ST_SKIP;
+    if (pcL.z <= 0.1 || b < bMin) return FS_STEREO_ST_SKIP;
     vec3 rayW = transpose(mat3(blk.camFromWorld[0])) * (pcL / pcL.z);    // world direction per unit of left-camera depth
     float z0 = pcL.z, d0 = fx * b / z0;
     const int halfN = (FS_STEREO_HYPS - 1) / 2;

@@ -98,15 +98,24 @@ layout(std430, set = 0, binding = FS_B_DIRTY) readonly buffer DirtyBlockRO { uin
 #define FS_DIRTY_RNODEMASK(page) (uint(FS_MAX_PAGES) * uint(FS_DIRTY_CELL_WORDS) + (page) * uint(FS_DIRTY_RNODE_WORDS))
 #define FS_DIRTY_LIST_BASE   (uint(FS_MAX_PAGES) * uint(FS_DIRTY_CELL_WORDS) + uint(FS_MAX_PAGES) * uint(FS_DIRTY_RNODE_WORDS))
 #define FS_DIRTY_LIST(level) (FS_DIRTY_LIST_BASE + uint(level) * uint(FS_DIRTY_NODES_MAX))
-#define FS_DIRTY_RELOC       (FS_DIRTY_LIST_BASE + 7u * uint(FS_DIRTY_NODES_MAX))   // FS_RELOC_MAX x 4 words: handle, page<<15|oldCell, newCell|oldPz<<15, oldPx_Py (level lists: 0 cells, 1..5 render levels, 6 page prefix)
+#define FS_DIRTY_RELOC       (FS_DIRTY_LIST_BASE + 7u * uint(FS_DIRTY_NODES_MAX))   // FS_RELOC_MAX x 4 words: handle, page<<15|oldCell, newCell|oldPz<<15, oldPx_Py (level lists: 0 cells, 1..5 render levels, 6 unused)
+#define FS_DIRTY_RING        (FS_DIRTY_RELOC + 4u * uint(FS_RELOC_MAX))             // C09R-E5R: FS_DIRTY_RING_CAP x 2 words {page<<15|cell, enqueue tick}
 #ifdef FS_USE_DIRTY
 layout(std430, set = 0, binding = FS_B_DIRTY) buffer DirtyBlock { uint dirty[]; };
-// Marks (page, cell) dirty once per epoch; returns true for the first marker.
-bool fsMarkDirtyCell(uint page, uint cell) {
-    uint prev = atomicOr(dirty[FS_DIRTY_CELLMASK(page) + (cell >> 5u)], 1u << (cell & 31u));
-    return (prev & (1u << (cell & 31u))) == 0u;
-}
 #ifdef FS_USE_GCTR
+// C09R-E5R persistent dirty frontier: a change marks (page, cell) once (dedupe bit) and enqueues it into the dirty-cell ring with
+// its tick; the publication consumes the ring (dirty_take clears the bit), so no pass ever rescans page masks to find changes.
+// Returns true for the first marker. A full ring refuses the mark (bit cleared, counted: must stay 0).
+bool fsMarkDirtyCell(uint page, uint cell) {
+    uint mw = FS_DIRTY_CELLMASK(page) + (cell >> 5u), bit = 1u << (cell & 31u);
+    uint prev = atomicOr(dirty[mw], bit);
+    if ((prev & bit) != 0u) return false;
+    uint t = atomicAdd(FS_TK(FS_T_DIRTY_TAIL), 1u);
+    if (t - FS_TK(FS_T_DIRTY_HEAD) >= uint(FS_DIRTY_RING_CAP)) { atomicAnd(dirty[mw], ~bit); atomicAdd(gctr[FS_GCTR_DIRTY_RING_DROP], 1u); return false; }
+    uint r = FS_DIRTY_RING + 2u * (t & (uint(FS_DIRTY_RING_CAP) - 1u));
+    dirty[r] = (page << 15) | cell; dirty[r + 1u] = FS_TK(FS_T_TICK);
+    return true;
+}
 // C09R-E4 index relocation (the index follows the geometry): a surfel whose fused centre left its index cell keeps its
 // SurfaceID and handle; the record {handle, page<<15|oldCell, newCell|oldPz<<15, oldPx_Py} is applied by world_relocate
 // (remove from the old leaf by the OLD position, insert into the new cell). False = list full: the caller keeps the
@@ -135,6 +144,7 @@ uint fsSheetNodeWord(uint h, uint w) { return h * uint(FS_SHEET_NODE_WORDS) + w;
 uint fsSheetDeltaWord(uint i, uint w) { return FS_TK(FS_T_SHEET_RING_BASE) + uint(FS_SHEET_RING_CAP) + i * 8u + w; }   // 8 words per batch node
 uint fsSheetRefineWord(uint i, uint w) { return FS_TK(FS_T_SHEET_RING_BASE) + uint(FS_SHEET_RING_CAP) + uint(FS_SHEET_BATCH_MAX) * 8u + i * 8u + w; }   // 8 words per measurement segment (E4.1C refinement request)
 uint fsSheetPack(uint page, uint h) { return (page << 22) | h; }
+uint fsSheetTickWord(uint t) { return FS_TK(FS_T_SHEET_RING_BASE) + uint(FS_SHEET_RING_CAP) + uint(FS_SHEET_BATCH_MAX) * 8u + uint(FS_TICK_MEAS_MAX) * 8u + (t & (uint(FS_SHEET_RING_CAP) - 1u)); }   // C09R-E5R enqueue tick (age receipt)
 #endif
 #if defined(FS_USE_SHEET) && defined(FS_USE_GCTR)
 // Marks a promoted surfel graph-dirty once (dedupe bit); the ring entry is consumed by a later publication's bounded batch.
@@ -145,6 +155,7 @@ void fsSheetMark(uint page, uint h) {
     uint t = atomicAdd(FS_TK(FS_T_SHEET_TAIL), 1u);
     if (t - FS_TK(FS_T_SHEET_HEAD) >= uint(FS_SHEET_RING_CAP)) { atomicAnd(sheet[mw], ~bit); atomicAdd(gctr[FS_GCTR_SHEET_FRONTIER_DROP], 1u); return; }
     sheet[FS_TK(FS_T_SHEET_RING_BASE) + (t & (uint(FS_SHEET_RING_CAP) - 1u))] = fsSheetPack(page, h);
+    sheet[fsSheetTickWord(t)] = FS_TK(FS_T_TICK);
 }
 bool fsSheetMarked(uint h) { return (sheet[FS_TK(FS_T_SHEET_MASK_BASE) + (h >> 5u)] & (1u << (h & 31u))) != 0u; }
 #endif

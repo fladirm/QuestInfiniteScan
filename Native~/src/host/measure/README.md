@@ -133,3 +133,19 @@ transform, push / frame block layouts.
   `TestTemporalAndPlanar` (30 cm keyframe resolves 1.5 m with sigma 2.3 mm vs 10 mm for L/R, selection window / age /
   angle, noisy tilted plane with a flying pixel).
 
+## C10R / C11R information-first measurement pipeline
+- **Compaction job (cheap):** `measure_texture` (PCA luma std per 40×30 tile of L, R, keyframe) → `measure_planar` (one
+  robust inverse-depth plane per 8×8 Env Depth tile, 16 points, Huber IRLS) → score → select → count → prefix → `emit`.
+  Emit writes Env Depth records, turns the two sample texels of a valid flat tile into planar measurements, and marks
+  candidates with gates that sample no image: stereo = geometry-eligible pair, prior ≤ 3.5 m, not an edge, patch + band +
+  bilinear footprint inside BOTH images, textured tiles in both, effective baseline ≥ 3 cm; temporal = keyframe bound,
+  existing surface (score below the NEW / far bands), textured tiles, keyframe effective baseline ≥ 15 cm, 1 of 8 texels.
+- **Refine jobs (bounded):** `measure_stereo` then `measure_temporal` over record chunks sized by the refine cost model;
+  only candidate records solve; the frame's refine budget `FS_MEAS_REFINE_MAX_US` ends refinement (`refineSkipped`). The
+  frame becomes READY for the world after its refinement.
+- **Effective baseline:** both solves use the camera offset perpendicular to the left ray through the point (forward motion
+  has no parallax and fails closed), for the disparity spacing and for `σ_z = z² σ_d / (f b_eff)`.
+- **Motion authority:** `FsMeas_SetStereoPair` carries the pairer's geometry verdict, confidence, blur penalty and
+  timestamp uncertainty; a pair failing any gate gives colour only (`pairsGeometryRejected`). Keyframes are taken only
+  from geometry-eligible pairs.
+

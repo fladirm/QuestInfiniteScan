@@ -1,0 +1,35 @@
+#version 450
+// C10R texture confidence map (compaction job, first dispatch): luma std of 4x4 taps per tile of a 40x30 grid over each bound PCA
+// image (0 = left, 1 = right, 2 = keyframe). The stereo / temporal gates read it; no solve ever samples a textureless tile.
+#extension GL_GOOGLE_include_directive : require
+#include "fs_abi.glsl"
+#include "fs_meas_common.glsl"
+#include "fs_meas_frame.glsl"
+layout(local_size_x = 64) in;
+layout(std430, set = 0, binding = FS_MEAS_B_TILES) buffer TileBlock { uint tiles[]; };
+layout(set = 0, binding = FS_MEAS_B_CAM_L) uniform sampler2D camL;
+layout(set = 0, binding = FS_MEAS_B_CAM_R) uniform sampler2D camR;
+layout(set = 0, binding = FS_MEAS_B_CAM_K) uniform sampler2D camK;
+#include "fs_meas_tiles.glsl"
+void main() {
+    uint t = gl_GlobalInvocationID.x;
+    if (t >= 3u * uint(FS_TEX_TILES)) return;
+    uint cam = t / uint(FS_TEX_TILES), tile = t % uint(FS_TEX_TILES);
+    bool valid = cam == 2u ? blk.keyInfo.z != 0u : (blk.camInfo.z & (1u << cam)) != 0u;
+    float W = float(cam == 2u ? blk.keyInfo.x : blk.camInfo.x), H = float(cam == 2u ? blk.keyInfo.y : blk.camInfo.y);
+    bool flip = (cam == 2u ? blk.keyInfo.w : blk.camInfo.w) != 0u;
+    float stdv = 0.0;
+    if (valid && W > 1.0 && H > 1.0) {
+        float tw = W / float(FS_TEX_TILES_X), th = H / float(FS_TEX_TILES_Y);
+        float x0 = float(tile % uint(FS_TEX_TILES_X)) * tw, y0 = float(tile / uint(FS_TEX_TILES_X)) * th;
+        float s = 0.0, s2 = 0.0;
+        for (int j = 0; j < 16; ++j) {
+            float u = x0 + (float(j % 4) + 0.5) * tw * 0.25, v = y0 + (float(j / 4) + 0.5) * th * 0.25;   // pixel coords, bottom-left origin
+            vec2 uv = vec2(u / W, (flip ? H - v : v) / H);
+            vec3 c = (cam == 0u ? textureLod(camL, uv, 0.0) : (cam == 1u ? textureLod(camR, uv, 0.0) : textureLod(camK, uv, 0.0))).rgb;
+            float l = dot(c, vec3(0.2126, 0.7152, 0.0722)); s += l; s2 += l * l;
+        }
+        stdv = sqrt(max(s2 / 16.0 - (s / 16.0) * (s / 16.0), 0.0));
+    }
+    tiles[fsTexTileWord(cam, tile)] = floatBitsToUint(stdv);
+}

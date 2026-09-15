@@ -1,5 +1,5 @@
 #version 450
-// Exclusive prefix over SEGNEW (FS_TICK_MEAS_MAX entries): block-local scan (256 per workgroup) into PREFIX and
+// Exclusive prefix over SEGNEW (the epoch's whole blocks: C09R-E5R dispatch domain = actual count): block-local scan (256 per workgroup) into PREFIX and
 // the block total into BLOCKSUM. fuse_prefix_carry.comp turns BLOCKSUM into exclusive block offsets.
 #extension GL_GOOGLE_include_directive : require
 #define FS_USE_GCTR

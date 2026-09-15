@@ -39,13 +39,13 @@ void main() {
             FsSurfelEvidence ev = evidence[h];
             // E3: an unpromoted candidate in this re-observed cell that no measurement supported for FS_TRANSIENT_TTL ticks expires
             if ((flags & FS_FLAG_PROMOTED) == 0u && ((tick16 - fsGet_FsSurfelEvidence_lastSeenFrame(ev)) & 0xFFFFu) > uint(FS_TRANSIENT_TTL)) {
-                fsSet_FsSurfel_evidenceFlags(s, flags | FS_FLAG_REMOVED); surfels[h] = s; ghosts++; continue;
+                fsSet_FsSurfel_evidenceFlags(s, flags | FS_FLAG_REMOVED); surfels[h] = s; ghosts++; continue;   // unpromoted: no FRONT change
             }
             if (!seenThrough || fsGet_FsSurfelEvidence_lastSeenFrame(ev) == tick16) continue;
             uint motion = min(fsGet_FsSurfelEvidence_motionEvidence(ev) + 1u, 65535u);
             fsSet_FsSurfelEvidence_motionEvidence(ev, motion);
             uint limit = uint(FS_GHOST_MOTION_MIN) + fsGet_FsSurfelEvidence_staticEvidence(ev) / uint(FS_GHOST_STATIC_K);
-            if (motion >= limit) { fsSet_FsSurfel_evidenceFlags(s, flags | FS_FLAG_REMOVED); surfels[h] = s; ghosts++; }
+            if (motion >= limit) { fsSet_FsSurfel_evidenceFlags(s, flags | FS_FLAG_REMOVED); surfels[h] = s; ghosts++; if ((flags & FS_FLAG_PROMOTED) != 0u) atomicAdd(gctr[FS_GCTR_PROMOTED_REMOVED], 1u); }
             evidence[h] = ev;
         }
         // ---- merges (§8.4): pairs inside the leaf, survivor by deterministic priority
@@ -73,7 +73,7 @@ void main() {
                 fsSet_FsSurfelEvidence_staticEvidence(es, min(fsGet_FsSurfelEvidence_staticEvidence(es) + fsGet_FsSurfelEvidence_staticEvidence(ed), 65535u));
                 evidence[hs] = es;
                 FsSurfel dead = surfels[hd]; fsSet_FsSurfel_evidenceFlags(dead, fsGet_FsSurfel_evidenceFlags(dead) | FS_FLAG_REMOVED); surfels[hd] = dead;
-                merges++;
+                merges++; atomicAdd(gctr[FS_GCTR_PROMOTED_REMOVED], 1u);   // fsMergeable: both promoted
                 if (!aWins) break;                     // a is dead; the survivor b is visited by the outer loop
                 pa = r;
             }

@@ -1,14 +1,15 @@
 #version 450
-// Exclusive prefix over the FS_SORT_BLOCKS_MAX block totals (in place) and the epoch total of new candidates.
+// Exclusive prefix over the epoch's block totals (in place) and the epoch total of new candidates.
 #extension GL_GOOGLE_include_directive : require
 #define FS_USE_GCTR
 #define FS_USE_SORT
 #include "fs_world_blocks.glsl"
 layout(local_size_x = 256) in;
+layout(push_constant) uniform Push { uint blocks; } pc;   // C09R-E5R: blocks of the epoch (ceil(maxCount / 256)); later blocks hold stale sums
 shared uint sV[256];
 void main() {
     uint t = gl_LocalInvocationID.x;
-    uint v = sortw[FS_SORT_BLOCKSUM + t];
+    uint v = t < pc.blocks ? sortw[FS_SORT_BLOCKSUM + t] : 0u;
     sV[t] = v;
     barrier();
     for (uint o = 1u; o < 256u; o <<= 1u) { uint u = t >= o ? sV[t - o] : 0u; barrier(); sV[t] += u; barrier(); }

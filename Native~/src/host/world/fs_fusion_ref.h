@@ -556,21 +556,33 @@ inline Patch SheetApplyR(const Patch& a, const SheetDelta& d) {
     return o;
 }
 
-// ---- dirty list (twin: fuse_dirty_pages / prefix / emit) ------------------------------------------------
-// Deterministic order: pages ascending, cells ascending; entries beyond `cap` stay set in the mask (sliced).
-inline std::vector<uint32_t> DirtyListEmit(std::vector<std::vector<uint32_t>>& masks, uint32_t cap) {
-    std::vector<uint32_t> list;
-    for (uint32_t page = 0; page < masks.size(); ++page)
-        for (uint32_t w = 0; w < masks[page].size(); ++w) {
-            uint32_t bits = masks[page][w], keep = 0;
-            while (bits) {
-                uint32_t bit = (uint32_t)__builtin_ctz(bits); bits &= bits - 1;
-                if (list.size() < cap) list.push_back((page << 15) | (w * 32 + bit)); else keep |= 1u << bit;
-            }
-            masks[page][w] = keep;
+// ---- C09R-E5R persistent dirty frontier (twin: fsMarkDirtyCell / dirty_take.comp) ----------------------------------------------
+struct DirtyRing {
+    std::vector<std::vector<uint32_t>> masks; std::vector<uint32_t> entries, ticks; uint32_t head = 0, tail = 0, cap = 0, drops = 0;
+    void Init(uint32_t pages, uint32_t capacity) { masks.assign(pages, std::vector<uint32_t>(FS_CELLS_PER_PAGE / 32, 0u)); cap = capacity; entries.assign(cap, 0u); ticks.assign(cap, 0u); head = tail = drops = 0; }
+    bool Mark(uint32_t page, uint32_t cell, uint32_t tick) {
+        uint32_t& w = masks[page][cell >> 5]; const uint32_t bit = 1u << (cell & 31);
+        if (w & bit) return false;
+        w |= bit;
+        const uint32_t t = tail++;
+        if (t - head >= cap) { w &= ~bit; drops++; return false; }
+        entries[t & (cap - 1)] = (page << 15) | cell; ticks[t & (cap - 1)] = tick;
+        return true;
+    }
+    // take: the consumer advances head by `count` first, then lists the entries whose bit is still set (clearing it)
+    std::vector<uint32_t> Take(uint32_t count, uint32_t pageCount) {
+        std::vector<uint32_t> list; const uint32_t begin = head; count = std::min(count, tail - head); head += count;
+        for (uint32_t i = 0; i < count; ++i) {
+            const uint32_t e = entries[(begin + i) & (cap - 1)], page = e >> 15, cell = e & 0x7FFFu;
+            if (page >= pageCount) continue;
+            uint32_t& w = masks[page][cell >> 5]; const uint32_t bit = 1u << (cell & 31);
+            if (!(w & bit)) continue;
+            w &= ~bit; list.push_back(e);
         }
-    return list;
-}
+        return list;
+    }
+    void ReleasePage(uint32_t page) { std::fill(masks[page].begin(), masks[page].end(), 0u); }
+};
 
 } // namespace world
 } // namespace fs

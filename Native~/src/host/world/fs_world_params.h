@@ -102,19 +102,25 @@
 #define FS_FREE_MAX_RANGE_M   6.0
 #define FS_FREE_PAGE_HOPS_MAX 4         // page transitions (hash lookups) per ray; a 6 m ray crosses <= 3 page boundaries
 #define FS_EPOCH_MEAS_MIN     512       // slicing floor (C09R-E5: 1-3 ms scanner quanta; stride slices of one depth frame)
+// ---- C09R-E5R deadline / deficit scheduler and cost-model floors ------------------------------------------------------------------
+#define FS_SCHED_PUBLISH_DEADLINE_MS 75    // oldest pending dirty cell older than this: publication work is overdue (acceptance p95 < 100 ms)
+#define FS_SCHED_SHEET_DEADLINE_MS   200   // oldest pending SurfaceGraph node older than this: sheet work is overdue (acceptance p95 < 250 ms)
+#define FS_SCHED_SHARE_FUSE          0.60  // GPU-time shares of the deficit round robin when nothing is overdue
+#define FS_SCHED_SHARE_PUBLISH       0.25
+#define FS_SCHED_SHARE_SHEET         0.15
+#define FS_SCHED_DEFICIT_CAP_US      20000 // an idle stage cannot bank more than this
+#define FS_SCHED_AGE_UNKNOWN_MS      1000  // enqueue tick outside the tick-time window (or before the first fuse): treated as this old
 #define FS_PUB_DIRTY_MIN      16        // C09R-E5 publication chain floors: dirty cells per maintenance job,
 #define FS_PUB_LEAVES_MIN     16        //   dirty cells per leaves chunk (PUBLISH class quantum, sub-ms)
 #define FS_SHEET_BATCH_MIN    256       // C09R-E5 surface complex batch floor (own job, quantum gated)
-#define FS_SHEET_PERIOD_EPOCHS 4        // C09R-E5 the surface complex runs at most every N fuse epochs (lower cadence than fusion)
-#define FS_EPOCH_OVER_K       1.25      // measured job GPU time > K x class quantum -> halve the epoch cap (slice)
-#define FS_EPOCH_UNDER_K      0.5       // measured job GPU time < K x class quantum -> double the epoch cap
 #define FS_EVIDENCE_COUNT_MAX 1023
 #define FS_FUSE_FLAG_FREE_SPACE 1u      // PushFuse.flags: eye origins valid
 
 // ---- render tree / publication (contract §11, §13.4; C09R-C) ----------------------------------------------
 #define FS_RENDER_TREE_DEPTH   5        // 32^3 cells -> 16^3 -> 8^3 -> 4^3 -> 2^3 -> root (level 5)
 #define FS_RENDER_LEAF_LEVELS  2        // a cell with > 64 surfels extends to <= 2 levels of 8 blocks (4096 surfels)
-#define FS_DIRTY_CELLS_MAX     65536    // dirty (page,cell) entries per epoch
+#define FS_DIRTY_CELLS_MAX     65536    // dirty (page,cell) entries per publication batch
+#define FS_DIRTY_RING_CAP      262144   // C09R-E5R persistent dirty-cell ring (power of two, 2 words per entry: page<<15|cell, enqueue tick)
 #define FS_DIRTY_NODES_MAX     65536    // COW nodes rebuilt per epoch (all levels)
 #define FS_RETIRE_MAX          131072   // node/block ids released per epoch (freed after graphics retirement)
 #define FS_PENDING_PUBLISH_MAX FS_MAX_PAGES
@@ -191,7 +197,10 @@
 #define FS_GCTR_EDGE_CONTRACTIONS  41     // E4.1C graph edge contractions
 #define FS_GCTR_REFINE_BIRTHS      42     // E4.1C refinement births
 #define FS_GCTR_SHEET_CAND_OVERFLOW 43    // ball queries that hit FS_SHEET_CAND_MAX
-#define FS_GCTR_COUNT              44
+#define FS_GCTR_PROMOTIONS         44     // C09R-E5R surfels promoted (FRONT/BACK ratio receipt: promoted live = promotions - promotedRemoved)
+#define FS_GCTR_PROMOTED_REMOVED   45     // promoted surfels removed (ghost, merge, contraction, erase)
+#define FS_GCTR_DIRTY_RING_DROP    46     // C09R-E5R dirty-cell ring full: the mark was refused (must stay 0)
+#define FS_GCTR_COUNT              47
 
 // ---- fusion scratch layout (u32 words in the `tick` buffer; per epoch) -------------------------------------
 #define FS_T_COUNT           0          // measurements in the epoch (GPU-written from the ring counters)
@@ -209,6 +218,8 @@
 #define FS_T_SHEET_COUNT     13         // this publication's batch size
 #define FS_T_SHEET_MASK_BASE 14         // word offsets inside the sheet buffer (CPU-written, depend on the surfel capacity)
 #define FS_T_SHEET_RING_BASE 15
+#define FS_T_DIRTY_HEAD      78         // C09R-E5R persistent dirty-cell ring: consumer head (CPU, publication maintenance take)
+#define FS_T_DIRTY_TAIL      79         //   producer tail (atomic, fsMarkDirtyCell)
 #define FS_T_REFINE_BIRTHS   77         // E4.1C refinement births of the epoch (deterministic ids after the candidates)
 #define FS_T_RELOC_COUNT     9          // relocation records (written by fuse_reduce / fuse_maint_apply, consumed and zeroed by world_relocate)
 #define FS_T_ARGS_MEAS       16         // {ceil(count/64), 1, 1, 0}

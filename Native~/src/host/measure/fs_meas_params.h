@@ -53,7 +53,9 @@
 #define FS_MEAS_SRC_DEPTH_PRIOR      4u        // bit 2
 #define FS_MEAS_SRC_EDGE             256u      // bit 8
 #define FS_MEAS_SRC_LOW_TEXTURE      512u      // bit 9
-#define FS_MEAS_SRC_PLANAR           1024u     // bit 10: C11 robust local plane fit of the Env Depth window (low-texture path)
+#define FS_MEAS_SRC_PLANAR           1024u     // bit 10: C11 robust plane fit of the Env Depth tile (low-texture path)
+#define FS_MEAS_SRC_CAND_STEREO      2048u     // bit 11: C10R candidate for the bounded stereo refine pass (cleared by it)
+#define FS_MEAS_SRC_CAND_TEMPORAL    4096u     // bit 12: C11R candidate for the bounded temporal refine pass (cleared by it)
 #define FS_MEAS_SRC_EYE_SHIFT        16        // bit 16: eye (0 left, 1 right) the record was back-projected from (free-space ray origin)
 
 // ---- frame block (per ring slot, host-visible): u32 counters (reset by the CPU before each job) followed by the
@@ -98,8 +100,11 @@
 #define FS_MEAS_CTR_PLANAR_REJECTED  42        // too few inliers or residual beyond the flat bound (not a plane)
 #define FS_MEAS_CTR_PLANAR_SIGMA_UM  43
 #define FS_MEAS_CTR_PLANAR_RMS_UM    44
-#define FS_MEAS_CTR_WORDS            48        // counters region (45..47 reserved)
-#define FS_MEAS_FB_BYTES             1104      // 192 B counters + 2 x mat4 anchorFromEye + 2 x vec4 fov + 2 x mat4 worldFromEye + 2 x mat4 predViewProj + 2 x mat4 predInvViewProj + uvec4 predInfo + 2 x mat4 camFromWorld + 2 x vec4 camIntrinsics + uvec4 camInfo + mat4 anchorFromWorld + uvec4 stereoInfo + mat4 keyCamFromWorld + vec4 keyIntrinsics + uvec4 keyInfo
+#define FS_MEAS_CTR_CAND_STEREO      45        // C10R records the cheap gates admitted to the stereo refine pass
+#define FS_MEAS_CTR_CAND_TEMPORAL    46        // C11R records admitted to the temporal refine pass
+#define FS_MEAS_CTR_REFINE_SKIPPED   47        // candidate records not refined: the frame's refine budget ended first
+#define FS_MEAS_CTR_WORDS            48        // counters region
+#define FS_MEAS_FB_BYTES             1168      // 192 B counters + 2 x mat4 anchorFromEye + 2 x vec4 fov + 2 x mat4 worldFromEye + 2 x mat4 predViewProj + 2 x mat4 predInvViewProj + uvec4 predInfo + 2 x mat4 camFromWorld + 2 x vec4 camIntrinsics + uvec4 camInfo + mat4 anchorFromWorld + uvec4 stereoInfo + mat4 keyCamFromWorld + vec4 keyIntrinsics + uvec4 keyInfo + mat4 worldFromAnchor
 // ---- appearance sample (C16a, contract §14 keyframe authority = the PCA frame lease at its own pose/time): the emit kernel
 // projects the measured point into the PCA camera of the same eye captured closest to the depth time and stores RGB8 in
 // FsSurfaceMeasurement.reserved with FS_MEAS_COLOR_VALID; fusion blends it precision-weighted into appearanceHandle.
@@ -131,7 +136,28 @@
 #endif
 #define FS_TEMPORAL_BAND_MAX_PX      12.0      // band cap of the large-baseline solve (step <= 2 px over 13 hypotheses)
 #define FS_TEMPORAL_AGREE_K          3.0       // temporal vs L/R stereo consistency (combined sigma units)
-#define FS_PLANAR_RADIUS             2         // (2R+1)^2 Env Depth window of the planar fit
+// ---- C10R / C11R information-first measurement pipeline (cheap gates in the compaction job, bounded refine jobs) --------------
+#define FS_TEX_TILES_X               40        // PCA texture confidence map: luma std per tile of a 40 x 30 grid over the image (4x4 taps)
+#define FS_TEX_TILES_Y               30
+#define FS_TEX_TILES                 1200
+#define FS_STEREO_MIN_TILE_STD       0.015     // tile luma std below this = textureless: no image solve is attempted
+#define FS_STEREO_PATCH_MARGIN_PX    2.0       // bilinear footprint beyond the 3x3 patch
+#define FS_STEREO_BEFF_MIN_M         0.03      // effective (ray-perpendicular) baseline floor of the L/R solve
+#define FS_TEMPORAL_BEFF_MIN_M       0.15      // effective baseline floor of the temporal solve (forward motion has no parallax)
+#define FS_TEMPORAL_SUBSAMPLE        8         // temporal candidates: 1 of N existing-surface texels (deterministic hash), refinement only
+#define FS_TEMPORAL_EXISTING_SCORE   192       // score below this = the canonical prediction already has this surface (existing sheet)
+#define FS_STEREO_MIN_CONFIDENCE     0.5       // pair confidence (StereoPairer: 1 direct, 0.7 compensated, 0.4 low; halved when degraded)
+#define FS_STEREO_MAX_BLUR           0.5       // pair blur penalty (MotionGate, 0..1) above this: no geometry from the images
+#define FS_STEREO_MAX_UNCERTAINTY_NS 8000000   // capture-time uncertainty above this: no geometry from the pair
+#define FS_MEAS_REFINE_MAX_US        6000      // GPU budget of the refine jobs of one depth frame (the rest keeps its Env Depth records)
+#define FS_PLANAR_TILE               8         // Env Depth planar tiles: 8x8 texels, 16 fit points (stride 2)
+#define FS_PLANAR_TILES_X            40
+#define FS_PLANAR_TILES              1600      // per layer (320 / 8)^2
+#define FS_PLANAR_TILE_WORDS         6         // a, b, c (float bits), rms z (float bits), inliers, valid
+#define FS_PLANAR_TILE_MIN_INLIERS   12        // of 16
+#define FS_PLANAR_SAMPLE_A           2         // tile-local texel (A, A) and (B, B) become the tile's planar measurements (2 per tile,
+#define FS_PLANAR_SAMPLE_B           6         //   spatially separated; the other flat texels of the tile stay Env Depth records)
+#define FS_PLANAR_RADIUS             2         // (2R+1)^2 window of the CPU twin PlanarFit test
 #define FS_PLANAR_MIN_INLIERS        18        // of 25
 #define FS_PLANAR_HUBER_K            1.345     // IRLS on the inverse-depth plane residual
 #define FS_PLANAR_MAX_RMS_RATIO      0.004     // inlier RMS above 0.4 % of depth: not a plane
@@ -147,6 +173,7 @@
 #define FS_MEAS_B_CAM_L              6         // combined image sampler: PCA left frame (owned copy)
 #define FS_MEAS_B_CAM_R              7         // combined image sampler: PCA right frame
 #define FS_MEAS_B_CAM_K              8         // combined image sampler: C11 bound keyframe (earlier left PCA copy)
+#define FS_MEAS_B_TILES              9         // C10R/C11R scratch: PCA texture tiles (L, R, keyframe) + Env Depth planar tiles (both layers)
 #define FS_MEAS_SEL_HIST             0
 #define FS_MEAS_SEL_WGCOUNT          FS_MEAS_SCORE_BINS
 #define FS_MEAS_SEL_WGBASE           (FS_MEAS_SCORE_BINS + FS_MEAS_MAX_GROUPS)

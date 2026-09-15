@@ -413,14 +413,16 @@ namespace FinalScan.Host
         double _measWindowStart = -1; long _measWindowBase;
 
         readonly long[] _stereoStats = new long[17];
-        readonly long[] _mvStats = new long[15];
+        readonly long[] _mvStats = new long[22];
         string MultiviewJson()
         {
             if (!NativeAvailable || FinalScanHostNative.GetMultiviewStats(_mvStats) != FinalScanHostNative.ResultOk) return "null";
             var s = _mvStats;
             return "{\"temporalTested\":" + s[0] + ",\"temporalValid\":" + s[1] + ",\"temporalLowTex\":" + s[2] + ",\"temporalAmbiguous\":" + s[3] + ",\"temporalBandEdge\":" + s[4]
                 + ",\"temporalNoCover\":" + s[5] + ",\"temporalDisagree\":" + s[6] + ",\"temporalSigmaUm\":" + s[7] + ",\"planarTested\":" + s[8] + ",\"planarValid\":" + s[9]
-                + ",\"planarRejected\":" + s[10] + ",\"planarSigmaUm\":" + s[11] + ",\"planarRmsUm\":" + s[12] + ",\"keyframesSet\":" + s[13] + ",\"framesWithKeyframe\":" + s[14] + "}";
+                + ",\"planarRejected\":" + s[10] + ",\"planarSigmaUm\":" + s[11] + ",\"planarRmsUm\":" + s[12] + ",\"keyframesSet\":" + s[13] + ",\"framesWithKeyframe\":" + s[14]
+                + ",\"candidatesStereo\":" + s[15] + ",\"candidatesTemporal\":" + s[16] + ",\"refineSkipped\":" + s[17] + ",\"refineJobs\":" + s[18] + ",\"pairsGeometryRejected\":" + s[19]
+                + ",\"refineFrameUsP95\":" + s[20] + ",\"lastCompactUs\":" + s[21] + "}";
         }
         string StereoJson()
         {

@@ -1,0 +1,21 @@
+#version 450
+// C11R planar tiles (compaction job): one robust plane per 8x8 Env Depth tile of each layer (fsMeasPlanarTile), stored for the emit
+// kernel, which turns the tile's two sample texels into planar measurements. One fit per region instead of a fit per texel.
+#extension GL_GOOGLE_include_directive : require
+#include "fs_abi.glsl"
+#include "fs_meas_common.glsl"
+#define FS_MEAS_USE_DEPTH
+#include "fs_meas_frame.glsl"
+layout(local_size_x = 64) in;
+layout(std430, set = 0, binding = FS_MEAS_B_TILES) buffer TileBlock { uint tiles[]; };
+#include "fs_meas_tiles.glsl"
+void main() {
+    uint t = gl_GlobalInvocationID.x;
+    if (t >= 2u * uint(FS_PLANAR_TILES)) return;
+    uint layer = t / uint(FS_PLANAR_TILES), tile = t % uint(FS_PLANAR_TILES);
+    vec3 abc; float rmsZ; uint inl;
+    bool ok = layer < pc.a.x && fsMeasPlanarTile(layer, tile % uint(FS_PLANAR_TILES_X), tile / uint(FS_PLANAR_TILES_X), layer == 0u ? blk.fov[0] : blk.fov[1], abc, rmsZ, inl);
+    tiles[fsPlanarTileWord(layer, tile, 0u)] = floatBitsToUint(abc.x); tiles[fsPlanarTileWord(layer, tile, 1u)] = floatBitsToUint(abc.y);
+    tiles[fsPlanarTileWord(layer, tile, 2u)] = floatBitsToUint(abc.z); tiles[fsPlanarTileWord(layer, tile, 3u)] = floatBitsToUint(rmsZ);
+    tiles[fsPlanarTileWord(layer, tile, 4u)] = inl; tiles[fsPlanarTileWord(layer, tile, 5u)] = ok ? 1u : 0u;
+}

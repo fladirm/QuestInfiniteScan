@@ -16,18 +16,25 @@
 #define FS_USE_DIRTY
 #define FS_USE_RETIRE
 #define FS_USE_SHEET_RO
+#define FS_USE_HASH
 #include "fs_world_blocks.glsl"
 #include "fs_fusion.glsl"
 #include "fs_index.glsl"
 #include "fs_maint.glsl"
+#include "fs_sheet.glsl"
+#include "fs_global_cell.glsl"
 layout(local_size_x = 1) in;
-bool fsSiteCovered(uint page, uint cell, vec3 sp, vec3 sn, float sSigma) {
-    ivec3 c = ivec3(int(cell & 31u), int((cell >> 5) & 31u), int((cell >> 10) & 31u));
+layout(push_constant) uniform Push { uint hashMask; } pc;
+// C09R-E5R: the 27 neighbouring GLOBAL cells (own page or any resident page through the page hash), like the SurfaceGraph ball query
+bool fsSiteCovered(uint page, vec3 sp, vec3 sn, float sSigma) {
+    FsPageKey own = pages[page].key; int anchorId = own.anchorId;
+    vec3 spw = fsPageOrigin3(own) + sp;
+    ivec3 gc = ivec3(floor(spw / FS_CELL_EXTENT_M));
     for (int dz = -1; dz <= 1; ++dz) for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
-        ivec3 g = c + ivec3(dx, dy, dz);
-        if (any(lessThan(g, ivec3(0))) || any(greaterThan(g, ivec3(31)))) continue;
-        uint nc = uint(g.x) | (uint(g.y) << 5) | (uint(g.z) << 10);
-        uint leaves[FS_MAINT_LEAVES_MAX]; uint nl = fsCollectLeaves(page, nc, leaves);
+        uint slot, nc;
+        if (!fsGlobalCell(pc.hashMask, gc + ivec3(dx, dy, dz), page, anchorId, slot, nc)) continue;
+        vec3 origin = fsPageOrigin3(pages[slot].key);
+        uint leaves[FS_MAINT_LEAVES_MAX]; uint nl = fsCollectLeaves(slot, nc, leaves);
         for (uint l = 0u; l < uint(FS_MAINT_LEAVES_MAX); ++l) {
             if (l >= nl) break;
             uint cnt = min(idx[fsIdxLeafWord(leaves[l], 0u)], uint(FS_INDEX_LEAF_CAP));
@@ -35,7 +42,7 @@ bool fsSiteCovered(uint page, uint cell, vec3 sp, vec3 sn, float sSigma) {
                 if (k >= cnt) break;
                 FsPatch b = fsUnpack(surfels[idx[fsIdxLeafWord(leaves[l], 2u + k)]]);
                 if ((b.flags & FS_FLAG_REMOVED) != 0u || dot(b.n, sn) < FS_SHEET_MIN_DOT) continue;
-                vec3 delta = sp - b.p; float d = dot(b.n, delta);
+                vec3 delta = spw - (origin + b.p); float d = dot(b.n, delta);
                 if (abs(d) > fsPlaneGate(b.sigmaN, sSigma)) continue;
                 if (length(delta - d * b.n) <= b.rM) return true;
             }
@@ -59,7 +66,7 @@ void main() {
         float fp = clamp(uintBitsToFloat(sheet[rw + 6u]), FS_RADIUS_MIN_M, FS_RADIUS_MAX_M);
         float sSigma = max(uintBitsToFloat(sheet[rw + 7u]), FS_SIGMA_N_FLOOR_M);
         uint cell = fsCellOf(sp);
-        if (fsSiteCovered(page, cell, sp, sn, sSigma)) continue;
+        if (fsSiteCovered(page, sp, sn, sSigma)) continue;
         uint capacity = pages[page].slabCount * uint(FS_SLAB_SURFELS);
         uint local = atomicAdd(pages[page].surfelCount, 1u);
         if (local >= capacity) { atomicAdd(pages[page].shortfall, 1u); continue; }

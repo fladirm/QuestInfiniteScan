@@ -31,6 +31,11 @@
 #include "measure_count_spirv.inc"
 #include "measure_prefix_spirv.inc"
 #include "measure_emit_spirv.inc"
+#include "measure_texture_spirv.inc"
+#include "measure_planar_spirv.inc"
+#include "measure_stereo_spirv.inc"
+#include "measure_temporal_spirv.inc"
+#include "../fs_cost_model.h"
 #include <algorithm>
 #include <cstdlib>
 #include <atomic>
@@ -46,20 +51,25 @@ namespace {
 
 constexpr uint32_t kLogEveryFrames = 250;        // ~10 s at 25 Hz
 constexpr uint32_t kMaxThreads = FS_MEAS_DEPTH_W * FS_MEAS_DEPTH_H * FS_MEAS_DEPTH_LAYERS;   // score scratch (larger images are refused, logged)
-enum MeasKernel : uint32_t { K_SCORE = 0, K_SELECT, K_COUNT, K_PREFIX, K_EMIT, K_COUNT_ };
-struct KernelSpec { const char* name; const uint32_t* spirv; size_t words; uint32_t bindings[8]; uint32_t bindingCount; uint32_t samplers; };
+enum MeasKernel : uint32_t { K_SCORE = 0, K_SELECT, K_COUNT, K_PREFIX, K_EMIT, K_TEXTURE, K_PLANAR, K_STEREO, K_TEMPORAL, K_COUNT_ };
+struct PushRefine { uint32_t offset, count, recordCap, pad; };   // twin: FS_MEAS_REFINE_PUSH
+struct KernelSpec { const char* name; const uint32_t* spirv; size_t words; uint32_t bindings[12]; uint32_t bindingCount; uint32_t samplers; uint32_t pushBytes; };
 #define FS_KS(sym) sym, sizeof(sym) / 4
 static const KernelSpec kKernels[K_COUNT_] = {     // sampler bindings come LAST in each list
-    {"measure_score",  FS_KS(kMeasureScoreSpirv),  {FS_MEAS_B_COUNTERS, FS_MEAS_B_SCORE, FS_MEAS_B_SELECT, FS_MEAS_B_DEPTH, FS_MEAS_B_PRED}, 5, 2},
-    {"measure_select", FS_KS(kMeasureSelectSpirv), {FS_MEAS_B_COUNTERS, FS_MEAS_B_SELECT}, 2, 0},
-    {"measure_count",  FS_KS(kMeasureCountSpirv),  {FS_MEAS_B_COUNTERS, FS_MEAS_B_SCORE, FS_MEAS_B_SELECT}, 3, 0},
-    {"measure_prefix", FS_KS(kMeasurePrefixSpirv), {FS_MEAS_B_COUNTERS, FS_MEAS_B_SELECT}, 2, 0},
-    {"measure_emit",   FS_KS(kMeasureEmitSpirv),   {FS_MEAS_B_RECORDS, FS_MEAS_B_COUNTERS, FS_MEAS_B_SCORE, FS_MEAS_B_SELECT, FS_MEAS_B_DEPTH, FS_MEAS_B_CAM_L, FS_MEAS_B_CAM_R, FS_MEAS_B_CAM_K}, 8, 4},
+    {"measure_score",    FS_KS(kMeasureScoreSpirv),    {FS_MEAS_B_COUNTERS, FS_MEAS_B_SCORE, FS_MEAS_B_SELECT, FS_MEAS_B_DEPTH, FS_MEAS_B_PRED}, 5, 2, sizeof(PushCompact)},
+    {"measure_select",   FS_KS(kMeasureSelectSpirv),   {FS_MEAS_B_COUNTERS, FS_MEAS_B_SELECT}, 2, 0, sizeof(PushCompact)},
+    {"measure_count",    FS_KS(kMeasureCountSpirv),    {FS_MEAS_B_COUNTERS, FS_MEAS_B_SCORE, FS_MEAS_B_SELECT}, 3, 0, sizeof(PushCompact)},
+    {"measure_prefix",   FS_KS(kMeasurePrefixSpirv),   {FS_MEAS_B_COUNTERS, FS_MEAS_B_SELECT}, 2, 0, sizeof(PushCompact)},
+    {"measure_emit",     FS_KS(kMeasureEmitSpirv),     {FS_MEAS_B_RECORDS, FS_MEAS_B_COUNTERS, FS_MEAS_B_SCORE, FS_MEAS_B_SELECT, FS_MEAS_B_TILES, FS_MEAS_B_DEPTH, FS_MEAS_B_CAM_L, FS_MEAS_B_CAM_R, FS_MEAS_B_CAM_K}, 9, 4, sizeof(PushCompact)},
+    {"measure_texture",  FS_KS(kMeasureTextureSpirv),  {FS_MEAS_B_COUNTERS, FS_MEAS_B_TILES, FS_MEAS_B_CAM_L, FS_MEAS_B_CAM_R, FS_MEAS_B_CAM_K}, 5, 3, sizeof(PushCompact)},
+    {"measure_planar",   FS_KS(kMeasurePlanarSpirv),   {FS_MEAS_B_COUNTERS, FS_MEAS_B_TILES, FS_MEAS_B_DEPTH}, 3, 1, sizeof(PushCompact)},
+    {"measure_stereo",   FS_KS(kMeasureStereoSpirv),   {FS_MEAS_B_RECORDS, FS_MEAS_B_COUNTERS, FS_MEAS_B_CAM_L, FS_MEAS_B_CAM_R, FS_MEAS_B_CAM_K}, 5, 3, sizeof(PushRefine)},
+    {"measure_temporal", FS_KS(kMeasureTemporalSpirv), {FS_MEAS_B_RECORDS, FS_MEAS_B_COUNTERS, FS_MEAS_B_CAM_L, FS_MEAS_B_CAM_R, FS_MEAS_B_CAM_K}, 5, 3, sizeof(PushRefine)},
 };
 #undef FS_KS
 constexpr int32_t  kAnchorId = 0;                // one anchor until the AnchorGraph cut (C19) assigns observations to anchors
 
-struct StereoPairInput { uint32_t observationId = 0; int64_t xrTimeNsL = 0, xrTimeNsR = 0; uint32_t skewClass = 3; uint64_t seq = 0; };
+struct StereoPairInput { uint32_t observationId = 0; int64_t xrTimeNsL = 0, xrTimeNsR = 0; uint32_t skewClass = 3; bool geometryEligible = false; float confidence = 0, blurPenalty = 1; int64_t uncertaintyNs = 0; uint64_t seq = 0; };
 struct CameraInput { void* texture = nullptr; uint32_t width = 0, height = 0; float worldFromCamera[16]; float k[4]; int32_t rowFlip = 0; int64_t xrTimeNs = 0; uint64_t seq = 0; };
 struct EnvDepthInput {
     void* texture = nullptr; uint32_t width = 0, height = 0;
@@ -68,8 +78,8 @@ struct EnvDepthInput {
     uint64_t seq = 0;                            // bumped per NEW depth frame
 };
 
-enum SlotState : uint32_t { SLOT_FREE = 0, SLOT_IN_FLIGHT = 1, SLOT_READY = 2, SLOT_LEASED = 3 };
-struct RingSlot { MeasGpuRing ring; FrameBlock* blk = nullptr; SlotState state = SLOT_FREE; MeasGpuFrame frame; };
+enum SlotState : uint32_t { SLOT_FREE = 0, SLOT_IN_FLIGHT = 1, SLOT_READY = 2, SLOT_LEASED = 3, SLOT_REFINING = 4 };
+struct RingSlot { MeasGpuRing ring; FrameBlock* blk = nullptr; SlotState state = SLOT_FREE; MeasGpuFrame frame; uint32_t refineOffset = 0, candidates = 0; int64_t refineUs = 0; uint64_t seq = 0; uint32_t maxOut = 0; };
 
 class Measure {
 public:
@@ -101,7 +111,7 @@ public:
             const KernelSpec& ks = kKernels[k];
             for (uint32_t i = 0; i < ks.bindingCount - ks.samplers; ++i) {
                 const uint32_t b = ks.bindings[i];
-                const Buffer* buf = b == FS_MEAS_B_SCORE ? &score_ : b == FS_MEAS_B_SELECT ? &select_ : nullptr;
+                const Buffer* buf = b == FS_MEAS_B_SCORE ? &score_ : b == FS_MEAS_B_SELECT ? &select_ : b == FS_MEAS_B_TILES ? &tiles_ : nullptr;
                 if (buf && !BindBuffer(pipes_[k], b, *buf)) { LogError("FS-MEAS bind scratch %s:%u failed", ks.name, b); return; }
             }
         }
@@ -122,6 +132,7 @@ public:
         }
         if (!CreateBuffer(score_, (VkDeviceSize)kMaxThreads * 4, use, false, "meas.score")) return false;
         if (!CreateBuffer(select_, (VkDeviceSize)FS_MEAS_SEL_WORDS * 4, use, true, "meas.select") || !select_.mapped) return false;
+        if (!CreateBuffer(tiles_, (VkDeviceSize)(3u * FS_TEX_TILES + 2u * FS_PLANAR_TILES * FS_PLANAR_TILE_WORDS) * 4, use, false, "meas.tiles")) return false;
         memset(select_.mapped, 0, FS_MEAS_SEL_WORDS * 4);
         Log("FS-MEAS rings: %u x %u records (%.1f MB)", (unsigned)FS_MEAS_GPU_RING_SLOTS, (unsigned)FS_MEAS_GPU_RING_CAPACITY, FS_MEAS_GPU_RING_SLOTS * FS_MEAS_GPU_RING_CAPACITY * 48.0 / 1e6);
         return true;
@@ -134,6 +145,7 @@ public:
         }
         if (score_.buffer != VK_NULL_HANDLE) DestroyBuffer(score_);
         if (select_.buffer != VK_NULL_HANDLE) DestroyBuffer(select_);
+        if (tiles_.buffer != VK_NULL_HANDLE) DestroyBuffer(tiles_);
         scratchBound_ = false;
     }
     bool CreatePipeline() {                        // warm-up step (fs-warmup thread)
@@ -141,12 +153,12 @@ public:
         if (pipeReady_) return true;
         for (uint32_t k = 0; k < K_COUNT_; ++k) {
             const KernelSpec& ks = kKernels[k];
-            VkDescriptorSetLayoutBinding b[8] = {};
+            VkDescriptorSetLayoutBinding b[12] = {};
             for (uint32_t i = 0; i < ks.bindingCount; ++i) {
                 b[i].binding = ks.bindings[i]; b[i].descriptorCount = 1; b[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
                 b[i].descriptorType = i >= ks.bindingCount - ks.samplers ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             }
-            if (!CreateComputePipeline(pipes_[k], ks.spirv, ks.words, sizeof(PushCompact), b, ks.bindingCount, ks.name)) { LogError("FS-MEAS pipeline %s failed", ks.name); return false; }
+            if (!CreateComputePipeline(pipes_[k], ks.spirv, ks.words, ks.pushBytes, b, ks.bindingCount, ks.name)) { LogError("FS-MEAS pipeline %s failed", ks.name); return false; }
         }
         pipeReady_ = true;
         BindScratch();
@@ -177,10 +189,13 @@ public:
     }
     // C10: the managed StereoPairer committed a coherent L/R pair by capture timestamps; the two camera slots set just before
     // carry its frames. The pair is used for a depth frame only when both slots still hold exactly these capture times.
-    int32_t SetStereoPair(uint32_t observationId, int64_t tL, int64_t tR, uint32_t skewClass) {
+    int32_t SetStereoPair(uint32_t observationId, int64_t tL, int64_t tR, uint32_t skewClass, int32_t geometryEligible, float confidence, float blurPenalty, int64_t uncertaintyNs) {
         std::lock_guard<std::mutex> g(m_);
         if (skewClass >= 3u) { CounterAdd(FS_CTR_PAIRS_REJECTED_SKEW, 1); return FS_ERR_INVALID; }   // SkewClass.Reject never reaches the solve
         pair_.observationId = observationId; pair_.xrTimeNsL = tL; pair_.xrTimeNsR = tR; pair_.skewClass = skewClass; pair_.seq++;
+        // C10R motion authority from the managed pairer: fail-closed (a pair the pairer rules out for geometry gives colour only)
+        pair_.geometryEligible = geometryEligible != 0; pair_.confidence = confidence; pair_.blurPenalty = blurPenalty; pair_.uncertaintyNs = uncertaintyNs;
+        if (!PairGeometryEligible()) pairsGeometryRejected_++;
         CounterAdd(FS_CTR_STEREO_PAIRS, 1);
         return FS_OK;
     }
@@ -202,6 +217,9 @@ public:
         if (!cur.texture) return -1;
         return SelectKeyframe(cur.worldFromCamera, cur.xrTimeNs, [&](uint32_t i, const float*& wfc, int64_t& t) { if (!key_[i].texture) return false; wfc = key_[i].worldFromCamera; t = key_[i].xrTimeNs; return true; });
     }
+    bool PairGeometryEligible() const {
+        return pair_.geometryEligible && pair_.confidence >= (float)FS_STEREO_MIN_CONFIDENCE && pair_.blurPenalty <= (float)FS_STEREO_MAX_BLUR && pair_.uncertaintyNs <= (int64_t)FS_STEREO_MAX_UNCERTAINTY_NS;
+    }
     int32_t SetParams(uint32_t budget, uint32_t maxOut, uint32_t flags) {
         std::lock_guard<std::mutex> g(m_);
         maxOut_ = maxOut == 0 ? FS_MEAS_DEFAULT_MAX_OUT : (maxOut > FS_MEAS_GPU_RING_CAPACITY ? FS_MEAS_GPU_RING_CAPACITY : maxOut);
@@ -214,12 +232,23 @@ public:
     // C10 receipts (totals since start): tested, valid, lowTex, ambiguous, bandEdge, noCover, n[4], res0.1mm[4], sigmaUm, envSigmaUm, frames with pair
     void StereoStats(int64_t out[17]) { std::lock_guard<std::mutex> g(m_); for (uint32_t k = 0; k < 16; ++k) out[k] = (int64_t)stereoTotals_[k]; out[16] = (int64_t)stereoFrames_; }
     // C11 receipts (totals): temporal tested, valid, lowTex, ambiguous, bandEdge, noCover, disagree, sigmaUm, planar tested, valid, rejected, sigmaUm, rmsUm, keyframes set, frames with keyframe
-    void MultiviewStats(int64_t out[15]) { std::lock_guard<std::mutex> g(m_); for (uint32_t k = 0; k < 13; ++k) out[k] = (int64_t)stereoTotals_[16 + k]; out[13] = (int64_t)keyframesSet_; out[14] = (int64_t)keyFramesUsed_; }
+    // + candidates stereo, candidates temporal, refine skipped, refine jobs, pairs rejected for geometry, refine ms per frame p95, last compaction us
+    void MultiviewStats(int64_t out[22]) { std::lock_guard<std::mutex> g(m_); for (uint32_t k = 0; k < 13; ++k) out[k] = (int64_t)stereoTotals_[16 + k]; out[13] = (int64_t)keyframesSet_; out[14] = (int64_t)keyFramesUsed_;
+        out[15] = (int64_t)stereoTotals_[29]; out[16] = (int64_t)stereoTotals_[30]; out[17] = (int64_t)stereoTotals_[31]; out[18] = (int64_t)refineJobs_; out[19] = (int64_t)pairsGeometryRejected_; out[20] = (int64_t)(refineFrameUs_.Quantile(0.95f) * 1000.f); out[21] = lastGpuUs_; }
     void Stats(int64_t out[8]) {
         std::lock_guard<std::mutex> g(m_);
         out[0] = framesSeen_; out[1] = framesSubmitted_; out[2] = framesSuperseded_; out[3] = lastCount_; out[4] = lastRejected_; out[5] = lastGpuUs_; out[6] = importFailures_; out[7] = lastThreshold_;
     }
 
+    // camera images (linear) to every kernel that samples them
+    bool BindImageAll(uint32_t binding, VkImageView v) {
+        for (uint32_t k = 0; k < K_COUNT_; ++k) {
+            const KernelSpec& ks = kKernels[k];
+            for (uint32_t i = ks.bindingCount - ks.samplers; i < ks.bindingCount; ++i)
+                if (ks.bindings[i] == binding && !BindImage(pipes_[k], binding, v, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ExecSampler(true))) return false;
+        }
+        return true;
+    }
     // ---- frame-begin hook (render thread): import the latest depth texture, bind it once per image --------
     void FrameBegin(uint32_t frame) {
         std::lock_guard<std::mutex> g(m_);
@@ -230,7 +259,8 @@ public:
         if (w * h * (layers >= 2 ? 2u : 1u) > kMaxThreads) { if (importFailures_++ == 0) LogError("FS-MEAS depth image %ux%ux%u exceeds the score scratch (%u texels)", w, h, layers, kMaxThreads); return; }
         if (view != view_ || fmt != fmt_) {
             if (!BindImage(pipes_[K_SCORE], FS_MEAS_B_DEPTH, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ExecSampler(false)) ||
-                !BindImage(pipes_[K_EMIT], FS_MEAS_B_DEPTH, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ExecSampler(false))) { importFailures_++; return; }
+                !BindImage(pipes_[K_EMIT], FS_MEAS_B_DEPTH, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ExecSampler(false)) ||
+                !BindImage(pipes_[K_PLANAR], FS_MEAS_B_DEPTH, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ExecSampler(false))) { importFailures_++; return; }
             view_ = view; fmt_ = fmt; ++binds_;
             if (binds_ <= 4 || (binds_ % 500) == 0) Log("FS-MEAS depth image bound #%llu: %ux%u layers=%u format=%d", (unsigned long long)binds_, w, h, layers, (int)fmt);
         }
@@ -254,7 +284,7 @@ public:
                 VkImage ci; VkImageView cvv; VkFormat cf; uint32_t cw, ch, cl;
                 if (ImportUnityTexture(c.texture, ci, cvv, cf, cw, ch, cl)) { cv = cvv; camImported_[e] = true; camImportedW_[e] = cw; camImportedH_[e] = ch; }
             }
-            if (cv != camView_[e]) { if (!BindImage(pipes_[K_EMIT], e == 0 ? FS_MEAS_B_CAM_L : FS_MEAS_B_CAM_R, cv, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ExecSampler(true))) { importFailures_++; return; } camView_[e] = cv; }
+            if (cv != camView_[e]) { if (!BindImageAll(e == 0 ? FS_MEAS_B_CAM_L : FS_MEAS_B_CAM_R, cv)) { importFailures_++; return; } camView_[e] = cv; }
         }
         // C11 keyframe: select against the current left PCA frame, import, bind (none: the left camera / depth view stands in)
         {
@@ -265,7 +295,7 @@ public:
                 VkImage ki; VkImageView kvv; VkFormat kf; uint32_t kw, kh, kl;
                 if (ImportUnityTexture(kc.texture, ki, kvv, kf, kw, kh, kl) && kw == kc.width && kh == kc.height) { kv = kvv; keyImported_ = true; keySelSeq_ = kc.seq; }
             }
-            if (kv != keyView_) { if (!BindImage(pipes_[K_EMIT], FS_MEAS_B_CAM_K, kv, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ExecSampler(true))) { importFailures_++; return; } keyView_ = kv; }
+            if (kv != keyView_) { if (!BindImageAll(FS_MEAS_B_CAM_K, kv)) { importFailures_++; return; } keyView_ = kv; }
         }
         importedW_ = w; importedH_ = h; importedLayers_ = layers; imported_ = input_.seq; importedFrame_ = frame;
         pendingSubmit_ = true;
@@ -274,7 +304,10 @@ public:
     // ---- SCAN-class scheduler tick (fs-sched thread) -----------------------------------------------------
     void Tick(uint32_t budgetUs) {
         std::lock_guard<std::mutex> g(m_);
-        if (!deviceUp_ || !pipeReady_ || !pendingSubmit_ || jobInFlight_ || budgetUs == 0) return;
+        if (!deviceUp_ || !pipeReady_ || jobInFlight_ || budgetUs == 0) return;
+        // C10R: a frame whose cheap pass admitted stereo / temporal candidates is refined (bounded chunks) before a new frame is compacted
+        for (uint32_t s = 0; s < FS_MEAS_GPU_RING_SLOTS; ++s) if (slots_[s].state == SLOT_REFINING) { SubmitRefineLocked(s); return; }
+        if (!pendingSubmit_) return;
         if (imported_ == submitted_) { pendingSubmit_ = false; return; }
         // choose a slot: FREE first, else the oldest unleased READY (superseded, counted); never LEASED / IN_FLIGHT
         int32_t pick = -1;
@@ -319,10 +352,10 @@ public:
         }
         // C10 stereo pair: both slots usable, identical delivered size / row convention, and exactly the pair's capture times
         const int64_t pairAge = std::max(std::llabs(pair_.xrTimeNsL - input_.xrTimeNs), std::llabs(pair_.xrTimeNsR - input_.xrTimeNs));
-        if (camMask == 3u && pair_.seq && cam_[0].xrTimeNs == pair_.xrTimeNsL && cam_[1].xrTimeNs == pair_.xrTimeNsR && pairAge <= FS_STEREO_MAX_AGE_NS &&
+        if (camMask == 3u && pair_.seq && PairGeometryEligible() && cam_[0].xrTimeNs == pair_.xrTimeNsL && cam_[1].xrTimeNs == pair_.xrTimeNsR && pairAge <= FS_STEREO_MAX_AGE_NS &&
             cam_[0].width == cam_[1].width && cam_[0].height == cam_[1].height && cam_[0].rowFlip == cam_[1].rowFlip) { camMask |= 4u; stereoFrames_++; }
         blk.camInfo[2] = camMask; blk.camInfo[3] = (uint32_t)cam_[(camMask & 1u) ? 0 : 1].rowFlip; if (camMask) camFramesUsed_++;
-        memcpy(blk.anchorFromWorld, anchorFromWorld.m, 64);
+        memcpy(blk.anchorFromWorld, anchorFromWorld.m, 64); memcpy(blk.worldFromAnchor, worldFromAnchor.m, 64);
         blk.stereoInfo[0] = pair_.observationId; blk.stereoInfo[1] = pair_.skewClass; blk.stereoInfo[2] = 0; blk.stereoInfo[3] = 0;
         // C11 keyframe (selected + imported at frame begin; still the same slot content)
         memset(blk.keyCamFromWorld, 0, sizeof blk.keyCamFromWorld); memset(blk.keyIntrinsics, 0, sizeof blk.keyIntrinsics); memset(blk.keyInfo, 0, sizeof blk.keyInfo);
@@ -341,8 +374,14 @@ public:
         p.layers = layers; p.budget = budget_; p.maxOut = maxOut_; p.flags = flags_;
         p.obsId = obsId; p.frame = (uint32_t)input_.seq; p.width = w; p.height = h;
         const uint32_t groups = (w * h * layers + FS_MEAS_WG - 1) / FS_MEAS_WG;
-        Dispatch d[5];
-        for (uint32_t k = 0; k < 5; ++k) { d[k].pipeline = &pipes_[k]; d[k].push = &p; d[k].pushBytes = sizeof p; d[k].gx = (k == K_SELECT || k == K_PREFIX) ? 1u : groups; }
+        // compaction job (information-first, cheap): texture tiles -> planar tiles -> score -> select -> count -> prefix -> emit (+ gates)
+        static const uint32_t kOrder[7] = {K_TEXTURE, K_PLANAR, K_SCORE, K_SELECT, K_COUNT, K_PREFIX, K_EMIT};
+        Dispatch d[7];
+        for (uint32_t i = 0; i < 7; ++i) {
+            const uint32_t k = kOrder[i];
+            d[i].pipeline = &pipes_[k]; d[i].push = &p; d[i].pushBytes = sizeof p;
+            d[i].gx = (k == K_SELECT || k == K_PREFIX) ? 1u : k == K_TEXTURE ? (3u * FS_TEX_TILES + 63u) / 64u : k == K_PLANAR ? (2u * FS_PLANAR_TILES + 63u) / 64u : groups;
+        }
         // persistent descriptors: no job of these pipelines is in flight, so the ring slot may be re-bound now
         for (uint32_t k = 0; k < K_COUNT_; ++k) {
             if (!BindBuffer(pipes_[k], FS_MEAS_B_COUNTERS, slot.ring.counters)) { LogError("FS-MEAS bind ring slot %d failed", pick); return; }
@@ -359,7 +398,7 @@ public:
         slot.frame.eyeOriginValid = true;
         slot.frame.sequence = ++handoffSeq_;
         const uint64_t seq = input_.seq; const uint32_t maxOut = maxOut_;
-        JobDesc jd; jd.cls = FS_JOB_SCAN; jd.name = "depth_compact"; jd.dispatches = d; jd.dispatchCount = 5;
+        JobDesc jd; jd.cls = FS_JOB_SCAN; jd.name = "depth_compact"; jd.dispatches = d; jd.dispatchCount = 7;
         jd.waitFrameEndValue = importedFrame_;   // Unity's layout transition of the imported depth image precedes this job (§15.3)
         jd.onRetired = [this, pick, seq, maxOut](bool ok, uint64_t gpuStart, uint64_t gpuEnd) { OnRetired((uint32_t)pick, seq, maxOut, ok, gpuStart, gpuEnd); };
         if (!SubmitJob(jd)) return;                                      // deferred (ring / budget): retried next tick
@@ -379,6 +418,20 @@ public:
             slot.frame.gpuStartNs = gpuStart; slot.frame.gpuEndNs = gpuEnd;
             lastCount_ = slot.frame.count; lastOverflow_ = slot.frame.overflow; lastEdge_ = ctr[FS_MEAS_CTR_EDGE]; lastRejected_ = ctr[FS_MEAS_CTR_REJECTED]; lastThreshold_ = ctr[FS_MEAS_CTR_THRESHOLD];
             lastGpuUs_ = gpuEnd > gpuStart ? (int64_t)((gpuEnd - gpuStart) / 1000ull) : 0;
+            lastGpuUs_ = gpuEnd > gpuStart ? (int64_t)((gpuEnd - gpuStart) / 1000ull) : 0;
+            slot.seq = seq; slot.maxOut = maxOut;
+            const uint32_t cand = ctr[FS_MEAS_CTR_CAND_STEREO] + ctr[FS_MEAS_CTR_CAND_TEMPORAL];
+            if (slot.frame.count && cand) { slot.state = SLOT_REFINING; slot.refineOffset = 0; slot.refineUs = 0; slot.candidates = cand; return; }   // refine jobs follow
+            request = FinalizeLocked(pick, obs);
+        }
+        // Outside the module lock (takes the executor lock): the world SCAN tick runs next with this observation.
+        if (request) FsScan_RequestTick(obs);
+    }
+    // Frame complete (compaction + refine): READY for the world, totals, receipts.
+    bool FinalizeLocked(uint32_t pick, uint32_t& obs) {
+        RingSlot& slot = slots_[pick];
+        const uint32_t* ctr = slot.blk->ctr; const uint64_t seq = slot.seq;
+        bool request = false;
             CounterAdd(FS_CTR_MEASUREMENTS, (int64_t)slot.frame.count);
             for (uint32_t k = 0; k < 32; ++k) stereoTotals_[k] += ctr[FS_MEAS_CTR_STEREO_TESTED + k];
             if (slot.frame.overflow) CounterAdd(FS_CTR_MEASUREMENTS_DROPPED, (int64_t)slot.frame.overflow);
@@ -420,11 +473,50 @@ public:
                     (unsigned long long)seq, slot.frame.eyeOrigin[0][0], slot.frame.eyeOrigin[0][1], slot.frame.eyeOrigin[0][2], slot.frame.eyeOrigin[1][0], slot.frame.eyeOrigin[1][1], slot.frame.eyeOrigin[1][2],
                     ns, dmin, dsum / ns, dmax, inRange, bmin[0], bmin[1], bmin[2], bmax[0], bmax[1], bmax[2], input_.fovL[0], input_.fovL[1], input_.fovL[2], input_.fovL[3], input_.nearZ, input_.farZ);
             }
-        }
-        // Outside the module lock (takes the executor lock): the world SCAN tick runs next with this observation.
-        if (request) FsScan_RequestTick(obs);
+                return request;
     }
-
+    // C10R / C11R bounded refine chunk: stereo then temporal over [offset, offset + chunk) of the frame's records. The chunk is sized
+    // from the refine cost model (items = image solves actually run) and the frame's candidate density; the frame's refine budget
+    // FS_MEAS_REFINE_MAX_US ends refinement (remaining candidates keep their Env Depth records, counted).
+    void SubmitRefineLocked(uint32_t s) {
+        RingSlot& slot = slots_[s];
+        const uint32_t count = slot.frame.count;
+        const double density = std::max(1e-3, (double)slot.candidates / (double)std::max(count, 1u));
+        const uint32_t items = refineCost_.Batch(2000.0, 32u, 65536u, 512u);
+        const uint32_t chunk = std::min<uint32_t>(count - slot.refineOffset, std::max<uint32_t>(256u, (uint32_t)((double)items / density)));
+        if (!BindBuffer(pipes_[K_STEREO], FS_MEAS_B_RECORDS, slot.ring.records) || !BindBuffer(pipes_[K_TEMPORAL], FS_MEAS_B_RECORDS, slot.ring.records) ||
+            !BindBuffer(pipes_[K_STEREO], FS_MEAS_B_COUNTERS, slot.ring.counters) || !BindBuffer(pipes_[K_TEMPORAL], FS_MEAS_B_COUNTERS, slot.ring.counters)) { LogError("FS-MEAS bind refine slot %u failed", s); return; }
+        static PushRefine pr; pr.offset = slot.refineOffset; pr.count = chunk; pr.recordCap = count; pr.pad = 0;
+        Dispatch d[2];
+        for (uint32_t i = 0; i < 2; ++i) { d[i].pipeline = &pipes_[i == 0 ? K_STEREO : K_TEMPORAL]; d[i].push = &pr; d[i].pushBytes = sizeof pr; d[i].gx = (chunk + 63u) / 64u; }
+        const uint32_t before = slot.blk->ctr[FS_MEAS_CTR_STEREO_TESTED] + slot.blk->ctr[FS_MEAS_CTR_TEMPORAL_TESTED];
+        JobDesc jd; jd.cls = FS_JOB_SCAN; jd.name = "meas_refine"; jd.dispatches = d; jd.dispatchCount = 2;
+        jd.onRetired = [this, s, chunk, before](bool ok, uint64_t gs, uint64_t ge) {
+            uint32_t obs = 0; bool request = false;
+            {
+                std::lock_guard<std::mutex> g(m_);
+                jobInFlight_ = false;
+                RingSlot& sl = slots_[s];
+                if (sl.state != SLOT_REFINING) return;
+                const int64_t us = ge > gs ? (int64_t)((ge - gs) / 1000ull) : 0;
+                if (ok) {
+                    const uint32_t solved = sl.blk->ctr[FS_MEAS_CTR_STEREO_TESTED] + sl.blk->ctr[FS_MEAS_CTR_TEMPORAL_TESTED] - before;
+                    refineCost_.Add(solved, us); sl.refineOffset += chunk; sl.refineUs += us; refineJobs_++; lastRefineUs_ = us;
+                }
+                if (sl.refineOffset >= sl.frame.count || sl.refineUs >= (int64_t)FS_MEAS_REFINE_MAX_US || !ok) {
+                    uint32_t skipped = 0;
+                    const FsSurfaceMeasurement* rec = (const FsSurfaceMeasurement*)sl.ring.records.mapped;
+                    for (uint32_t i = sl.refineOffset; i < sl.frame.count; ++i) if (rec[i].sourceFlags & (FS_MEAS_SRC_CAND_STEREO | FS_MEAS_SRC_CAND_TEMPORAL)) skipped++;
+                    sl.blk->ctr[FS_MEAS_CTR_REFINE_SKIPPED] = skipped;
+                    refineFrameUs_.Add((float)sl.refineUs / 1000.f);
+                    request = FinalizeLocked(s, obs);
+                }
+            }
+            if (request) FsScan_RequestTick(obs);
+        };
+        if (!SubmitJob(jd)) return;
+        jobInFlight_ = true;
+    }
     // ---- consumer handoff (any thread) --------------------------------------------------------------------
     bool PeekFrame(MeasGpuFrame& out) {
         std::lock_guard<std::mutex> g(m_);
@@ -457,6 +549,7 @@ private:
     VkImageView view_ = VK_NULL_HANDLE; VkFormat fmt_ = VK_FORMAT_UNDEFINED;
     VkImageView predView_ = VK_NULL_HANDLE; fs::render::PredictionInfo pred_; bool predValid_ = false; uint64_t predBinds_ = 0;
     CameraInput cam_[2]; StereoPairInput pair_; uint64_t stereoFrames_ = 0; uint64_t stereoTotals_[32] = {};
+    Buffer tiles_; CostModel refineCost_; AgeWindow refineFrameUs_; uint64_t refineJobs_ = 0, pairsGeometryRejected_ = 0; int64_t lastRefineUs_ = 0;
     CameraInput key_[FS_MEAS_KEYFRAMES]; int32_t keySel_ = -1; uint64_t keySelSeq_ = 0; bool keyImported_ = false; VkImageView keyView_ = VK_NULL_HANDLE; uint64_t keyframesSet_ = 0, keyFramesUsed_ = 0; VkImageView camView_[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE}; bool camImported_[2] = {false, false}; uint32_t camImportedW_[2] = {0, 0}, camImportedH_[2] = {0, 0}; uint64_t camFrames_ = 0, camFramesUsed_ = 0;
     Pipeline pipes_[K_COUNT_]; Buffer score_, select_; bool scratchBound_ = false;
     RingSlot slots_[FS_MEAS_GPU_RING_SLOTS];
@@ -491,9 +584,9 @@ FS_API int32_t FsMeas_SetEnvDepth(void* unityDepthTextureArray, uint32_t width, 
 FS_API int32_t FsMeas_SetParams(uint32_t budget, uint32_t maxOut, uint32_t flags) { EnsureInit(); return M().SetParams(budget, maxOut, flags); }
 FS_API int32_t FsMeas_SetCameraFrame(int32_t eye, void* unityTexture, uint32_t width, uint32_t height, uint32_t sensorWidth, uint32_t sensorHeight, const float worldFromCamera[16], float fx, float fy, float cx, float cy, int32_t rowFlip, int64_t xrTimeNs) {
     EnsureInit(); return M().SetCameraFrame(eye, unityTexture, width, height, sensorWidth, sensorHeight, worldFromCamera, fx, fy, cx, cy, rowFlip, xrTimeNs); }
-FS_API int32_t FsMeas_SetStereoPair(uint32_t observationId, int64_t xrTimeNsL, int64_t xrTimeNsR, uint32_t skewClass) { EnsureInit(); return M().SetStereoPair(observationId, xrTimeNsL, xrTimeNsR, skewClass); }
+FS_API int32_t FsMeas_SetStereoPair(uint32_t observationId, int64_t xrTimeNsL, int64_t xrTimeNsR, uint32_t skewClass, int32_t geometryEligible, float confidence, float blurPenalty, int64_t uncertaintyNs) { EnsureInit(); return M().SetStereoPair(observationId, xrTimeNsL, xrTimeNsR, skewClass, geometryEligible, confidence, blurPenalty, uncertaintyNs); }
 FS_API int32_t FsMeas_SetKeyframe(uint32_t slotIndex, void* unityTexture, uint32_t width, uint32_t height, uint32_t sensorWidth, uint32_t sensorHeight, const float worldFromCamera[16], float fx, float fy, float cx, float cy, int32_t rowFlip, int64_t xrTimeNs) {
     EnsureInit(); return M().SetKeyframe(slotIndex, unityTexture, width, height, sensorWidth, sensorHeight, worldFromCamera, fx, fy, cx, cy, rowFlip, xrTimeNs); }
-FS_API int32_t FsMeas_GetMultiviewStats(int64_t out[15]) { EnsureInit(); if (!out) return FS_ERR_INVALID; M().MultiviewStats(out); return FS_OK; }
+FS_API int32_t FsMeas_GetMultiviewStats(int64_t out[22]) { EnsureInit(); if (!out) return FS_ERR_INVALID; M().MultiviewStats(out); return FS_OK; }
 FS_API int32_t FsMeas_GetStereoStats(int64_t out[17]) { EnsureInit(); if (!out) return FS_ERR_INVALID; M().StereoStats(out); return FS_OK; }
 FS_API int32_t FsMeas_GetStats(int64_t out[8]) { EnsureInit(); if (!out) return FS_ERR_INVALID; M().Stats(out); return FS_OK; }

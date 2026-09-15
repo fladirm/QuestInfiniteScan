@@ -1,0 +1,43 @@
+#version 450
+// C11R bounded temporal refine (same chunk, after measure_stereo): records marked FS_MEAS_SRC_CAND_TEMPORAL run the large-baseline
+// solve against the bound keyframe with the effective (ray-perpendicular) baseline; prior = the record as it stands (L/R stereo endpoint
+// when that solve succeeded). A consistent endpoint becomes FS_MEAS_SRC_TEMPORAL; disagreement with a stereo endpoint keeps stereo.
+#extension GL_GOOGLE_include_directive : require
+#include "fs_abi.glsl"
+#include "fs_meas_common.glsl"
+#define FS_MEAS_REFINE_PUSH
+#include "fs_meas_frame.glsl"
+layout(local_size_x = 64) in;
+layout(std430, set = 0, binding = FS_MEAS_B_RECORDS) buffer Records { FsSurfaceMeasurement rec[]; };
+layout(set = 0, binding = FS_MEAS_B_CAM_L) uniform sampler2D camL;
+layout(set = 0, binding = FS_MEAS_B_CAM_R) uniform sampler2D camR;
+layout(set = 0, binding = FS_MEAS_B_CAM_K) uniform sampler2D camK;
+#include "fs_meas_stereo.glsl"
+void main() {
+    if (gl_GlobalInvocationID.x >= pc.count) return;
+    uint i = pc.offset + gl_GlobalInvocationID.x;
+    if (i >= pc.recordCap) return;
+    FsSurfaceMeasurement m = rec[i];
+    if ((m.sourceFlags & FS_MEAS_SRC_CAND_TEMPORAL) == 0u) return;
+    m.sourceFlags &= ~FS_MEAS_SRC_CAND_TEMPORAL;
+    vec3 pw = (blk.worldFromAnchor * vec4(m.px, m.py, m.pz, 1.0)).xyz, nw = normalize(mat3(blk.worldFromAnchor) * vec3(m.nx, m.ny, m.nz));
+    vec3 pt; float stg, znt;
+    uint tt = fsStereoSolve(2u, pw, nw, m.sigmaN, FS_TEMPORAL_BAND_MAX_PX, FS_TEMPORAL_BEFF_MIN_M, pt, stg, znt);
+    if (tt != FS_STEREO_ST_SKIP) atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_TESTED], 1u);
+    if (tt == FS_STEREO_OK) {
+        bool stereo = (m.sourceFlags & FS_MEAS_SRC_STEREO) != 0u;
+        if (stereo && length(pt - pw) > FS_TEMPORAL_AGREE_K * sqrt(stg * stg + m.sigmaN * m.sigmaN)) atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_DISAGREE], 1u);
+        else {
+            vec3 pta = (blk.anchorFromWorld * vec4(pt, 1.0)).xyz;
+            atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_VALID], 1u);
+            atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_SIGMA_UM], uint(min(stg * 1e6, 1e7)));
+            m.px = pta.x; m.py = pta.y; m.pz = pta.z; m.sigmaN = stg;
+            m.sourceFlags = (m.sourceFlags & ~(FS_MEAS_SRC_DEPTH_PRIOR | FS_MEAS_SRC_STEREO)) | FS_MEAS_SRC_TEMPORAL;
+            m.reserved = fsSampleColor(0u, pt);
+        }
+    } else if (tt == FS_STEREO_ST_LOWTEX) atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_LOWTEX], 1u);
+    else if (tt == FS_STEREO_ST_AMBIG) atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_AMBIG], 1u);
+    else if (tt == FS_STEREO_ST_EDGE) atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_EDGE], 1u);
+    else if (tt == FS_STEREO_ST_NOCOVER) atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_NOCOVER], 1u);
+    rec[i] = m;
+}

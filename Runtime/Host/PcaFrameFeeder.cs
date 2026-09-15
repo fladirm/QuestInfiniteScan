@@ -44,7 +44,8 @@ namespace FinalScan.Host
                 if (Push(0, pair.leaseL) && Push(1, pair.leaseR))
                 {
                     _lastPairId = pair.observationId;
-                    LastPairResult = FinalScanHostNative.SetStereoPair(pair.observationId, pair.xrTimeNsL, pair.xrTimeNsR, (uint)pair.skew);
+                    // C10R motion authority: the pairer's geometry verdict, confidence, blur and timestamp uncertainty; native fails closed
+                    LastPairResult = FinalScanHostNative.SetStereoPair(pair.observationId, pair.xrTimeNsL, pair.xrTimeNsR, (uint)pair.skew, pair.geometryEvidence, pair.confidence, pair.blurPenalty, Math.Max(pair.uncertaintyNsL, pair.uncertaintyNsR));
                     if (LastPairResult == FinalScanHostNative.ResultOk) PairsPushed++;
                 }
                 return;

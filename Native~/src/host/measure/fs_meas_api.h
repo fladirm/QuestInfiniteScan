@@ -23,10 +23,10 @@ int32_t FsMeas_SetParams(uint32_t budget, uint32_t maxOut, uint32_t flags);
 // Intrinsics are MRUK sensor-resolution values (sensorWidth x sensorHeight); the delivered image (width x height) is the
 // aspect-keeping centre crop. rowFlip = 1 when the owned copy was written by Graphics.Blit (RT: physical row 0 = top),
 // 0 for Graphics.CopyTexture of the producer texture (physical row 0 = bottom).
-int32_t FsMeas_SetStereoPair(uint32_t observationId, int64_t xrTimeNsL, int64_t xrTimeNsR, uint32_t skewClass);   // C10: the two camera slots hold a committed L/R pair
+int32_t FsMeas_SetStereoPair(uint32_t observationId, int64_t xrTimeNsL, int64_t xrTimeNsR, uint32_t skewClass, int32_t geometryEligible, float confidence, float blurPenalty, int64_t uncertaintyNs);   // C10: the two camera slots hold a committed L/R pair
 int32_t FsMeas_GetStereoStats(int64_t out[17]);
 int32_t FsMeas_SetKeyframe(uint32_t slotIndex, void* unityTexture, uint32_t width, uint32_t height, uint32_t sensorWidth, uint32_t sensorHeight, const float worldFromCamera[16], float fx, float fy, float cx, float cy, int32_t rowFlip, int64_t xrTimeNs);   // C11 keyframe slot
-int32_t FsMeas_GetMultiviewStats(int64_t out[15]);
+int32_t FsMeas_GetMultiviewStats(int64_t out[22]);
 int32_t FsMeas_SetCameraFrame(int32_t eye, void* unityTexture, uint32_t width, uint32_t height, uint32_t sensorWidth, uint32_t sensorHeight, const float worldFromCamera[16], float fx, float fy, float cx, float cy, int32_t rowFlip, int64_t xrTimeNs);   // budget = measurements selected per depth frame (§7.6), maxOut = record cap
 // out[8]: framesSeen, framesSubmitted, framesSuperseded, lastCount, lastOverflow, lastGpuUs, importFailures, lastEdgeTexels
 int32_t FsMeas_GetStats(int64_t out[8]);

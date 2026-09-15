@@ -104,6 +104,7 @@ struct FrameBlock {
     float    keyCamFromWorld[16];        // C11: bound keyframe (left PCA copy) pose inverse
     float    keyIntrinsics[4];           // fx, fy, cx, cy (delivered pixels, bottom-left origin)
     uint32_t keyInfo[4];                 // width, height, valid (1 = bound for this frame), rowFlip
+    float    worldFromAnchor[16];        // C10R: refine passes lift anchor-local records back to world
 };
 static_assert(sizeof(FrameBlock) == FS_MEAS_FB_BYTES, "frame block layout");
 
@@ -315,6 +316,24 @@ inline Vec3 TransposeMulDir(const Mat4& A, Vec3 d) {     // R^T d of a rigid cam
 inline const float* CamM(const FrameBlock& blk, uint32_t e) { return e == 2u ? blk.keyCamFromWorld : blk.camFromWorld[e]; }
 inline const float* CamK(const FrameBlock& blk, uint32_t e) { return e == 2u ? blk.keyIntrinsics : blk.camIntrinsics[e]; }
 inline Vec3 CamCentre(const FrameBlock& blk, uint32_t e) { Mat4 M; memcpy(M.m, CamM(blk, e), 64); return Scale3(TransposeMulDir(M, V3(M.m[12], M.m[13], M.m[14])), -1.f); }
+// Effective (ray-perpendicular) baseline of camera `other` against the left camera ray through pw (twin: fsEffectiveBaseline).
+inline float EffectiveBaseline(const FrameBlock& blk, uint32_t other, Vec3 pw) {
+    const Vec3 cL = CamCentre(blk, 0), dv = Sub(CamCentre(blk, other), cL), dir = Normalize(Sub(pw, cL));
+    return Length(Sub(dv, Scale3(dir, Dot(dv, dir))));
+}
+// C10R cheap stereo gate, bounds part (twin: measure_emit.comp): the 3x3 patch + bilinear footprint + disparity band fit inside BOTH
+// PCA images, so no candidate can end in noCover inside the solve; no image is sampled.
+inline bool StereoGateBounds(const FrameBlock& blk, Vec3 pw) {
+    const float mx = (float)(FS_STEREO_PATCH_PX + FS_STEREO_PATCH_MARGIN_PX + FS_STEREO_BAND_MAX_PX), my = (float)(FS_STEREO_PATCH_PX + FS_STEREO_PATCH_MARGIN_PX);
+    const float W = (float)blk.camInfo[0], H = (float)blk.camInfo[1];
+    for (uint32_t e = 0; e < 2; ++e) {
+        Mat4 M; memcpy(M.m, blk.camFromWorld[e], 64); const Vec3 pc = MulPoint(M, pw);
+        if (pc.z <= 0.05f) return false;
+        const float* k = blk.camIntrinsics[e]; const float u = k[2] + k[0] * pc.x / pc.z, v = k[3] + k[1] * pc.y / pc.z;
+        if (u < mx || v < my || u > W - mx || v > H - my) return false;
+    }
+    return true;
+}
 // `bilinear(eye, u, t)` = bilinear luma at continuous texture coordinates (u right, t = texture row coordinate), 0..1.
 template <class LumaFn>
 inline bool CamLuma(const FrameBlock& blk, uint32_t e, Vec3 pw, LumaFn bilinear, float& luma) {
@@ -339,13 +358,13 @@ inline void StereoBand(float z0, float sigmaEnv, float fx, float b, float& d0, f
 inline float SubpixelParabola(float cm, float c0, float cp) { const float den = cm - 2.f * c0 + cp; return den > 1e-6f ? fminf(fmaxf(0.5f * (cm - cp) / den, -0.5f), 0.5f) : 0.f; }
 inline float StereoSigmaZ(float z, float fx, float b, float zncc) { return z * z * ((float)FS_STEREO_SIGMA_D_PX / (zncc * zncc)) / (fx * b); }
 template <class LumaFn>
-inline StereoStatus StereoSolve(const FrameBlock& blk, Vec3 pEnv, Vec3 nEnv, float sigmaEnv, LumaFn bilinear, Vec3& pOut, float& sigmaOut, float& znccOut, uint32_t other = 1u, float bandMaxPx = (float)FS_STEREO_BAND_MAX_PX) {
+inline StereoStatus StereoSolve(const FrameBlock& blk, Vec3 pEnv, Vec3 nEnv, float sigmaEnv, LumaFn bilinear, Vec3& pOut, float& sigmaOut, float& znccOut, uint32_t other = 1u, float bandMaxPx = (float)FS_STEREO_BAND_MAX_PX, float bMin = (float)FS_STEREO_BEFF_MIN_M) {
     pOut = pEnv; sigmaOut = sigmaEnv; znccOut = 0.f;
-    const Vec3 cL = CamCentre(blk, 0), cR = CamCentre(blk, other);
-    const float b = Length(Sub(cR, cL)), fx = blk.camIntrinsics[0][0];
+    const Vec3 cL = CamCentre(blk, 0);
+    const float b = EffectiveBaseline(blk, other, pEnv), fx = blk.camIntrinsics[0][0];   // C11R: ray-perpendicular baseline
     Mat4 ML; memcpy(ML.m, blk.camFromWorld[0], 64);
     const Vec3 pcL = MulPoint(ML, pEnv);
-    if (pcL.z <= 0.1f || b < 0.01f) return STEREO_SKIP;
+    if (pcL.z <= 0.1f || b < bMin) return STEREO_SKIP;
     const Vec3 rayW = TransposeMulDir(ML, Scale3(pcL, 1.f / pcL.z));
     const float z0 = pcL.z; float d0, step; StereoBand(z0, sigmaEnv, fx, b, d0, step, bandMaxPx);   // band capped: a prior far off stays EDGE / AMBIG
     const int half = (FS_STEREO_HYPS - 1) / 2;

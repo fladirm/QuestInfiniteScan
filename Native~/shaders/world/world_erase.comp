@@ -42,7 +42,7 @@ void main() {
             if (k >= cnt) break;
             uint h = idx[fsIdxLeafWord(leaves[l], 2u + k)];
             FsSurfel s = surfels[h]; uint flags = fsGet_FsSurfel_evidenceFlags(s);
-            if ((flags & FS_FLAG_REMOVED) == 0u && distance(fsSurfelLocalPos(s), c) <= pc.radius) { fsSet_FsSurfel_evidenceFlags(s, flags | FS_FLAG_REMOVED); surfels[h] = s; removed++; continue; }
+            if ((flags & FS_FLAG_REMOVED) == 0u && distance(fsSurfelLocalPos(s), c) <= pc.radius) { fsSet_FsSurfel_evidenceFlags(s, flags | FS_FLAG_REMOVED); surfels[h] = s; removed++; if ((flags & FS_FLAG_PROMOTED) != 0u) atomicAdd(gctr[FS_GCTR_PROMOTED_REMOVED], 1u); continue; }
             if ((flags & FS_FLAG_REMOVED) != 0u) continue;
             idx[fsIdxLeafWord(leaves[l], 2u + w)] = h; w++;
         }

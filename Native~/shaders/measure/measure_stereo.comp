@@ -1,0 +1,44 @@
+#version 450
+// C10R bounded stereo refine (own job chunk over [offset, offset + count) of the slot records): only records the cheap gates marked
+// FS_MEAS_SRC_CAND_STEREO run the L/R world-patch solve (fsStereoSolve with the effective baseline). A valid match becomes the record's
+// geometry + sigma (FS_MEAS_SRC_STEREO, colour at the endpoint); otherwise the Env Depth record stands. The candidate bit is cleared.
+#extension GL_GOOGLE_include_directive : require
+#include "fs_abi.glsl"
+#include "fs_meas_common.glsl"
+#define FS_MEAS_REFINE_PUSH
+#include "fs_meas_frame.glsl"
+layout(local_size_x = 64) in;
+layout(std430, set = 0, binding = FS_MEAS_B_RECORDS) buffer Records { FsSurfaceMeasurement rec[]; };
+layout(set = 0, binding = FS_MEAS_B_CAM_L) uniform sampler2D camL;
+layout(set = 0, binding = FS_MEAS_B_CAM_R) uniform sampler2D camR;
+layout(set = 0, binding = FS_MEAS_B_CAM_K) uniform sampler2D camK;
+#include "fs_meas_stereo.glsl"
+void main() {
+    if (gl_GlobalInvocationID.x >= pc.count) return;
+    uint i = pc.offset + gl_GlobalInvocationID.x;
+    if (i >= pc.recordCap) return;
+    FsSurfaceMeasurement m = rec[i];
+    if ((m.sourceFlags & FS_MEAS_SRC_CAND_STEREO) == 0u) return;
+    m.sourceFlags &= ~FS_MEAS_SRC_CAND_STEREO;
+    vec3 pw = (blk.worldFromAnchor * vec4(m.px, m.py, m.pz, 1.0)).xyz, nw = normalize(mat3(blk.worldFromAnchor) * vec3(m.nx, m.ny, m.nz));
+    vec3 ps; float ss, zn;
+    uint st = fsStereoSolve(1u, pw, nw, m.sigmaN, FS_STEREO_BAND_MAX_PX, FS_STEREO_BEFF_MIN_M, ps, ss, zn);
+    if (st != FS_STEREO_ST_SKIP) atomicAdd(blk.ctr[FS_MEAS_CTR_STEREO_TESTED], 1u);
+    if (st == FS_STEREO_OK) {
+        float zPrior = (blk.camFromWorld[0] * vec4(pw, 1.0)).z;
+        uint bin = zPrior < 0.75 ? 0u : (zPrior < 1.5 ? 1u : (zPrior < 2.5 ? 2u : 3u));
+        atomicAdd(blk.ctr[FS_MEAS_CTR_STEREO_VALID], 1u);
+        atomicAdd(blk.ctr[FS_MEAS_CTR_STEREO_BIN_N + bin], 1u);
+        atomicAdd(blk.ctr[FS_MEAS_CTR_STEREO_BIN_RES + bin], uint(min(length(ps - pw) * 1e4, 1e6)));
+        atomicAdd(blk.ctr[FS_MEAS_CTR_STEREO_SIGMA_UM], uint(min(ss * 1e6, 1e7)));
+        atomicAdd(blk.ctr[FS_MEAS_CTR_ENV_SIGMA_UM], uint(min(m.sigmaN * 1e6, 1e7)));
+        vec3 psa = (blk.anchorFromWorld * vec4(ps, 1.0)).xyz;
+        m.px = psa.x; m.py = psa.y; m.pz = psa.z; m.sigmaN = ss;
+        m.sourceFlags = (m.sourceFlags & ~FS_MEAS_SRC_DEPTH_PRIOR) | FS_MEAS_SRC_STEREO;
+        m.reserved = fsSampleColor(0u, ps);
+    } else if (st == FS_STEREO_ST_LOWTEX) atomicAdd(blk.ctr[FS_MEAS_CTR_STEREO_LOWTEX], 1u);
+    else if (st == FS_STEREO_ST_AMBIG) atomicAdd(blk.ctr[FS_MEAS_CTR_STEREO_AMBIG], 1u);
+    else if (st == FS_STEREO_ST_EDGE) atomicAdd(blk.ctr[FS_MEAS_CTR_STEREO_EDGEBAND], 1u);
+    else if (st == FS_STEREO_ST_NOCOVER) atomicAdd(blk.ctr[FS_MEAS_CTR_STEREO_NOCOVER], 1u);
+    rec[i] = m;
+}

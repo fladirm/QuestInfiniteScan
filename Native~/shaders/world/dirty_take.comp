@@ -1,0 +1,27 @@
+#version 450
+// C09R-E5R publication 0: takes the batch [begin, begin + count) of the persistent dirty-cell ring into the publication's cell list
+// (FS_DIRTY_LIST(0)). An entry is live only while its dedupe bit is set (a released page cleared its bits); taking clears the bit, so a
+// change during the rest of the chain re-enqueues the cell for the next publication. One sequential invocation (count bounded by the
+// publication cost model); writes FS_T_DIRTY_COUNT and the indirect args of the per-cell passes.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_GCTR
+#define FS_USE_DIRTY
+#include "fs_world_blocks.glsl"
+layout(local_size_x = 1) in;
+layout(push_constant) uniform Push { uint begin; uint count; uint pageCount; } pc;
+void main() {
+    uint n = 0u;
+    for (uint i = 0u; i < uint(FS_DIRTY_CELLS_MAX); ++i) {
+        if (i >= pc.count) break;
+        uint e = dirty[FS_DIRTY_RING + 2u * ((pc.begin + i) & (uint(FS_DIRTY_RING_CAP) - 1u))];
+        uint page = e >> 15, cell = e & 0x7FFFu;
+        if (page >= pc.pageCount) continue;
+        uint bit = 1u << (cell & 31u);
+        uint prev = atomicAnd(dirty[FS_DIRTY_CELLMASK(page) + (cell >> 5u)], ~bit);
+        if ((prev & bit) == 0u) continue;
+        dirty[FS_DIRTY_LIST(0) + n] = e; n++;
+    }
+    FS_TK(FS_T_DIRTY_COUNT) = n;
+    FS_TK(FS_T_ARGS_DIRTY + 0) = (n + uint(FS_WG_SMALL) - 1u) / uint(FS_WG_SMALL); FS_TK(FS_T_ARGS_DIRTY + 1) = 1u; FS_TK(FS_T_ARGS_DIRTY + 2) = 1u;
+    if (n != 0u) atomicAdd(gctr[FS_GCTR_DIRTY_CELLS], n);
+}

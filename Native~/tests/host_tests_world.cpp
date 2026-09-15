@@ -11,6 +11,7 @@
 #include "../src/host/world/fs_residency_math.h"
 #include "../src/host/world/fs_synthetic.h"
 #include "../src/host/world/fs_fusion_ref.h"
+#include "../src/host/fs_cost_model.h"
 #include "../src/host/world/fs_pools.h"
 #include "../src/host/render/fs_cull_math.h"
 #include "../src/host/render/fs_hzb_math.h"
@@ -571,22 +572,44 @@ static void TestPoolsAndRetirement() {
     CHECK(Pow2Ceil(1000) == 1024 && Pow2Ceil(1024) == 1024 && Pow2Ceil(1) == 1);
 }
 
+static void TestCostModel() {
+    // C09R-E5R: t = fixed + n x perItem; the batch follows the VARIABLE cost; near-empty jobs are not learned; fixed >= target = structural
+    fs::CostModel c;
+    CHECK(c.Batch(2000, 64, 65536, 4096) == 4096 && !c.fitted);
+    for (uint32_t n : {512u, 4096u, 1024u, 8192u, 2048u, 512u, 4096u}) c.Add(n, (int64_t)(800 + 0.25 * n));
+    CHECK(c.fitted); CHECK_NEAR(c.fixedUs, 800, 5); CHECK_NEAR(c.perItemUs, 0.25, 0.005);
+    CHECK_NEAR(c.Batch(2000, 64, 65536, 4096), 4800, 40); CHECK(!c.structural);
+    const double f = c.fixedUs, pi = c.perItemUs;
+    c.Add(3, 450); c.Add(0, 440);                                                             // empty depth frames: skipped, fit unchanged
+    CHECK(c.skipped == 2 && c.fixedUs == f && c.perItemUs == pi);
+    // publication-like stage: fixed 900 us > 500 us target -> structural, the batch is one target of variable work (not halved to the floor)
+    fs::CostModel p;
+    for (uint32_t n : {256u, 1024u, 512u, 2048u}) p.Add(n, (int64_t)(900 + 0.1 * n));
+    uint32_t b = p.Batch(500, 16, 65536, 1024);
+    CHECK(p.structural); CHECK_NEAR(b, 5000, 100);
+    // single batch size: attributed to the items (conservative), a smaller batch next makes the model identifiable
+    fs::CostModel s1; s1.Add(1024, 2048); CHECK(s1.fitted && s1.fixedUs == 0 && s1.perItemUs == 2.0 && s1.Batch(1000, 16, 65536, 4096) == 500);
+    fs::AgeWindow w; for (int i = 1; i <= 100; ++i) w.Add((float)i);
+    CHECK_NEAR(w.Quantile(0.5f), 51, 1.01); CHECK_NEAR(w.Quantile(0.95f), 95, 1.01);
+}
+
 static void TestSparseUpdate() {
-    std::vector<std::vector<uint32_t>> masks(4, std::vector<uint32_t>(FS_CELLS_PER_PAGE / 32, 0u));
-    auto mark = [&](uint32_t page, uint32_t cell) { masks[page][cell >> 5] |= 1u << (cell & 31); };
-    mark(2, 100); mark(0, 5000); mark(0, 7); mark(3, 32767); mark(2, 99);
-    std::vector<uint32_t> list = DirtyListEmit(masks, 1000);
-    CHECK(list.size() == 5);
-    CHECK(list[0] == ((0u << 15) | 7u) && list[1] == ((0u << 15) | 5000u) && list[2] == ((2u << 15) | 99u) && list[3] == ((2u << 15) | 100u) && list[4] == ((3u << 15) | 32767u));
-    for (auto& m : masks) for (uint32_t w : m) CHECK(w == 0u);                                // consumed: only touched cells are ever listed
-    // sliced cap: entries beyond the cap stay dirty for the next epoch (nothing lost, nothing duplicated)
-    for (uint32_t c = 0; c < 50; ++c) mark(1, c * 3);
-    list = DirtyListEmit(masks, 20);
-    CHECK(list.size() == 20 && list[0] == ((1u << 15) | 0u) && list[19] == ((1u << 15) | 57u));
-    std::vector<uint32_t> rest = DirtyListEmit(masks, 1000);
-    CHECK(rest.size() == 30 && rest[0] == ((1u << 15) | 60u));
-    // an untouched page contributes nothing (sparse: cost follows touched cells, not resident pages)
-    CHECK(DirtyListEmit(masks, 1000).empty());
+    // C09R-E5R: a change enqueues its cell once; the publication consumes the ring in change order; no page mask is ever rescanned
+    DirtyRing r; r.Init(4, 64);
+    CHECK(r.Mark(2, 100, 1) && r.Mark(0, 5000, 1) && r.Mark(0, 7, 2) && r.Mark(3, 32767, 2) && r.Mark(2, 99, 3));
+    CHECK(!r.Mark(2, 100, 4));                                                                // dedupe: already pending
+    std::vector<uint32_t> list = r.Take(3, 4);
+    CHECK(list.size() == 3 && list[0] == ((2u << 15) | 100u) && list[1] == ((0u << 15) | 5000u) && list[2] == 7u);
+    CHECK(r.Mark(2, 100, 5));                                                                 // taken -> a new change re-enqueues it
+    r.ReleasePage(3);                                                                         // released page: its pending entry is skipped
+    list = r.Take(64, 4);
+    CHECK(list.size() == 2 && list[0] == ((2u << 15) | 99u) && list[1] == ((2u << 15) | 100u));
+    CHECK(r.Take(64, 4).empty() && r.head == r.tail);
+    // bounded ring: marks beyond the capacity are refused and counted, never silently lost as "pending"
+    DirtyRing small; small.Init(1, 8);
+    for (uint32_t c = 0; c < 10; ++c) small.Mark(0, c, 0);
+    CHECK(small.drops == 2 && small.Take(100, 1).size() == 8);
+    CHECK(small.Mark(0, 8, 1));                                                               // a refused cell can be marked again later
 }
 
 static void TestCrossPageFreeRay() {
@@ -664,7 +687,7 @@ static void TestIndexGeneration() {
 
 int main() {
     TestPageHash(); TestEncodings(); TestSynthetic(); TestResidency(); TestHzbBand(); TestHzbDisagreement(); TestCullMath();
-    TestFusionDeterminism(); TestRelocationAcrossCell(); TestSurfaceComplex(); TestCoarsenRefine(); TestAppearanceState(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCrossPageFreeRay(); TestIndexGeneration();
+    TestFusionDeterminism(); TestRelocationAcrossCell(); TestSurfaceComplex(); TestCoarsenRefine(); TestAppearanceState(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCostModel(); TestCrossPageFreeRay(); TestIndexGeneration();
     std::printf("finalscan host world tests: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

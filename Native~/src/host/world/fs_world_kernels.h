@@ -14,9 +14,7 @@
 #include "fuse_prefix_spirv.inc"
 #include "fuse_prefix_carry_spirv.inc"
 #include "fuse_cluster_write_spirv.inc"
-#include "fuse_dirty_pages_spirv.inc"
-#include "fuse_dirty_prefix_spirv.inc"
-#include "fuse_dirty_emit_spirv.inc"
+#include "dirty_take_spirv.inc"
 #include "fuse_maint_apply_spirv.inc"
 #include "publish_leaves_spirv.inc"
 #include "publish_level_spirv.inc"
@@ -52,10 +50,12 @@ struct PushPage      { uint32_t page; };
 struct PushHash      { uint32_t hashMask; };
 struct PushRange     { uint32_t offset, count; };
 struct PushBatch     { uint32_t batchCap; };
+struct PushBlocks    { uint32_t blocks; };
+struct PushTake      { uint32_t begin, count, pageCount; };
 
 enum WorldKernel : uint32_t {
     K_INGEST = 0, K_ASSOC, K_FREESPACE, K_SORT_HIST, K_SORT_SCAN, K_SORT_SCATTER, K_REDUCE, K_CLUSTER_COUNT, K_PREFIX, K_PREFIX_CARRY,
-    K_CLUSTER_WRITE, K_DIRTY_PAGES, K_DIRTY_PREFIX, K_DIRTY_EMIT, K_MAINT_APPLY, K_PUBLISH_LEAVES, K_PUBLISH_LEVEL,
+    K_CLUSTER_WRITE, K_DIRTY_TAKE, K_MAINT_APPLY, K_PUBLISH_LEAVES, K_PUBLISH_LEVEL,
     K_PUBLISH_ROOTS, K_ERASE, K_PAGE_RELEASE, K_PAGE_LOAD, K_RELOCATE, K_SHEET_BEGIN, K_SHEET_GRAPH, K_SHEET_FIT, K_SHEET_APPLY, K_SHEET_CONTRACT, K_SHEET_REFINE, K_COUNT
 };
 struct KernelSpec { const char* name; const uint32_t* spirv; size_t words; uint32_t pushBytes; uint32_t bindings[12]; uint32_t bindingCount; };
@@ -70,11 +70,9 @@ static const KernelSpec kWorldKernels[K_COUNT] = {
     {"fuse_reduce",          FS_KS(kFuseReduceSpirv),         0,                     {B_MEAS, B_PAGES, B_SURFELS, B_EVIDENCE, B_GCTR, B_ASSOC_A, B_DIRTY, B_SHEET}, 8},
     {"fuse_cluster_count",   FS_KS(kFuseClusterCountSpirv),   0,                     {B_MEAS, B_PAGES, B_GCTR, B_ASSOC_A, B_SORT}, 5},
     {"fuse_prefix",          FS_KS(kFusePrefixSpirv),         0,                     {B_GCTR, B_SORT}, 2},
-    {"fuse_prefix_carry",    FS_KS(kFusePrefixCarrySpirv),    0,                     {B_GCTR, B_SORT}, 2},
+    {"fuse_prefix_carry",    FS_KS(kFusePrefixCarrySpirv),    sizeof(PushBlocks),                    {B_GCTR, B_SORT}, 2},
     {"fuse_cluster_write",   FS_KS(kFuseClusterWriteSpirv),   0,                     {B_MEAS, B_PAGES, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_ASSOC_A, B_SORT, B_POOLS, B_DIRTY, B_RETIRE}, 11},
-    {"fuse_dirty_pages",     FS_KS(kFuseDirtyPagesSpirv),     0,                     {B_GCTR, B_DIRTY}, 2},
-    {"fuse_dirty_prefix",    FS_KS(kFuseDirtyPrefixSpirv),    sizeof(PushPageCount), {B_GCTR, B_DIRTY}, 2},
-    {"fuse_dirty_emit",      FS_KS(kFuseDirtyEmitSpirv),      0,                     {B_GCTR, B_DIRTY}, 2},
+    {"dirty_take",           FS_KS(kDirtyTakeSpirv),          sizeof(PushTake),      {B_GCTR, B_DIRTY}, 2},
     {"fuse_maint_apply",     FS_KS(kFuseMaintApplySpirv),     0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_FREESPACE, B_POOLS, B_DIRTY, B_RETIRE}, 9},
     {"publish_leaves",       FS_KS(kPublishLeavesSpirv),      sizeof(PushRange),                    {B_SURFELS, B_INDEX, B_GCTR, B_POOLS, B_DIRTY, B_RENDER, B_RBLOCKS, B_RDIR, B_RETIRE, B_SHEET}, 10},
     {"publish_level",        FS_KS(kPublishLevelSpirv),       sizeof(PushLevel),     {B_PAGES, B_GCTR, B_POOLS, B_DIRTY, B_RENDER, B_RDIR, B_RETIRE, B_PENDING}, 8},
@@ -88,7 +86,7 @@ static const KernelSpec kWorldKernels[K_COUNT] = {
     {"sheet_fit",            FS_KS(kSheetFitSpirv),           0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_GCTR, B_SHEET}, 5},
     {"sheet_apply",          FS_KS(kSheetApplySpirv),         0,                     {B_PAGES, B_SURFELS, B_GCTR, B_SHEET, B_DIRTY}, 5},
     {"sheet_contract",       FS_KS(kSheetContractSpirv),      0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_GCTR, B_SHEET, B_DIRTY}, 6},
-    {"sheet_refine",         FS_KS(kSheetRefineSpirv),        0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_POOLS, B_DIRTY, B_RETIRE, B_SHEET}, 9},
+    {"sheet_refine",         FS_KS(kSheetRefineSpirv),        sizeof(PushHash),      {B_PAGES, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_POOLS, B_DIRTY, B_RETIRE, B_SHEET, B_HASH}, 10},
 };
 #undef FS_KS
 

@@ -2,6 +2,9 @@
 // C09R-E2 compaction 5/5: selected texels are back-projected (same gates and math as before: central-difference
 // normal, provisional sigma, footprint, anchor-local transform at the depth's own XrTime pose) and written at
 // wgBase[g] + lane rank (shared-memory scan): deterministic order, no global atomics on the records.
+// C10R / C11R information-first: this pass stays cheap. It applies the planar tile fits and marks stereo / temporal CANDIDATES with
+// gates that sample no image (projection bounds, texture tiles, effective baseline, existing surface); the image solves run in the
+// bounded refine jobs (measure_stereo / measure_temporal) over the candidate records only.
 #extension GL_GOOGLE_include_directive : require
 #include "fs_abi.glsl"
 #include "fs_meas_common.glsl"
@@ -14,22 +17,9 @@ layout(std430, set = 0, binding = FS_MEAS_B_SELECT) readonly buffer SelectBlock 
 layout(set = 0, binding = FS_MEAS_B_CAM_L) uniform sampler2D camL;
 layout(set = 0, binding = FS_MEAS_B_CAM_R) uniform sampler2D camR;
 layout(set = 0, binding = FS_MEAS_B_CAM_K) uniform sampler2D camK;
+layout(std430, set = 0, binding = FS_MEAS_B_TILES) readonly buffer TileBlock { uint tiles[]; };
+#include "fs_meas_tiles.glsl"
 #include "fs_meas_stereo.glsl"
-// Appearance sample (contract §14, C16a; twin: SampleColor): the measured world point projected into the PCA camera of the
-// same eye (captured closest to the depth time, validity decided on the CPU); RGB8 | FS_MEAS_COLOR_VALID, else 0.
-uint fsSampleColor(uint eye, vec3 pWorld) {
-    if ((blk.camInfo.z & (1u << eye)) == 0u || blk.camInfo.x == 0u || blk.camInfo.y == 0u) return 0u;
-    vec3 pc = (blk.camFromWorld[eye] * vec4(pWorld, 1.0)).xyz;
-    if (pc.z <= 0.05) return 0u;
-    vec4 k = blk.camIntrinsics[eye];
-    float u = k.z + k.x * pc.x / pc.z, v = k.w + k.y * pc.y / pc.z;
-    if (u < 0.0 || v < 0.0 || u >= float(blk.camInfo.x) || v >= float(blk.camInfo.y)) return 0u;
-    ivec2 px = ivec2(int(u), int(v));
-    if (blk.camInfo.w != 0u) px.y = int(blk.camInfo.y) - 1 - px.y;
-    vec4 c = eye == 0u ? texelFetch(camL, px, 0) : texelFetch(camR, px, 0);
-    uvec3 c8 = uvec3(clamp(c.rgb, 0.0, 1.0) * 255.0 + 0.5);
-    return FS_MEAS_COLOR_VALID | c8.r | (c8.g << 8) | (c8.b << 16);
-}
 shared uint s_rank[FS_MEAS_WG];
 shared uint s_lowtex;
 void main() {
@@ -68,74 +58,59 @@ void main() {
             m.observationId = pc.b.x;
             vec3 pw = (blk.worldFromEye[layer] * vec4(p, 1.0)).xyz;
             m.reserved = fsSampleColor(layer, pw);
-            // C10 stereo: a coherent L/R pair turns the Env Depth point into a disparity prior; a unique textured match becomes the
-            // measurement (own geometry + sigma, colour at the stereo endpoint); otherwise the Env Depth record stands (counted why)
-            vec3 nw = normalize(mat3(blk.worldFromEye[layer]) * n);
-            bool stereoOk = false; vec3 ps = pw; float ss = m.sigmaN;
-            if ((blk.camInfo.z & 4u) != 0u && g.z <= FS_STEREO_MAX_DEPTH_M && !g.edge) {
-                float zn;
-                uint st = fsStereoSolve(1u, pw, nw, m.sigmaN, FS_STEREO_BAND_MAX_PX, ps, ss, zn);
-                if (st != FS_STEREO_ST_SKIP) atomicAdd(blk.ctr[FS_MEAS_CTR_STEREO_TESTED], 1u);
-                if (st == FS_STEREO_OK) {
-                    stereoOk = true;
-                    vec3 psa = (blk.anchorFromWorld * vec4(ps, 1.0)).xyz;
-                    uint bin = g.z < 0.75 ? 0u : (g.z < 1.5 ? 1u : (g.z < 2.5 ? 2u : 3u));
-                    atomicAdd(blk.ctr[FS_MEAS_CTR_STEREO_VALID], 1u);
-                    atomicAdd(blk.ctr[FS_MEAS_CTR_STEREO_BIN_N + bin], 1u);
-                    atomicAdd(blk.ctr[FS_MEAS_CTR_STEREO_BIN_RES + bin], uint(min(length(ps - pw) * 1e4, 1e6)));
-                    atomicAdd(blk.ctr[FS_MEAS_CTR_STEREO_SIGMA_UM], uint(min(ss * 1e6, 1e7)));
-                    atomicAdd(blk.ctr[FS_MEAS_CTR_ENV_SIGMA_UM], uint(min(m.sigmaN * 1e6, 1e7)));
-                    m.px = psa.x; m.py = psa.y; m.pz = psa.z;
-                    m.sigmaN = ss;
-                    m.sourceFlags = (m.sourceFlags & ~FS_MEAS_SRC_DEPTH_PRIOR) | FS_MEAS_SRC_STEREO;
-                    m.reserved = fsSampleColor(0u, ps);
-                } else if (st == FS_STEREO_ST_LOWTEX) atomicAdd(blk.ctr[FS_MEAS_CTR_STEREO_LOWTEX], 1u);
-                else if (st == FS_STEREO_ST_AMBIG) atomicAdd(blk.ctr[FS_MEAS_CTR_STEREO_AMBIG], 1u);
-                else if (st == FS_STEREO_ST_EDGE) atomicAdd(blk.ctr[FS_MEAS_CTR_STEREO_EDGEBAND], 1u);
-                else if (st == FS_STEREO_ST_NOCOVER) atomicAdd(blk.ctr[FS_MEAS_CTR_STEREO_NOCOVER], 1u);
-                if (!stereoOk) { ps = pw; ss = fsMeasSigmaN(g.z); }
-            }
-            // C11 temporal large-baseline multiview: the current left PCA frame against a keyframe 20-50 cm away (static scene, both
-            // poses located at capture). Prior = the L/R stereo endpoint when valid (tight band), else the Env Depth point.
-            bool temporalOk = false;
-            if (blk.keyInfo.z != 0u && (blk.camInfo.z & 1u) != 0u && g.z <= FS_STEREO_MAX_DEPTH_M && !g.edge) {
-                vec3 pt; float stg, znt;
-                uint tt = fsStereoSolve(2u, ps, nw, ss, FS_TEMPORAL_BAND_MAX_PX, pt, stg, znt);
-                if (tt != FS_STEREO_ST_SKIP) atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_TESTED], 1u);
-                if (tt == FS_STEREO_OK) {
-                    if (stereoOk && length(pt - ps) > FS_TEMPORAL_AGREE_K * sqrt(stg * stg + ss * ss)) atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_DISAGREE], 1u);
-                    else {
-                        temporalOk = true;
-                        vec3 pta = (blk.anchorFromWorld * vec4(pt, 1.0)).xyz;
-                        atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_VALID], 1u);
-                        atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_SIGMA_UM], uint(min(stg * 1e6, 1e7)));
-                        m.px = pta.x; m.py = pta.y; m.pz = pta.z;
-                        m.sigmaN = stg;
-                        m.sourceFlags = (m.sourceFlags & ~(FS_MEAS_SRC_DEPTH_PRIOR | FS_MEAS_SRC_STEREO)) | FS_MEAS_SRC_TEMPORAL;
-                        m.reserved = fsSampleColor(0u, pt);
-                    }
-                } else if (tt == FS_STEREO_ST_LOWTEX) atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_LOWTEX], 1u);
-                else if (tt == FS_STEREO_ST_AMBIG) atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_AMBIG], 1u);
-                else if (tt == FS_STEREO_ST_EDGE) atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_EDGE], 1u);
-                else if (tt == FS_STEREO_ST_NOCOVER) atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_NOCOVER], 1u);
-            }
-            // C11 planar path: a flat low-texture patch no image match could resolve -> robust plane over the Env Depth window
-            // (one observation with the averaged random error; the Env Depth systematic floor stays via FS_MEAS_SRC_DEPTH_PRIOR)
-            if (!stereoOk && !temporalOk && g.isFlat) {
+            // ---- C11R planar tile path: a flat Env Depth texel at one of its tile's two sample points takes the tile's robust plane
+            //      (one fit per tile, spatially separated measurements; the other flat texels of the tile stay Env Depth records)
+            uint tlx = x % uint(FS_PLANAR_TILE), tly = y % uint(FS_PLANAR_TILE);
+            if (g.isFlat && ((tlx == uint(FS_PLANAR_SAMPLE_A) && tly == uint(FS_PLANAR_SAMPLE_A)) || (tlx == uint(FS_PLANAR_SAMPLE_B) && tly == uint(FS_PLANAR_SAMPLE_B)))) {
+                uint tile = (y / uint(FS_PLANAR_TILE)) * uint(FS_PLANAR_TILES_X) + x / uint(FS_PLANAR_TILE);
                 atomicAdd(blk.ctr[FS_MEAS_CTR_PLANAR_TESTED], 1u);
-                float zc, rmsZ; vec3 nEye; uint inl;
-                if (fsMeasPlanarFit(layer, x, y, fov, zc, nEye, rmsZ, inl)) {
-                    vec3 pp = fsMeasEyePoint(tc, zc);
-                    vec3 ppa = (M * vec4(pp, 1.0)).xyz, npa = normalize(mat3(M) * nEye);
-                    float sp = fsMeasSigmaN(zc) / sqrt(max(float(inl) / FS_PLANAR_CORR_TEXELS, 1.0));
-                    atomicAdd(blk.ctr[FS_MEAS_CTR_PLANAR_VALID], 1u);
-                    atomicAdd(blk.ctr[FS_MEAS_CTR_PLANAR_SIGMA_UM], uint(min(sp * 1e6, 1e7)));
-                    atomicAdd(blk.ctr[FS_MEAS_CTR_PLANAR_RMS_UM], uint(min(rmsZ * 1e6, 1e7)));
-                    m.px = ppa.x; m.py = ppa.y; m.pz = ppa.z; m.nx = npa.x; m.ny = npa.y; m.nz = npa.z;
-                    m.sigmaN = sp;
-                    m.sourceFlags |= FS_MEAS_SRC_PLANAR;
-                    m.reserved = fsSampleColor(layer, (blk.worldFromEye[layer] * vec4(pp, 1.0)).xyz);
+                if (tiles[fsPlanarTileWord(layer, tile, 5u)] != 0u) {
+                    vec3 abc = vec3(uintBitsToFloat(tiles[fsPlanarTileWord(layer, tile, 0u)]), uintBitsToFloat(tiles[fsPlanarTileWord(layer, tile, 1u)]), uintBitsToFloat(tiles[fsPlanarTileWord(layer, tile, 2u)]));
+                    float izc = dot(abc, vec3(tc, 1.0));
+                    if (izc > 1e-6) {
+                        float zc = 1.0 / izc, rmsZ = uintBitsToFloat(tiles[fsPlanarTileWord(layer, tile, 3u)]);
+                        uint inl = tiles[fsPlanarTileWord(layer, tile, 4u)];
+                        vec3 pp = fsMeasEyePoint(tc, zc), ne = -normalize(abc);
+                        vec3 ppa = (M * vec4(pp, 1.0)).xyz, npa = normalize(mat3(M) * ne);
+                        float sp = fsMeasSigmaN(zc) / sqrt(max(float(inl) / FS_PLANAR_CORR_TEXELS, 1.0));
+                        atomicAdd(blk.ctr[FS_MEAS_CTR_PLANAR_VALID], 1u);
+                        atomicAdd(blk.ctr[FS_MEAS_CTR_PLANAR_SIGMA_UM], uint(min(sp * 1e6, 1e7)));
+                        atomicAdd(blk.ctr[FS_MEAS_CTR_PLANAR_RMS_UM], uint(min(rmsZ * 1e6, 1e7)));
+                        m.px = ppa.x; m.py = ppa.y; m.pz = ppa.z; m.nx = npa.x; m.ny = npa.y; m.nz = npa.z;
+                        m.sigmaN = sp; m.sourceFlags |= FS_MEAS_SRC_PLANAR;
+                        pw = (blk.worldFromEye[layer] * vec4(pp, 1.0)).xyz;
+                        m.reserved = fsSampleColor(layer, pw);
+                    }
                 } else atomicAdd(blk.ctr[FS_MEAS_CTR_PLANAR_REJECTED], 1u);
+            }
+            // ---- C10R cheap stereo gates (no image sample): coherent geometry-eligible pair, prior in range, not an edge, the full patch
+            //      + disparity band + bilinear footprint inside BOTH images, textured tiles in both -> candidate for the bounded refine pass
+            if ((m.sourceFlags & FS_MEAS_SRC_PLANAR) == 0u && (blk.camInfo.z & 4u) != 0u && g.z <= FS_STEREO_MAX_DEPTH_M && !g.edge) {
+                vec2 pl, pr; float zl, zr;
+                if (fsCamPixel(0u, pw, pl, zl) && fsCamPixel(1u, pw, pr, zr)) {
+                    float mx = FS_STEREO_PATCH_PX + FS_STEREO_PATCH_MARGIN_PX + FS_STEREO_BAND_MAX_PX, my = FS_STEREO_PATCH_PX + FS_STEREO_PATCH_MARGIN_PX;
+                    float W = fsCamW(0u), H = fsCamH(0u);
+                    bool inside = pl.x >= mx && pl.y >= my && pl.x <= W - mx && pl.y <= H - my && pr.x >= mx && pr.y >= my && pr.x <= W - mx && pr.y <= H - my;
+                    if (inside && uintBitsToFloat(tiles[fsTexTileWord(0u, fsTexTileOf(pl, W, H))]) >= FS_STEREO_MIN_TILE_STD && uintBitsToFloat(tiles[fsTexTileWord(1u, fsTexTileOf(pr, W, H))]) >= FS_STEREO_MIN_TILE_STD
+                        && fsEffectiveBaseline(1u, pw) >= FS_STEREO_BEFF_MIN_M) {
+                        m.sourceFlags |= FS_MEAS_SRC_CAND_STEREO; atomicAdd(blk.ctr[FS_MEAS_CTR_CAND_STEREO], 1u);
+                    }
+                }
+            }
+            // ---- C11R temporal = refinement only: an existing surface (canonical prediction agrees within the band), textured left tile,
+            //      keyframe with enough ray-perpendicular baseline, point + band inside the keyframe, 1 of FS_TEMPORAL_SUBSAMPLE texels
+            if ((m.sourceFlags & FS_MEAS_SRC_PLANAR) == 0u && blk.keyInfo.z != 0u && (blk.camInfo.z & 1u) != 0u && g.z <= FS_STEREO_MAX_DEPTH_M && !g.edge
+                && score[t] < uint(FS_TEMPORAL_EXISTING_SCORE) && ((fsMeasHash(t, pc.b.y) % uint(FS_TEMPORAL_SUBSAMPLE)) == 0u)) {
+                vec2 pl, pk; float zl, zk;
+                if (fsCamPixel(0u, pw, pl, zl) && fsCamPixel(2u, pw, pk, zk)) {
+                    float m0 = FS_STEREO_PATCH_PX + FS_STEREO_PATCH_MARGIN_PX, mk = m0 + FS_TEMPORAL_BAND_MAX_PX;
+                    float W = fsCamW(0u), H = fsCamH(0u), WK = fsCamW(2u), HK = fsCamH(2u);
+                    bool inside = pl.x >= m0 && pl.y >= m0 && pl.x <= W - m0 && pl.y <= H - m0 && pk.x >= mk && pk.y >= mk && pk.x <= WK - mk && pk.y <= HK - mk;
+                    if (inside && uintBitsToFloat(tiles[fsTexTileWord(0u, fsTexTileOf(pl, W, H))]) >= FS_STEREO_MIN_TILE_STD && uintBitsToFloat(tiles[fsTexTileWord(2u, fsTexTileOf(pk, WK, HK))]) >= FS_STEREO_MIN_TILE_STD
+                        && fsEffectiveBaseline(2u, pw) >= FS_TEMPORAL_BEFF_MIN_M) {
+                        m.sourceFlags |= FS_MEAS_SRC_CAND_TEMPORAL; atomicAdd(blk.ctr[FS_MEAS_CTR_CAND_TEMPORAL], 1u);
+                    }
+                }
             }
             write = true;
         }

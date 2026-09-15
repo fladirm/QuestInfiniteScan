@@ -17,29 +17,9 @@
 #include "fs_index.glsl"
 #include "fs_maint.glsl"
 #include "fs_sheet.glsl"
+#include "fs_global_cell.glsl"
 layout(local_size_x = FS_WG_SMALL) in;
 layout(push_constant) uniform Push { uint hashMask; } pc;
-bool fsPageHashLookup(FsPageKey key, out uint slot) {
-    uint i = fsHashPageKey(key) & pc.hashMask;
-    for (uint d = 0u; d < FS_PAGE_HASH_MAX_PROBE; ++d) {
-        FsPageHashEntry e = hash[i];
-        if (e.slot == FS_INDEX_NONE) return false;
-        if (e.probeDistance < d) return false;
-        if (fsKeyEq(e.key, key)) { slot = e.slot; return true; }
-        i = (i + 1u) & pc.hashMask;
-    }
-    return false;
-}
-// global grid cell -> (resident page slot, page-local cell); false when the page is not resident
-bool fsGlobalCell(ivec3 g, uint ownPage, int anchorId, out uint slot, out uint cell) {
-    ivec3 k = ivec3(fsFloorDiv32(g.x), fsFloorDiv32(g.y), fsFloorDiv32(g.z));
-    ivec3 c = g - k * 32;
-    cell = uint(c.x) | (uint(c.y) << 5) | (uint(c.z) << 10);
-    FsPageKey own = pages[ownPage].key;
-    if (k.x == own.x && k.y == own.y && k.z == own.z) { slot = ownPage; return true; }
-    FsPageKey key; key.anchorId = anchorId; key.x = k.x; key.y = k.y; key.z = k.z;
-    return fsPageHashLookup(key, slot);
-}
 void main() {
     uint i = gl_GlobalInvocationID.x;
     if (i >= FS_TK(FS_T_SHEET_COUNT)) return;
@@ -59,7 +39,7 @@ void main() {
         uint stampNow = 1u + (FS_TK(FS_T_TICK) % 255u), stampPrev = 1u + ((FS_TK(FS_T_TICK) + 254u) % 255u);
         for (int gz = gmin.z; gz <= gmax.z; ++gz) for (int gy = gmin.y; gy <= gmax.y; ++gy) for (int gx = gmin.x; gx <= gmax.x; ++gx) {
             uint slot, cell;
-            if (!fsGlobalCell(ivec3(gx, gy, gz), page, anchorId, slot, cell)) continue;
+            if (!fsGlobalCell(pc.hashMask, ivec3(gx, gy, gz), page, anchorId, slot, cell)) continue;
             vec3 origin = fsPageOrigin3(pages[slot].key);
             uint leaves[FS_MAINT_LEAVES_MAX]; uint nl = fsCollectLeaves(slot, cell, leaves);
             for (uint l = 0u; l < uint(FS_MAINT_LEAVES_MAX); ++l) {
@@ -82,7 +62,7 @@ void main() {
                     float dist; if (!fsSheetEdge(a, pa, b, pb, dist)) continue;
                     // free-space separator: the midpoint was seen through by this or the previous observation
                     vec3 mid = 0.5 * (pa + pb); uint ms, mc;
-                    if (fsGlobalCell(ivec3(floor(mid / FS_CELL_EXTENT_M)), page, anchorId, ms, mc)) {
+                    if (fsGlobalCell(pc.hashMask, ivec3(floor(mid / FS_CELL_EXTENT_M)), page, anchorId, ms, mc)) {
                         uint byteIndex = pages[ms].freeSpaceBase + mc; uint st = (freeSpace[byteIndex >> 2u] >> ((byteIndex & 3u) * 8u)) & 0xFFu;
                         if (st == stampNow || st == stampPrev) continue;
                     }

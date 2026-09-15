@@ -49,7 +49,7 @@ void main() {
         }
         sheet[fsSheetNodeWord(lh, 6u)] = 0u; sheet[fsSheetNodeWord(lh, 7u)] = 0u; sheet[fsSheetNodeWord(lh, 8u)] = 0u; sheet[fsSheetNodeWord(lh, 9u)] = 0u;
         fsSheetMark(sp, shh);
-        contractions++;
+        contractions++; atomicAdd(gctr[FS_GCTR_PROMOTED_REMOVED], 1u);
     }
     if (contractions != 0u) atomicAdd(gctr[FS_GCTR_EDGE_CONTRACTIONS], contractions);
 }

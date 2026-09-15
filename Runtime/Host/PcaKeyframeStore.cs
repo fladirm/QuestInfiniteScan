@@ -38,7 +38,10 @@ namespace FinalScan.Host
         public void Update()
         {
             if (_authority == null || _authority.Pipeline == null || !_host.NativeAvailable || !FinalScanHost.ScanEnabled) return;
-            CameraFrameLease lease = _authority.Pipeline.RingL.Newest;
+            // C11R: keyframes only from pairs the pairer accepts as geometry evidence (head motion / blur gate), never from a raw frame
+            StereoObservation pair = _authority.Pipeline.Pairer.Latest;
+            if (pair == null || !pair.geometryEvidence || !pair.HasTextures) return;
+            CameraFrameLease lease = pair.leaseL;
             if (lease == null || lease.frameId == _lastFrameId || !lease.poseValid || !lease.intrinsics.valid || !(lease.texture is RenderTexture src)) return;
             _lastFrameId = lease.frameId;
             Vector3 p = lease.cameraPose.position; Quaternion q = lease.cameraPose.rotation;
