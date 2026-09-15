@@ -40,7 +40,7 @@ offline: MerkabaExportShell -> MerkabaExportMembrane -> MerkabaGlbWriter
 - `[x]` **C6** 4 vertices / 6 indices / 2 triangles per patch.
 - `[x]` **C8** Tile-cooperative GPU build with groupshared occupancy + halo cache,
   cheap-occupancy-first, full `KernelState` loaded only for emitters.
-- `[~]` **C9** Scheduler (2026-09-15: dirty source fires on every surface queue, see RISK-7). `MerkabaGridRenderer.LateUpdate` is the contract's conceptual
+- `[x]` **C9** Scheduler (2026-09-15: membrane-input dirty tiles, paged delta publication; RISK-7). `MerkabaGridRenderer.LateUpdate` is the contract's conceptual
   form verbatim: scanner work wins, coalesced dirty, no head-motion rebuild, no
   `GridToWorld`-difference rebuild.
 - `[x]` **C10** FRONT/BACK. Full capacity per slot, failed BACK leaves FRONT untouched.

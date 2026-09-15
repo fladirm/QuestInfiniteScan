@@ -94,7 +94,18 @@ carry a pointer to `contr.md` but are otherwise unrevised.
 
 # Audit 2026-09-15 @ 651cea6 (source read only, no gates, DEVICE ACCEPTANCE PENDING)
 
-## RISK-7 — readout is a full rebuild, dirty after nearly every observation [OPEN]
+## RISK-7 — readout is a full rebuild, dirty after nearly every observation [FIXED IN CODE, DEVICE ACCEPTANCE PENDING]
+
+Fix: paged delta publication. Integration marks `runtime.w` DIRTY only on membrane-input
+change (occupancy, plane payload, KNOWN-FREE class, colour top 6 bits); install marks DIRTY.
+A build marks dirty tiles + 26 resident neighbours, rebuilds <= 2048 tiles into free pages
+(16 patches/page, 131072 pages) and publishes FRONT/BACK tile index slots atomically.
+Retired pages reclaim after publication; unresolved halos keep the previous record (PENDING).
+Stereo depth mesh readout deleted. Device risk: one vertex pool is drawn by queue0 while the
+native queue writes free pages of the same VkBuffer. GPU tests: `MerkabaReadoutGpuTests`.
+Editor finding: plain writes to `_M8Counters` indices >=105 from some kernels were lost in
+the editor Vulkan path; allocator state therefore lives at the head of `_M8RenderPageQueues`.
+
 `MerkabaReadout.compute` QueryM8Readout selects every occupied HOT tile within
 renderDistance+guard (no dirty-tile set); BuildReadoutVertices pays 27-tile halo +
 1728 halo loads + 512 MAINs per tile, loading full KernelState before the emit
@@ -108,7 +119,11 @@ NEEDS_CARVE is set on every surface integration and cleared only at evidence <= 
 QueryCarveTiles queues every HOT tile with `meta.w != 0` in the 5 m frustum; cost grows
 with everything ever observed.
 
-## RISK-9 — per-frame cull is O(published patches) [OPEN]
+## RISK-9 — per-frame cull is O(published patches) [FIXED IN CODE, DEVICE ACCEPTANCE PENDING]
+
+Fix: `CullRenderTiles` tests FRONT tile spheres (both eyes + draw distance), then
+`EmitVisibleIndices` writes 96 indices per visible page only.
+
 `MerkabaRenderFeature` runs CullReadoutVisibility every XR frame, one lane per patch,
 rewriting FRONT indices + DrawArgs in place. No per-tile AABB coarse cull.
 

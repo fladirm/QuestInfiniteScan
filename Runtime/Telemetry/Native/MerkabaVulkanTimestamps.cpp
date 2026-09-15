@@ -58,9 +58,10 @@ namespace
         kResourceCameraRight,
         kResourceVisibleTiles,
         kResourceFrameDispatchArgs,
-        kResourceReadoutVertices,
-        kResourceReadoutIndices,
-        kResourceDrawArgs,
+        kResourceRenderVertices,
+        kResourceRenderIndexBack,
+        kResourceRenderIndexFront,
+        kResourceRenderPageQueues,
         kResourceCount,
     };
 
@@ -106,21 +107,20 @@ namespace
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
 
-    constexpr uint32_t kExecutorAbiVersion = 2;
+    constexpr uint32_t kExecutorAbiVersion = 3;
     constexpr uint32_t kObservationPipelineEnd = 33;
     constexpr uint32_t kReadoutPipelineBegin = 33;
-    constexpr uint32_t kMeshReadoutPipelineBegin = 38;
     constexpr uint32_t kFineErasePipelineBegin = 44;
     constexpr uint32_t kMaximumExecutorQueries =
         kMerkabaExecutorPipelineCount * 2 + 2;
-    constexpr uint32_t kReadoutResetGroupCount = 1;
+    // 32768 physical tile slots in 256-lane groups.
+    constexpr uint32_t kRenderSlotGroupCount = 128;
 
     enum ExecutorJobKind : uint32_t
     {
         kJobObservationNew = 0,
         kJobObservationRetry = 1,
         kJobReadout = 2,
-        kJobMeshReadout = 3,
         kJobFineErase = 4,
     };
 
@@ -680,12 +680,6 @@ namespace
         if (kind == kJobReadout)
         {
             *first = kReadoutPipelineBegin;
-            *last = kMeshReadoutPipelineBegin;
-            return true;
-        }
-        if (kind == kJobMeshReadout)
-        {
-            *first = kMeshReadoutPipelineBegin;
             *last = kFineErasePipelineBegin;
             return true;
         }
@@ -1198,8 +1192,8 @@ namespace
             vkCmdDispatch(job->commandBuffer, job->queryGroups, 1, 1);
         else if (std::strcmp(pipeline.dispatch, "readout_query") == 0)
             vkCmdDispatch(job->commandBuffer, job->readoutQueryGroups, 1, 1);
-        else if (std::strcmp(pipeline.dispatch, "readout_reset") == 0)
-            vkCmdDispatch(job->commandBuffer, kReadoutResetGroupCount, 1, 1);
+        else if (std::strcmp(pipeline.dispatch, "render_slots") == 0)
+            vkCmdDispatch(job->commandBuffer, kRenderSlotGroupCount, 1, 1);
         else if (std::strcmp(pipeline.dispatch, "observation_indirect") == 0)
             vkCmdDispatchIndirect(job->commandBuffer,
                 job->buffers[kResourceObservationDispatchArgs].buffer, 0);
@@ -1773,7 +1767,7 @@ extern "C"
             descriptor->structSize != sizeof(MerkabaExecutorJobDescriptor) ||
             descriptor->abiVersion != kExecutorAbiVersion ||
             descriptor->revision == 0 ||
-            descriptor->kind > kJobFineErase ||
+            descriptor->kind > kJobFineErase || descriptor->kind == 3u ||
             descriptor->resourceCount != kResourceCount ||
             descriptor->resources == nullptr ||
             descriptor->uniformValueCount == 0 ||
@@ -1793,14 +1787,7 @@ extern "C"
         if (descriptor->kind == kJobObservationRetry &&
             descriptor->queryGroups == 0)
             return nullptr;
-        if ((descriptor->kind == kJobReadout ||
-             descriptor->kind == kJobMeshReadout) &&
-            descriptor->readoutQueryGroups == 0)
-            return nullptr;
-        if (descriptor->kind == kJobMeshReadout &&
-            (descriptor->depthGroupsX == 0 ||
-             descriptor->depthGroupsY == 0))
-            return nullptr;
+        // A readout job may skip its warm-residency query (zero groups).
         if (descriptor->kind == kJobFineErase &&
             descriptor->queryGroups == 0)
             return nullptr;

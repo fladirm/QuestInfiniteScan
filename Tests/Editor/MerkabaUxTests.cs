@@ -23,7 +23,7 @@ namespace Genesis.RoomScan.Tests
                          "btn-start", "btn-save", "btn-save-as", "btn-load",
                          "btn-new", "btn-rename", "btn-delete-session",
                          "btn-export", "btn-export-tiles", "btn-readout",
-                         "btn-mesh", "btn-occlusion", "btn-checker",
+                         "btn-occlusion", "btn-checker",
                          "btn-artifact-view", "btn-artifact-load",
                          "btn-annotation-mode", "btn-annotation-save",
                          "btn-annotation-edit", "btn-annotation-delete",
@@ -108,8 +108,7 @@ namespace Genesis.RoomScan.Tests
                 "scanner.DynamicOcclusionEnabled ="));
             Assert.That(controller, Does.Contain(
                 "scanner.ReadoutDrawEnabled ="));
-            Assert.That(controller, Does.Contain(
-                "scanner.MeshReadoutEnabled ="));
+            Assert.That(controller, Does.Not.Contain("MeshReadoutEnabled"));
             Assert.That(controller, Does.Contain(
                 "scanner.CheckerReadoutEnabled ="));
             Assert.That(controller, Does.Contain(
@@ -299,22 +298,15 @@ namespace Genesis.RoomScan.Tests
                 "Packages/com.genesis.roomscan/Runtime/Merkaba/" +
                 "MerkabaGridRenderer.cs"));
             Assert.That(renderer, Does.Contain(
-                "material.EnableKeyword(\"M8_FINE_PREVIEW\")"));
+                "_material.EnableKeyword(\"M8_FINE_PREVIEW\")"));
             Assert.That(renderer, Does.Contain(
-                "material.DisableKeyword(\"M8_FINE_PREVIEW\")"));
+                "_material.EnableKeyword(\"M8_ENVIRONMENT_OCCLUSION\")"));
             Assert.That(renderer, Does.Contain(
-                "material.EnableKeyword(\"M8_ENVIRONMENT_OCCLUSION\")"));
+                "_material.EnableKeyword(\"M8_ALPHA_COVERAGE\")"));
             Assert.That(renderer, Does.Contain(
-                "material.EnableKeyword(\"M8_ALPHA_COVERAGE\")"));
-            Assert.That(renderer, Does.Contain(
-                "material.renderQueue = (int)RenderQueue.Geometry"));
+                "_material.renderQueue = (int)RenderQueue.Geometry"));
             Assert.That(renderer, Does.Not.Contain("BlendMode."));
-            Assert.That(renderer, Does.Contain(
-                "material.EnableKeyword(\"M8_CHECKER_READOUT\")"));
-            Assert.That(renderer, Does.Contain(
-                "if (value && meshReadoutEnabled)"));
-            Assert.That(renderer, Does.Contain(
-                "!material.IsKeywordEnabled(\"M8_STEREO_MESH\")"));
+            Assert.That(renderer, Does.Not.Contain("M8_STEREO_MESH"));
         }
 
         [Test]
@@ -333,13 +325,8 @@ namespace Genesis.RoomScan.Tests
                 "float3 gridPosition : POSITION"));
             Assert.That(source, Does.Contain(
                 "half4 packedColor : COLOR"));
-            Assert.That(source, Does.Contain(
-                "input.vertexID + unity_StereoEyeIndex *"));
-            Assert.That(source, Does.Contain("uint vertexID : SV_VertexID"));
-            Assert.That(source, Does.Contain(
-                "StructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices"));
-            Assert.That(source, Does.Contain(
-                "#if defined(M8_STEREO_MESH)"));
+            Assert.That(source, Does.Not.Contain("SV_VertexID"));
+            Assert.That(source, Does.Not.Contain("M8_STEREO_MESH"));
             Assert.That(source, Does.Not.Contain("logicalPrimitive"));
             Assert.That(source, Does.Not.Contain("primitiveId"));
             Assert.That(source, Does.Not.Contain(

@@ -463,6 +463,18 @@ namespace Genesis.RoomScan
 
         internal static void DispatchComputeProfiled(
             this ComputeCommandBuffer command, ComputeShader shader,
+            int kernel, int x, int y, int z)
+        {
+            if (command == null) throw new ArgumentNullException(nameof(command));
+            ValidateDispatchDimensions(x, y, z);
+            bool timed = Observe(shader, kernel);
+            RecordDispatchEvent(command, timed, true);
+            command.DispatchCompute(shader, kernel, x, y, z);
+            RecordDispatchEvent(command, timed, false);
+        }
+
+        internal static void DispatchComputeProfiled(
+            this ComputeCommandBuffer command, ComputeShader shader,
             int kernel, ComputeBuffer arguments, uint offset = 0u)
         {
             if (command == null) throw new ArgumentNullException(nameof(command));

@@ -41,7 +41,7 @@ namespace Genesis.RoomScan.Tests
                          "GatherWritebackBatch", "AcknowledgeWritebackBatch",
                          "FailWritebackBatch",
                          "InstallLoadedTiles", "RegisterLoadedTileAddresses",
-                         "BenchmarkM8Pcg3d"
+                         "BenchmarkM8Pcg3d", "InitializeRenderPageStack"
                      })
                 Assert.DoesNotThrow(() => world.FindKernel(kernel), kernel);
             foreach (string kernel in new[]
@@ -56,10 +56,14 @@ namespace Genesis.RoomScan.Tests
                 Assert.DoesNotThrow(() => integration.FindKernel(kernel), kernel);
             foreach (string kernel in new[]
                      {
-                         "ResetReadoutBuild", "QueryM8Readout",
-                         "PrepareReadoutBuild", "BuildReadoutVertices",
-                         "ProjectReadoutMeshPins", "BuildReadoutMesh",
-                         "FinalizeReadout", "CullReadoutVisibility"
+                         "BeginRenderBuild", "RequestWarmResidency",
+                         "ReclaimRenderPages", "ApplyRenderReclaim",
+                         "CopyRenderIndex",
+                         "MarkRenderRebuildTiles", "CollectRenderRebuildTiles",
+                         "PrepareRenderBuild", "BuildRenderTiles",
+                         "PublishRenderTileList", "FinalizeReadout",
+                         "CullRenderTiles", "PrepareVisibleIndices",
+                         "EmitVisibleIndices"
                      })
                 Assert.DoesNotThrow(() => frame.FindKernel(kernel), kernel);
         }
@@ -107,7 +111,7 @@ namespace Genesis.RoomScan.Tests
                 262144L * 64 * 4, 262144L * 9 * 4,
                 stateBank, stateBank, stateBank, stateBank,
                 32768L * 16 * 16, 32768L * 2 * 16,
-                32768L * 4, (long)MerkabaGrid.CounterCount * 4, 16,
+                32768L * 4, (long)MerkabaGrid.CounterCount * 4, 32,
                 (8192L + 262144L + 32768L) * 8,
                 32768L * 4, 262144L * 16, 4,
                 2097152L * 16, 1048576L * 8,
@@ -116,20 +120,22 @@ namespace Genesis.RoomScan.Tests
                 32768L * 4, 32768L * 4, 12,
                 (long)MerkabaGrid.ReadoutVisibleBufferCount * 8,
                 (long)MerkabaGrid.ReadoutVertexCapacity * 16,
-                (long)MerkabaGrid.ReadoutVertexCapacity * 16,
-                (long)MerkabaGrid.ReadoutIndexStorageCount * 4,
-                (long)MerkabaGrid.ReadoutIndexStorageCount * 4,
-                36,
-                12, 36, 12,
-                32L * 8,
-                32L * 513 * 16, 32L * 16, 32L * 512 * 16,
+                (long)MerkabaGrid.ReadoutIndexCapacity * 4,
+                (long)MerkabaGrid.RenderIndexCount * 4,
+                (long)MerkabaGrid.RenderIndexCount * 4,
+                (long)MerkabaGrid.RenderPageQueueCount * 4,
+                (long)MerkabaGrid.RenderPageCapacity * 4, 16, 20,
+                12, 12,
+                (long)MerkabaGrid.WritebackBatchCapacity * 8,
+                (long)MerkabaGrid.WritebackBatchCapacity * 513 * 16,
+                32L * 16, 32L * 512 * 16,
                 8192L * 16
             };
-            Assert.That(allBuffers, Has.Length.EqualTo(44));
+            Assert.That(allBuffers, Has.Length.EqualTo(46));
             Assert.That(allBuffers.Max(), Is.EqualTo(128L * 1024 * 1024));
             Assert.That(allBuffers.Max(), Is.LessThanOrEqualTo(
                 128L * 1024 * 1024));
-            Assert.That(allBuffers.Sum(), Is.EqualTo(864651020L));
+            Assert.That(allBuffers.Sum(), Is.EqualTo(693735564L));
 
             Assert.That(MerkabaSpatial.OwnerRecordCount,
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
@@ -210,8 +216,8 @@ namespace Genesis.RoomScan.Tests
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string generated = Source(
                 "Runtime/Shaders/MerkabaOverlapShell.generated.hlsl");
-            string build = Slice(frame, "void BuildReadoutVertices",
-                "float4 M8MeshWorldToClip");
+            string build = Slice(frame, "void BuildRenderTiles",
+                "void PublishRenderTileList");
 
             Assert.That(frame, Does.Contain("#define M8_MEMBRANE_TILE_COUNT 27u"));
             Assert.That(frame, Does.Contain("#define M8_MEMBRANE_CACHE_HALO 2"));
@@ -249,9 +255,11 @@ namespace Genesis.RoomScan.Tests
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             Assert.That(MerkabaGrid.ReadoutVisibleBufferCount,
                 Is.EqualTo(MerkabaSpatial.PhysicalTileCapacity));
-            Assert.That(MerkabaGrid.ReadoutIndexStorageCount,
-                Is.EqualTo(MerkabaGrid.ReadoutIndexCapacity));
-            Assert.That(MerkabaGrid.ReadoutResetGroupCount, Is.EqualTo(1));
+            Assert.That(MerkabaGrid.ReadoutIndexCapacity, Is.EqualTo(
+                MerkabaGrid.RenderPageCapacity * MerkabaGrid.RenderPageIndices));
+            Assert.That(MerkabaGrid.RenderTileMaxPages *
+                MerkabaGrid.RenderPagePatches,
+                Is.EqualTo(MerkabaSpatial.KernelsPerTile));
             Assert.That(frame, Does.Not.Contain("M8_READOUT_MAP_WORD_BASE"));
             Assert.That(frame, Does.Not.Contain("M8StoreReadoutLocalMapPair"));
             Assert.That(frame, Does.Not.Contain("M8BuildRecord"));
@@ -737,52 +745,6 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void ReadoutBuild_EmitsDrawReadyVerticesAndOneSpiDraw()
-        {
-            string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
-            string generated = Source(
-                "Runtime/Shaders/MerkabaOverlapShell.generated.hlsl");
-            string renderer = Source("Runtime/Merkaba/MerkabaGridRenderer.cs");
-            string feature = Source("Runtime/Merkaba/MerkabaRenderFeature.cs");
-            Assert.That(frame, Does.Contain(
-                "MerkabaOverlapShell.generated.hlsl"));
-            Assert.That(frame, Does.Contain(
-                "[numthreads(128, 1, 1)]\nvoid BuildReadoutVertices"));
-            Assert.That(generated, Does.Contain(
-                "bool M8TryBuildMembranePatch"));
-            Assert.That(generated, Does.Contain(
-                "M8_MEMBRANE_VERTICES_PER_PATCH 4u"));
-            Assert.That(generated, Does.Contain(
-                "M8_MEMBRANE_INDICES_PER_PATCH 6u"));
-            Assert.That(frame, Does.Contain("M8EmitMembranePatch"));
-            Assert.That(frame, Does.Contain("M8StoreReadoutVertex"));
-            Assert.That(frame, Does.Contain("M8StoreReadoutIndex"));
-            foreach (string obsolete in new[]
-                     {
-                         "ProjectReadoutFrontDepth", "IndexReadoutVertices",
-                         "M8ReadoutPin", "M8EmitReadoutGlyph",
-                         "M8_READOUT_BUILD_GLYPH"
-                     })
-                Assert.That(frame, Does.Not.Contain(obsolete), obsolete);
-            Assert.That(frame, Does.Contain(
-                "M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES"));
-            Assert.That(frame, Does.Contain(
-                "MERKABA_M8_READOUT_TRIANGLE_CAPACITY"));
-            Assert.That(frame, Does.Contain("_M8DrawArgs[1] = 2u"));
-            Assert.That(frame, Does.Contain("MerkabaReadoutVertex"));
-            Assert.That(frame, Does.Contain("vertex.gridPosition"));
-            Assert.That(renderer, Does.Not.Contain("Graphics.DrawProceduralIndirect("));
-            Assert.That(renderer, Does.Contain(
-                "_grid.GetM8ReadoutMesh(front)"));
-            Assert.That(renderer, Does.Contain(
-                "DrawMeshInstancedIndirectProfiled(mesh, 0"));
-            Assert.That(feature, Does.Contain(
-                "RecordRenderPass(context.cmd, data.Slot,"));
-            Assert.That(renderer, Does.Not.Contain("VisibleSlotAt"));
-            Assert.That(renderer, Does.Not.Contain("for (int visible"));
-        }
-
-        [Test]
         public void ReadoutSkinWinding_IsOrientationCanonicalAndViewIndependent()
         {
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
@@ -816,8 +778,8 @@ namespace Genesis.RoomScan.Tests
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string generated = Source(
                 "Runtime/Shaders/MerkabaOverlapShell.generated.hlsl");
-            string build = Slice(frame, "void BuildReadoutVertices",
-                "float4 M8MeshWorldToClip");
+            string build = Slice(frame, "void BuildRenderTiles",
+                "void PublishRenderTileList");
             int occupiedPrefilter = build.IndexOf(
                 "bool occupied = (mainOccupancy &",
                 StringComparison.Ordinal);
@@ -834,9 +796,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(Regex.Matches(build,
                 "GroupMemoryBarrierWithGroupSync\\(\\)"),
                 Has.Count.EqualTo(8));
-            Assert.That(Regex.Matches(build,
-                "M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES"),
-                Has.Count.EqualTo(1));
+            Assert.That(build, Does.Not.Contain(
+                "M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES"));
             Assert.That(build, Does.Contain(
                 "M8EmitMembranePatch(patch,"));
             Assert.That(generated, Does.Contain(
@@ -858,16 +819,12 @@ namespace Genesis.RoomScan.Tests
                 "Tools/unity/generate_merkaba_native_executor_shaders.py");
             string native = Source(
                 "Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp");
-            string reset = Slice(readout, "void ResetReadoutBuild",
-                "groupshared uint gFrameBlockRef");
-            string query = Slice(readout, "void QueryM8Readout",
-                "void PrepareReadoutBuild");
+            string query = Slice(readout, "void RequestWarmResidency",
+                "struct M8ReadoutTileContext");
 
-            Assert.That(readout, Does.Contain(
-                "[numthreads(128, 1, 1)]\nvoid ResetReadoutBuild"));
-            Assert.That(reset, Does.Contain("if (id != 0u) return;"));
-            Assert.That(query, Does.Contain(
-                "_M8VisibleTiles[visibleIndex].x = physicalSlot"));
+            Assert.That(query, Does.Contain("M8RequestWarmLoad("));
+            Assert.That(query, Does.Not.Contain("_M8VisibleTiles"));
+            Assert.That(query, Does.Not.Contain("M8_COUNTER_FRAME_EPOCH"));
             foreach (string obsolete in new[]
                      {
                          "ProjectReadoutFrontDepth", "IndexReadoutVertices",
@@ -879,13 +836,11 @@ namespace Genesis.RoomScan.Tests
                     Does.Not.Contain(obsolete), obsolete);
             }
             Assert.That(native, Does.Contain(
-                "constexpr uint32_t kReadoutResetGroupCount = 1"));
+                "constexpr uint32_t kRenderSlotGroupCount = 128"));
             Assert.That(MerkabaGrid.ReadoutVisibleBufferCount,
                 Is.EqualTo(MerkabaSpatial.PhysicalTileCapacity));
-            Assert.That(MerkabaGrid.ReadoutResetGroupCount,
-                Is.EqualTo(1));
             Assert.That(MerkabaNativeVulkanExecutor.ResourceCount,
-                Is.EqualTo(44));
+                Is.EqualTo(45));
             Assert.That(readout, Does.Contain(
                 "return MerkabaM8GridAabbIntersectsDistance(globalMin, " +
                 "span, distance,"));
@@ -898,17 +853,15 @@ namespace Genesis.RoomScan.Tests
         public void StandardReadout_HasNoInventedSparseFallbackGeometry()
         {
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
-            string build = Slice(frame, "void BuildReadoutVertices",
-                "float4 M8MeshWorldToClip");
+            string build = Slice(frame, "void BuildRenderTiles",
+                "void PublishRenderTileList");
             Assert.That(frame, Does.Not.Contain("M8EmitReadoutGlyph"));
             Assert.That(frame, Does.Not.Contain("M8_READOUT_BUILD_GLYPH"));
             Assert.That(frame, Does.Not.Contain("M8ReadoutPin"));
             Assert.That(build, Does.Contain(
                 "valid = M8TryBuildMembranePatch(globalCoord, state"));
             Assert.That(build, Does.Contain("if (valid)"));
-            Assert.That(build, Does.Contain(
-                "M8_COUNTER_READOUT_EMITTED_VERTICES"));
-            Assert.That(build, Does.Contain(
+            Assert.That(frame, Does.Contain(
                 "M8_MEMBRANE_VERTICES_PER_PATCH"));
         }
 
@@ -926,7 +879,7 @@ namespace Genesis.RoomScan.Tests
                 "readoutTranslationGuard = 1f"));
             Assert.That(frame, Does.Contain("_M8WarmDistance"));
             Assert.That(frame, Does.Contain("_M8RenderDistance"));
-            Assert.That(frame, Does.Contain("if (!inDraw ||"));
+            Assert.That(frame, Does.Contain("M8RequestWarmLoad("));
             Assert.That(frame, Does.Contain("M8_COUNTER_READOUT_UNRESOLVED"));
         }
 
@@ -938,11 +891,9 @@ namespace Genesis.RoomScan.Tests
                 "float3 gridPosition : POSITION"));
             Assert.That(shader, Does.Contain(
                 "half4 packedColor : COLOR"));
-            Assert.That(shader, Does.Contain(
-                "input.vertexID + unity_StereoEyeIndex *"));
-            Assert.That(shader, Does.Contain(
-                "StructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices"));
-            Assert.That(shader, Does.Contain("uint vertexID : SV_VertexID"));
+            Assert.That(shader, Does.Not.Contain("M8_STEREO_MESH"));
+            Assert.That(shader, Does.Not.Contain("SV_VertexID"));
+            Assert.That(shader, Does.Not.Contain("_M8ReadoutVertices"));
             Assert.That(shader, Does.Contain(
                 "float3 gridPosition = input.gridPosition"));
             Assert.That(shader, Does.Not.Contain(
@@ -956,283 +907,45 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void ReadoutCache_HasTwoHazardFreePublicationSlots()
+        public void ReadoutPagePool_KeepsOneFixedVertexStreamAndBoundedIndex()
         {
             string readout = Source("Runtime/Shaders/MerkabaReadout.compute");
-            string renderer = Source("Runtime/Merkaba/MerkabaGridRenderer.cs");
-            string scanner = Source("Runtime/Core/RoomScanner.cs");
-            string gpu = Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs");
-
-            Assert.That(renderer, Does.Contain("readoutBuildHz = 15f"));
-            Assert.That(renderer, Does.Contain(
-                "_canonicalDirty || coverageDirty || residencyChanged"));
-            Assert.That(renderer, Does.Not.Contain("Vector3.Angle"));
-            Assert.That(renderer, Does.Not.Contain("publishedGridForward"));
-            Assert.That(renderer, Does.Not.Contain("publishedGridUp"));
-            Assert.That(renderer, Does.Contain("MarkCanonicalReadoutDirty"));
-            Assert.That(scanner, Does.Contain(
-                "_integrator.LastObservationChangedReadout"));
-            Assert.That(renderer, Does.Contain(
-                "Graphics.ExecuteCommandBuffer(command)"));
-            Assert.That(renderer, Does.Not.Contain(
-                "Graphics.ExecuteCommandBufferAsync"));
-            Assert.That(renderer, Does.Not.Contain("GraphicsFence"));
-            Assert.That(renderer + gpu, Does.Not.Contain("ReadoutBank"));
-            Assert.That(renderer + gpu, Does.Not.Contain("ReadoutChunk"));
-            Assert.That(gpu, Does.Contain("new Mesh[2]"));
-            Assert.That(gpu, Does.Contain("new GraphicsBuffer[2]"));
-            Assert.That(gpu, Does.Contain(
-                "_m8ReadoutMeshes[slot] = AllocateReadoutMesh(slot)"));
-            Assert.That(gpu, Does.Contain("mesh.UploadMeshData(true)"));
-            Assert.That(gpu, Does.Contain(
-                "vertices = mesh.GetVertexBuffer(0)"));
-            Assert.That(gpu, Does.Contain(
-                "indices = mesh.GetIndexBuffer()"));
-            Assert.That(gpu, Does.Contain(
-                "_m8ReadoutVertices[slot] = vertices"));
-            Assert.That(gpu, Does.Contain(
-                "_m8ReadoutIndices[slot] = indices"));
-            Assert.That(gpu, Does.Contain(
-                "_m8DrawArgs[slot] = Allocate("));
-            Assert.That(MerkabaGrid.ReadoutDrawArgumentCount, Is.EqualTo(9));
-            Assert.That(gpu, Does.Contain(
-                "private ComputeBuffer _m8VisibleTiles;"));
-            Assert.That(gpu, Does.Contain(
-                "private ComputeBuffer _m8FrameDispatchArgs;"));
-            Assert.That(renderer, Does.Contain(
-                "int backSlot = 1 - _frontReadout"));
-            Assert.That(renderer, Does.Contain(
-                "if (_buildInFlight) return;"));
-            Assert.That(renderer, Does.Contain(
-                "SetComputeBufferParam(readoutCompute, _buildKernel"));
-            Assert.That(renderer, Does.Contain(
-                "ReadoutIndicesId, _grid.GetM8ReadoutIndices(backSlot)"));
-            Assert.That(renderer, Does.Contain(
-                "SetComputeBufferParam(readoutCompute, _finalizeKernel"));
-            Assert.That(renderer, Does.Contain(
-                "slot = _frontReadout;"));
-            Assert.That(renderer, Does.Contain(
-                "DrawMeshInstancedIndirectProfiled(mesh, 0"));
-            Assert.That(renderer, Does.Contain(
-                "_frontReadout = ticket.Slot;"));
-            Assert.That(renderer, Does.Contain(
-                "if (status == 3u)"));
-            Assert.That(renderer, Does.Contain(
-                "AsyncGPUReadback.Request(_grid.M8AttemptCompletion, 16, 16"));
-            Assert.That(renderer, Does.Contain(
-                "ticket.LifecycleGeneration !="));
-            Assert.That(renderer, Does.Not.Contain(
-                "WaitOnAsyncGraphicsFence"));
-            Assert.That(MerkabaGrid.CounterReadoutUnresolved, Is.EqualTo(50));
-            Assert.That(MerkabaGrid.CounterReadoutBuildStatus, Is.EqualTo(69));
-
-            string reset = Slice(readout, "void ResetReadoutBuild",
-                "groupshared uint gFrameBlockRef");
-            string prepare = Slice(readout, "void PrepareReadoutBuild",
-                "#define M8_SHELL_GROUP_THREADS");
-            Assert.That(reset, Does.Not.Contain("_M8DrawArgs"));
-            Assert.That(prepare, Does.Not.Contain("MERKABA_READOUT_SKIPPED"));
-            string finalize = readout.Substring(readout.IndexOf(
-                "void FinalizeReadout", StringComparison.Ordinal));
-            Assert.That(finalize, Does.Not.Contain(
-                "MERKABA_READOUT_PARTIAL_PUBLISHED"));
-            Assert.That(finalize, Does.Contain(
-                "_M8Counters[M8_COUNTER_READOUT_UNRESOLVED] != 0u"));
-            Assert.That(renderer, Does.Contain(
-                "_awaitingResidencyChange = _blockedOnResidency"));
-            Assert.That(renderer, Does.Contain(
-                "_grid.ResidencyEpoch != _buildResidencyEpoch"));
-        }
-
-        [Test]
-        public void StereoDepthMesh_IsDisposableAndLegacyReadoutRemainsSelectable()
-        {
-            string readout = Source("Runtime/Shaders/MerkabaReadout.compute");
-            string renderer = Source("Runtime/Merkaba/MerkabaGridRenderer.cs");
-            string depth = Source("Runtime/Core/DepthCapture.cs");
+            string world = Source("Runtime/Shaders/MerkabaWorld.hlsl");
             string shader = Source("Runtime/Shaders/MerkabaGrid.shader");
-            string native = Source(
-                "Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp");
-
-            Assert.That(renderer, Does.Contain("MeshReadoutEnabled"));
-            Assert.That(renderer, Does.Contain("JobKind.MeshReadout"));
-            Assert.That(renderer, Does.Contain("JobKind.Readout"));
-            Assert.That(renderer, Does.Contain("ReleaseDepthLease(ticket)"));
-            Assert.That(depth, Does.Contain("TryAcquireReadoutDepth"));
-            Assert.That(depth, Does.Contain("_readoutDepthLeaseSlot"));
-            Assert.That(readout, Does.Contain(
-                "void ProjectReadoutMeshPins"));
-            Assert.That(readout, Does.Contain("void BuildReadoutMesh"));
-            Assert.That(readout, Does.Contain(
-                "abs(planeDistance - rawDistance) > MERKABA_HALF_SUPPORT"));
-            Assert.That(readout, Does.Contain(
-                "uint errorRank = min(126u"));
-            Assert.That(readout, Does.Contain(
-                "M8_MESH_MAX_EDGE_LENGTH 0.150"));
-            Assert.That(readout, Does.Contain("M8MeshInsideEnvelope"));
-            Assert.That(readout, Does.Contain(
-                "void M8StoreMeshIdentityIndices"));
-            Assert.That(readout, Does.Not.Contain("M8MeshJumpFlood"));
-            string project = Slice(readout,
-                "void ProjectReadoutMeshPins", "struct M8MeshVertex");
-            string build = Slice(readout, "void BuildReadoutMesh",
-                "void FinalizeReadout");
-            Assert.That(Regex.Matches(project, @"\[loop\]"),
-                Has.Count.EqualTo(1));
-            Assert.That(build, Does.Not.Contain("[loop]"));
-            Assert.That(build, Does.Not.Contain("for ("));
-            Assert.That(build, Does.Not.Contain("while ("));
-            Assert.That(build, Does.Contain(
-                "M8StoreMeshIdentityIndices(outputVertex)"));
-            Assert.That(shader, Does.Contain("M8_STEREO_MESH"));
-            Assert.That(shader, Does.Contain(
-                "input.vertexID + unity_StereoEyeIndex *"));
-            Assert.That(native, Does.Contain("kJobMeshReadout"));
-            Assert.That(MerkabaNativeVulkanExecutor.ResourceCount,
-                Is.EqualTo(44));
-            Assert.That(MerkabaNativeVulkanExecutor.PipelineCount,
-                Is.EqualTo(49));
-        }
-
-        [Test]
-        public void ReadoutPublication_BuildsDisposableBackOnceAndPublishesOnlyComplete()
-        {
-            string readout = Source("Runtime/Shaders/MerkabaReadout.compute");
-            string renderer = Source("Runtime/Merkaba/MerkabaGridRenderer.cs");
-            string emitHelper = Slice(readout, "void M8EmitMembranePatch",
-                "void BuildReadoutVertices");
-            string build = Slice(readout, "void BuildReadoutVertices",
-                "float4 M8MeshWorldToClip");
-            string finalize = readout.Substring(readout.IndexOf(
-                "void FinalizeReadout", StringComparison.Ordinal));
-
-            Assert.That(readout, Does.Not.Contain("void PreflightReadout"));
-            Assert.That(readout, Does.Not.Contain("void PrepareReadoutEmit"));
-            Assert.That(emitHelper, Does.Contain("M8StoreReadoutVertex"));
-            Assert.That(emitHelper, Does.Contain("M8StoreReadoutIndex"));
-            Assert.That(build, Does.Contain(
-                "M8TryBuildMembranePatch(globalCoord, state"));
-            Assert.That(build, Does.Contain("M8EmitMembranePatch(patch,"));
-            Assert.That(build, Does.Contain(
-                "M8_COUNTER_READOUT_EMITTED_TRIANGLES"));
-            Assert.That(readout, Does.Contain(
-                "M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW"));
-            Assert.That(finalize, Does.Contain("emitted != logical"));
-            Assert.That(finalize, Does.Not.Contain("_M8DrawArgs[0] = 0u"));
-            Assert.That(finalize.IndexOf("status == MERKABA_READOUT_FAILED",
-                StringComparison.Ordinal), Is.LessThan(finalize.IndexOf(
-                "_M8DrawArgs[0]", StringComparison.Ordinal)));
-
-            int buildDispatch = renderer.IndexOf("_buildKernel",
-                renderer.IndexOf("void SubmitReadoutBuild",
-                    StringComparison.Ordinal), StringComparison.Ordinal);
-            int finalizeDispatch = renderer.IndexOf("_finalizeKernel",
-                buildDispatch, StringComparison.Ordinal);
-            Assert.That(buildDispatch, Is.GreaterThan(0));
-            Assert.That(finalizeDispatch, Is.GreaterThan(buildDispatch));
-        }
-
-        [Test]
-        public void ReadoutDraw_CompactsOnlyVisibleFrontIndicesForStereoUnion()
-        {
-            string readout = Source("Runtime/Shaders/MerkabaReadout.compute");
-            string renderer = Source(
-                "Runtime/Merkaba/MerkabaGridRenderer.cs");
             string feature = Source("Runtime/Merkaba/MerkabaRenderFeature.cs");
-            string build = Slice(readout, "void BuildReadoutVertices",
-                "float4 M8MeshWorldToClip");
-            string cull = readout.Substring(readout.IndexOf(
-                "void CullReadoutVisibility", StringComparison.Ordinal));
-
-            Assert.That(build, Does.Contain(
-                "gM8MembraneBaseTriangle = gM8MembraneBaseVertex >> 1u"));
-            Assert.That(cull, Does.Contain("uint patchCount = _M8DrawArgs[5]"));
-            Assert.That(cull, Does.Contain(
-                "!M8SphereOutsideFrustum(center, radius, 0u) ||"));
-            Assert.That(cull, Does.Contain(
-                "!M8SphereOutsideFrustum(center, radius, 6u)"));
-            Assert.That(cull, Does.Contain(
-                "float3 center = (corner0 + corner1 + corner2 + corner3)"));
-            Assert.That(cull, Does.Contain("float radius = sqrt(radiusSquared)"));
-            Assert.That(cull, Does.Contain(
-                "InterlockedOr(gM8CullVisibleWords[lane >> 5u]"));
-            Assert.That(cull, Does.Contain(
-                "visibleCount * M8_MEMBRANE_INDICES_PER_PATCH"));
-            Assert.That(cull, Does.Contain(
-                "visiblePrefix * M8_MEMBRANE_INDICES_PER_PATCH"));
-            Assert.That(cull, Does.Contain("M8StoreReadoutIndex"));
-            Assert.That(cull, Does.Not.Contain("M8LoadKernelStateRead"));
-            Assert.That(cull, Does.Not.Contain("_M8Counters"));
-            Assert.That(renderer, Does.Contain(
-                "command.SetBufferData(drawArgs, ZeroDrawCount, 0, 0, 1)"));
-            Assert.That(renderer, Does.Contain(
-                "command.DispatchComputeProfiled(readoutCompute, " +
-                "_visibilityKernel"));
-            Assert.That(feature, Does.Contain(
-                "AddComputePass<VisibilityPassData>"));
-            Assert.That(feature, Does.Contain(
-                "visibilityBuilder.UseBuffer(indexHandle,"));
-            Assert.That(feature, Does.Contain("AccessFlags.Write"));
-            Assert.That(feature, Does.Contain(
-                "builder.UseBuffer(indexHandle, AccessFlags.Read)"));
-            Assert.That(feature, Does.Contain(
-                "RecordRenderPass(context.cmd, data.Slot,"));
-        }
-
-        [Test]
-        public void ReadoutVertexAbi_MaterializesIndexedConnectedTopology()
-        {
-            string readout = Source("Runtime/Shaders/MerkabaReadout.compute");
-            string generated = Source(
-                "Runtime/Shaders/MerkabaOverlapShell.generated.hlsl");
-            string shader = Source("Runtime/Shaders/MerkabaGrid.shader");
-            Assert.That(MerkabaGrid.ReadoutTriangleCapacity,
-                Is.EqualTo(4_194_304));
-            Assert.That(MerkabaGrid.ReadoutPatchCapacity,
-                Is.EqualTo(2_097_152));
             Assert.That(MerkabaGrid.ReadoutVertexCapacity,
                 Is.EqualTo(8_388_608));
             Assert.That(MerkabaGrid.ReadoutIndexCapacity,
                 Is.EqualTo(12_582_912));
-            Assert.That(MerkabaGrid.ReadoutIndexStorageCount,
-                Is.EqualTo(MerkabaGrid.ReadoutIndexCapacity));
             Assert.That((long)MerkabaGrid.ReadoutVertexCapacity * 16,
                 Is.EqualTo(128L * 1024 * 1024));
-            Assert.That(MerkabaGrid.ReadoutPatchCapacity *
-                MerkabaOverlapShell.VerticesPerPatch,
-                Is.EqualTo(MerkabaGrid.ReadoutVertexCapacity));
-            Assert.That(readout, Does.Contain("struct MerkabaReadoutVertex"));
+            Assert.That(MerkabaGrid.RenderPageVertices, Is.EqualTo(64));
+            Assert.That(MerkabaGrid.RenderPageIndices, Is.EqualTo(96));
+            Assert.That(world, Does.Contain(
+                "#define M8_RENDER_PAGE_CAPACITY 131072u"));
+            Assert.That(world, Does.Contain(
+                "#define M8_RENDER_RECORD_WORDS 40u"));
+            Assert.That(readout, Does.Contain("RWByteAddressBuffer _M8RenderVertices"));
+            Assert.That(readout, Does.Contain("_M8RenderVertices.Store3(address"));
             Assert.That(readout, Does.Contain(
-                "vertex.gridPosition = gridPosition;"));
-            Assert.That(readout, Does.Contain(
-                "M8StoreReadoutVertexAt(outputVertex, vertex);"));
-            string standardStore = Slice(readout,
-                "void M8StoreReadoutVertex(uint outputVertex",
-                "void M8StoreReadoutIndex");
-            Assert.That(standardStore, Does.Not.Contain("if (outputVertex"));
-            Assert.That(readout, Does.Contain(
-                "RWByteAddressBuffer _M8ReadoutVertices"));
-            Assert.That(readout, Does.Contain(
-                "_M8ReadoutVertices.Store3(address"));
-            Assert.That(readout, Does.Not.Contain("_M8ReadoutVertices1"));
-            Assert.That(readout, Does.Contain(
-                "_M8ReadoutIndices.Store(outputIndex * 4u, outputVertex)"));
-            Assert.That(generated, Does.Contain(
-                "M8_MEMBRANE_VERTICES_PER_PATCH 4u"));
-            Assert.That(generated, Does.Contain(
-                "M8_MEMBRANE_INDICES_PER_PATCH 6u"));
-            Assert.That(readout, Does.Contain(
-                "M8StoreReadoutIndex(outputIndex + 0u, outputVertex + 0u)"));
-            Assert.That(readout, Does.Contain(
-                "M8StoreReadoutIndex(outputIndex + 5u, outputVertex + 3u)"));
-            Assert.That(readout, Does.Not.Contain("MerkabaReadoutCubeTriangle"));
-            Assert.That(readout, Does.Not.Contain("half3(0.55h"));
+                "live ? v + 3u : pageVertex"));
             Assert.That(shader, Does.Contain("half3(0.55h, 0.16h, 0.42h)"));
             Assert.That(shader, Does.Contain(
                 "round(saturate(input.packedColor.a) *"));
-            Assert.That(shader, Does.Contain(
-                "#if defined(M8_STEREO_MESH)"));
-            Assert.That(shader, Does.Contain("SV_VertexID"));
+            // Visibility is tile-first; no per-frame pass walks every patch.
+            Assert.That(readout, Does.Not.Contain("CullReadoutVisibility"));
+            Assert.That(feature, Does.Contain(
+                "AddComputePass<VisibilityPassData>"));
+            Assert.That(feature, Does.Contain(
+                "builder.UseBuffer(indexHandle, AccessFlags.Read)"));
+            foreach (string removed in new[]
+                     {
+                         "ProjectReadoutMeshPins", "BuildReadoutMesh",
+                         "M8_STEREO_MESH", "TryAcquireReadoutDepth"
+                     })
+                Assert.That(readout + shader + Source(
+                    "Runtime/Core/DepthCapture.cs"), Does.Not.Contain(removed),
+                    removed);
         }
 
         [Test]
@@ -1353,8 +1066,8 @@ namespace Genesis.RoomScan.Tests
                 "MerkabaM8KernelPlaneChildMask"));
             Assert.That(frame, Does.Contain(
                 "MerkabaM8GridDistanceChildMask"));
-            string readoutQuery = Slice(frame, "void QueryM8Readout",
-                "void PrepareReadoutBuild");
+            string readoutQuery = Slice(frame, "void RequestWarmResidency",
+                "struct M8ReadoutTileContext");
             Assert.That(readoutQuery, Does.Not.Contain(
                 "_MerkabaGridToWorld"));
             Assert.That(readoutQuery, Does.Not.Contain(
@@ -1772,7 +1485,7 @@ namespace Genesis.RoomScan.Tests
             string scanQuery = Slice(scan, "groupshared uint gScanBlockRef",
                 "void PrepareCarveArgs");
             string frameQuery = Slice(frame, "groupshared uint gFrameBlockRef",
-                "void PrepareReadoutBuild");
+                "struct M8ReadoutTileContext");
 
             foreach (string query in new[] { scanQuery, frameQuery })
             {
@@ -1792,7 +1505,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(scan, Does.Not.Contain(
                 "[numthreads(1, 1, 1)]\nvoid QueryCarveTiles"));
             Assert.That(frame, Does.Not.Contain(
-                "[numthreads(1, 1, 1)]\nvoid QueryM8Readout"));
+                "[numthreads(1, 1, 1)]\nvoid RequestWarmResidency"));
         }
 
         [Test]
@@ -1803,10 +1516,10 @@ namespace Genesis.RoomScan.Tests
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string all = world + scan + frame;
             Assert.That(Regex.Matches(all, @"^#pragma kernel ",
-                RegexOptions.Multiline), Has.Count.EqualTo(52));
+                RegexOptions.Multiline), Has.Count.EqualTo(59));
             Assert.That(frame, Does.Contain(
                 "[numthreads(128, 1, 1)]\n" +
-                "void CullReadoutVisibility"));
+                "void CullRenderTiles"));
 
             string[] serial = Regex.Matches(all,
                     @"\[numthreads\(1,\s*1,\s*1\)\]\s*void\s+(\w+)")
@@ -1814,6 +1527,8 @@ namespace Genesis.RoomScan.Tests
                 .OrderBy(name => name).ToArray();
             Assert.That(serial, Is.EqualTo(new[]
             {
+                "ApplyRenderReclaim",
+                "BeginRenderBuild",
                 "FinalizeFineErase",
                 "FinalizeObservation",
                 "FinalizeReadout",
@@ -1823,7 +1538,9 @@ namespace Genesis.RoomScan.Tests
                 "PrepareFineEraseArgs",
                 "PrepareIntegrateArgs",
                 "PrepareNewTileDispatchArgs",
+                "PrepareRenderBuild",
                 "PrepareResolveArgs",
+                "PrepareVisibleIndices",
                 "ResetClaimQueueCounts",
                 "ResetFineErase",
                 "ResetObservationCounters"
@@ -1925,7 +1642,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(audit, Does.Contain("NonWritable"));
             Assert.That(audit, Does.Contain("writable > 8"));
             Assert.That(audit, Does.Contain("RW/read alias pair"));
-            Assert.That(audit, Does.Contain("kernel_count != 58"));
+            Assert.That(audit, Does.Contain("kernel_count != 65"));
             Assert.That(audit, Does.Contain("DepthNormals.compute"));
             Assert.That(audit, Does.Contain("DepthDilation.compute"));
             Assert.That(audit, Does.Contain("StereoRgbdRefine.compute"));
@@ -2270,9 +1987,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(finalize, Does.Contain(
                 "M8_COUNTER_RESIDENCY_EPOCH"));
             Assert.That(finalize, Does.Contain(
-                "M8_COUNTER_SURFACE_QUEUE_COUNT"));
-            Assert.That(finalize, Does.Contain(
-                "M8_COUNTER_CARVE_OCCUPIED_TO_FREE"));
+                "M8_COUNTER_RENDER_DIRTY_MARKS"));
+
             Assert.That(finalize, Does.Contain(
                 "M8_ATTEMPT_COMPLETION_READOUT_CHANGED"));
             Assert.That(integration, Does.Not.Contain(

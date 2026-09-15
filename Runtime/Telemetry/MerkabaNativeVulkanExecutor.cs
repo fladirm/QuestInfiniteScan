@@ -13,8 +13,8 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        internal const int AbiVersion = 2;
-        internal const int ResourceCount = 44;
+        internal const int AbiVersion = 3;
+        internal const int ResourceCount = 45;
         internal const int PipelineCount = 49;
         internal const int MaximumTimestampCount = PipelineCount * 2 + 2;
 
@@ -23,7 +23,6 @@ namespace Genesis.RoomScan
             ObservationNew = 0,
             ObservationRetry = 1,
             Readout = 2,
-            MeshReadout = 3,
             FineErase = 4,
         }
 
@@ -70,9 +69,10 @@ namespace Genesis.RoomScan
             CameraRight,
             VisibleTiles,
             FrameDispatchArgs,
-            ReadoutVertices,
-            ReadoutIndices,
-            DrawArgs,
+            RenderVertices,
+            RenderIndexBack,
+            RenderIndexFront,
+            RenderPageQueues,
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -138,17 +138,17 @@ namespace Genesis.RoomScan
             "IntegrateCarveTiles",
             "FinalizeObservation",
             "ClearTouchedSurfaceCandidates",
-            "ResetReadoutBuild",
-            "QueryM8Readout",
-            "PrepareReadoutBuild",
-            "BuildReadoutVertices",
+            "BeginRenderBuild",
+            "RequestWarmResidency",
+            "ReclaimRenderPages",
+            "ApplyRenderReclaim",
+            "CopyRenderIndex",
+            "MarkRenderRebuildTiles",
+            "CollectRenderRebuildTiles",
+            "PrepareRenderBuild",
+            "BuildRenderTiles",
+            "PublishRenderTileList",
             "FinalizeReadout",
-            "MeshResetReadoutBuild",
-            "MeshQueryM8Readout",
-            "MeshPrepareReadoutBuild",
-            "ProjectReadoutMeshPins",
-            "BuildReadoutMesh",
-            "MeshFinalizeReadout",
             "ResetFineErase",
             "QueryFineEraseTiles",
             "PrepareFineEraseArgs",
@@ -264,7 +264,6 @@ namespace Genesis.RoomScan
             ulong mask = validBits >= 64 ? ulong.MaxValue :
                 validBits <= 0 ? 0UL : (1UL << validBits) - 1UL;
             int first = kind == JobKind.Readout ? 33 :
-                kind == JobKind.MeshReadout ? 38 :
                 kind == JobKind.FineErase ? 44 :
                 kind == JobKind.ObservationRetry ? 13 : 0;
             int dispatchCount = (count - 2) / 2;

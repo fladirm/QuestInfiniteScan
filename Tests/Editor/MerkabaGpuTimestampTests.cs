@@ -80,9 +80,9 @@ namespace Genesis.RoomScan.Tests
             ComputeShader frame = AssetDatabase.LoadAssetAtPath<ComputeShader>(
                 "Packages/com.genesis.roomscan/Runtime/Shaders/" +
                 "MerkabaReadout.compute");
-            int query = frame.FindProfiledKernel("QueryM8Readout",
+            int query = frame.FindProfiledKernel("RequestWarmResidency",
                 MerkabaGpuStage.WorldQuery);
-            int compile = frame.FindProfiledKernel("BuildReadoutVertices",
+            int compile = frame.FindProfiledKernel("BuildRenderTiles",
                 MerkabaGpuStage.ReadoutBuild);
             using var command = new CommandBuffer();
             MerkabaGpuTimestamps.SetAvailableForTests(true);
@@ -112,7 +112,7 @@ namespace Genesis.RoomScan.Tests
             ComputeShader frame = AssetDatabase.LoadAssetAtPath<ComputeShader>(
                 "Packages/com.genesis.roomscan/Runtime/Shaders/" +
                 "MerkabaReadout.compute");
-            int query = frame.FindProfiledKernel("QueryM8Readout",
+            int query = frame.FindProfiledKernel("RequestWarmResidency",
                 MerkabaGpuStage.WorldQuery);
             using var command = new CommandBuffer();
 
@@ -310,7 +310,7 @@ namespace Genesis.RoomScan.Tests
                 "Graphics.DrawProceduralIndirect"));
             Assert.That(feature, Does.Contain("AddRasterRenderPass"));
             Assert.That(feature, Does.Contain(
-                "RecordRenderPass(context.cmd, data.Slot,"));
+                "RecordRenderPass(context.cmd,"));
             Assert.That(build, Does.Contain(
                 "build_merkaba_vulkan_timestamps.sh"));
         }

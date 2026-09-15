@@ -22,6 +22,7 @@
 #pragma kernel FailLoadedTiles
 #pragma kernel RegisterLoadedTileAddresses
 #pragma kernel BenchmarkM8Pcg3d
+#pragma kernel InitializeRenderPageStack
 
 #include "MerkabaWorld.hlsl"
 
@@ -33,6 +34,7 @@ RWStructuredBuffer<uint> _M8ClearBlockArgs;
 RWStructuredBuffer<uint> _M8ClearChunkArgs;
 RWStructuredBuffer<uint> _M8ObservationDispatchArgs;
 RWStructuredBuffer<uint4> _M8HashBenchmarkOutput;
+RWStructuredBuffer<uint> _M8RenderPageQueues;
 uint _M8ClearCount;
 uint _M8LinearGroupsX;
 
@@ -93,6 +95,22 @@ void InitializeFreeTileStack(uint id : SV_DispatchThreadID)
     if (id == 0u)
         _M8Counters[M8_COUNTER_FREE_TILE_COUNT] =
             MERKABA_M8_PHYSICAL_TILE_CAPACITY;
+}
+
+[numthreads(256, 1, 1)]
+void InitializeRenderPageStack(uint id : SV_DispatchThreadID)
+{
+    // Free pages are popped from the top; any order is a valid stack.
+    if (id < M8_RENDER_PAGE_CAPACITY)
+        _M8RenderPageQueues[M8_RENDER_FREE_BASE + id] = id;
+    if (id == 0u)
+    {
+        _M8RenderPageQueues[M8_RENDER_CONTROL_FREE_PAGES] =
+            M8_RENDER_PAGE_CAPACITY;
+        _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_COUNT] = 0u;
+        _M8RenderPageQueues[M8_RENDER_CONTROL_ALLOC_COUNT] = 0u;
+        _M8RenderPageQueues[M8_RENDER_CONTROL_RECLAIM_COUNT] = 0u;
+    }
 }
 
 [numthreads(128, 1, 1)]
@@ -324,6 +342,7 @@ void ResetObservationCounters(uint id : SV_DispatchThreadID)
     _M8Counters[M8_COUNTER_OFF_AXIS_MUTATION_BLOCKED] = 0u;
     _M8Counters[M8_COUNTER_SURFACE_REPLACEMENT] = 0u;
     _M8Counters[M8_COUNTER_SAME_OBSERVATION_CONFLICT] = 0u;
+    _M8Counters[M8_COUNTER_RENDER_DIRTY_MARKS] = 0u;
 }
 
 [numthreads(16, 1, 1)]
@@ -696,6 +715,8 @@ void InstallLoadedTiles(uint3 groupId : SV_GroupID,
         uint4 meta = _M8TileRecords[M8TileMetaIndex(gLoadSlot)];
         uint refIndex = meta.x * MERKABA_M8_TILES_PER_CHUNK + meta.y;
         _M8ChunkTileRefs[refIndex] = gLoadSlot + 1u;
+        // A resident tile (and its halo neighbours) must be read out.
+        M8MarkRenderDirty(gLoadSlot);
         uint ignored;
         InterlockedAdd(_M8Counters[M8_COUNTER_COLD_TILE_COUNT], 0xffffffffu,
             ignored);

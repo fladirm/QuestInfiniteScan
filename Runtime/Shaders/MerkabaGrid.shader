@@ -26,10 +26,9 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             #pragma multi_compile_instancing
             #pragma multi_compile _ XR_LINEAR_DEPTH
             #pragma multi_compile _ XR_HARD_OCCLUSION
-            // These four features are selected on runtime-created materials.
+            // These features are selected on runtime-created materials.
             // Keep every required Release-player variant; shader_feature
             // variants without a serialized material user may be stripped.
-            #pragma multi_compile_local_vertex _ M8_STEREO_MESH
             #pragma multi_compile_local_fragment _ M8_FINE_PREVIEW
             #pragma multi_compile_local_fragment _ M8_ENVIRONMENT_OCCLUSION
             #pragma multi_compile_local_fragment _ M8_ALPHA_COVERAGE
@@ -42,14 +41,6 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             float4x4 _EnvironmentDepthProjectionMatrices[2];
             int _IsOcclusionOn;
             float4x4 _MerkabaGridToWorld;
-
-            struct MerkabaReadoutVertex
-            {
-                float3 gridPosition;
-                uint packedColor;
-            };
-
-            StructuredBuffer<MerkabaReadoutVertex> _M8ReadoutVertices;
 
             float M8EnvironmentVisibility(float3 worldPosition)
             {
@@ -82,7 +73,6 @@ Shader "Genesis/RoomScan/MerkabaGrid"
 
             CBUFFER_START(UnityPerMaterial)
                 half _ScanOpacity;
-                uint _M8MeshEyeVertexOffset;
                 float4 _FineCursorPosition;
                 float4 _FineBrushAxis;
                 float4 _FineBrushParams;
@@ -93,9 +83,6 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             {
                 float3 gridPosition : POSITION;
                 half4 packedColor : COLOR;
-#if defined(M8_STEREO_MESH)
-                uint vertexID : SV_VertexID;
-#endif
 #if UNITY_ANY_INSTANCING_ENABLED
                 UNITY_VERTEX_INPUT_INSTANCE_ID
 #else
@@ -117,22 +104,10 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 Varyings output;
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
-#if defined(M8_STEREO_MESH)
-                uint meshVertex = input.vertexID + unity_StereoEyeIndex *
-                    _M8MeshEyeVertexOffset;
-                MerkabaReadoutVertex vertex =
-                    _M8ReadoutVertices[meshVertex];
-                float3 gridPosition = vertex.gridPosition;
-                uint rgb = vertex.packedColor & 0x00ffffffu;
-                half3 color = half3(rgb & 255u, (rgb >> 8u) & 255u,
-                    (rgb >> 16u) & 255u) / 255.0h;
-                uint hasRgb = (vertex.packedColor >> 24u) & 1u;
-#else
                 float3 gridPosition = input.gridPosition;
                 half3 color = input.packedColor.rgb;
                 uint hasRgb = ((uint)round(saturate(input.packedColor.a) *
                     255.0h)) & 1u;
-#endif
                 float3 worldPosition = mul(_MerkabaGridToWorld,
                     float4(gridPosition, 1.0)).xyz;
                 output.positionCS = TransformWorldToHClip(worldPosition);

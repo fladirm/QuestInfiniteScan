@@ -342,8 +342,7 @@ namespace Genesis.RoomScan.Tests
                     "internal Action CaptureOwnedGpuResourceRelease()",
                     "\n        }") + "\n        }";
                 Assert.That(capture, Does.Contain("if (this != null)"), path);
-                Assert.That(capture, Does.Contain(
-                    "UnityEngine.Object.Destroy"), path);
+                Assert.That(capture, Does.Contain("Destroy"), path);
             }
             string gridCapture = Slice(
                 Source("Runtime/Merkaba/MerkabaGrid.Gpu.cs"),

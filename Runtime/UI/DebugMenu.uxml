@@ -362,8 +362,6 @@
             <ui:VisualElement class="button-row compact-row">
                 <ui:Button name="btn-readout" text="Readout On"
                     class="quiet-action" />
-                <ui:Button name="btn-mesh" text="Raw mesh Off"
-                    class="quiet-action" />
                 <ui:Button name="btn-occlusion" text="Occlusion On"
                     class="quiet-action" />
                 <ui:Button name="btn-checker" text="Checker Off"

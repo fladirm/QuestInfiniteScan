@@ -155,6 +155,9 @@ namespace Genesis.RoomScan
 
                 if (clearGpuWorld)
                 {
+                    // A native readout job may still own the M8 buffers.
+                    while (MerkabaNativeVulkanExecutor.HasJobInFlight)
+                        await Task.Yield();
                     EnsureGpuResources();
                     if (!GpuSubmissionAllowed)
                         throw new InvalidOperationException(
@@ -815,6 +818,8 @@ namespace Genesis.RoomScan
             try
             {
                 await PrepareStorageForCheckpointReplacementAsync(progress);
+                while (MerkabaNativeVulkanExecutor.HasJobInFlight)
+                    await Task.Yield();
                 ClearGpuWorldForNewScan();
                 int batches = DivideRoundUp(snapshot.Tiles.Count,
                     StreamBatchCapacity);

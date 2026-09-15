@@ -10,8 +10,34 @@
 #define MERKABA_M8_TILE_BANK_SHIFT 13u
 #define MERKABA_M8_TILE_BANK_MASK 8191u
 #define MERKABA_M8_TILE_WORDS 16u
-#define MERKABA_M8_READOUT_TRIANGLE_CAPACITY 4194304u
-#define MERKABA_M8_READOUT_VERTEX_CAPACITY 8388608u
+// Paged disposable readout. One page holds 16 membrane patches (64
+// vertices); a tile of 512 kernels needs at most 32 pages.
+#define M8_RENDER_PAGE_PATCHES 16u
+#define M8_RENDER_PAGE_VERTICES 64u
+#define M8_RENDER_PAGE_INDICES 96u
+#define M8_RENDER_PAGE_CAPACITY 131072u
+#define M8_RENDER_PAGE_ID_MASK 0x1ffffu
+#define M8_RENDER_TILE_MAX_PAGES 32u
+#define M8_RENDER_RECORD_WORDS 40u
+#define M8_RENDER_RECORD_PAGE_BASE 8u
+#define M8_RENDER_INDEX_HEADER 8u
+#define M8_RENDER_TILE_LIST_BASE \
+    (M8_RENDER_INDEX_HEADER + MERKABA_M8_PHYSICAL_TILE_CAPACITY * \
+    M8_RENDER_RECORD_WORDS)
+// Page allocator state lives at the head of its own queue buffer.
+#define M8_RENDER_CONTROL_FREE_PAGES 0u
+#define M8_RENDER_CONTROL_RETIRE_COUNT 1u
+#define M8_RENDER_CONTROL_ALLOC_COUNT 2u
+#define M8_RENDER_CONTROL_RECLAIM_COUNT 3u
+#define M8_RENDER_CONTROL_WORDS 8u
+#define M8_RENDER_FREE_BASE M8_RENDER_CONTROL_WORDS
+#define M8_RENDER_RETIRE_BASE (M8_RENDER_CONTROL_WORDS + M8_RENDER_PAGE_CAPACITY)
+#define M8_RENDER_ALLOC_BASE \
+    (M8_RENDER_CONTROL_WORDS + 2u * M8_RENDER_PAGE_CAPACITY)
+// Tile runtime.w: disposable readout scheduling bits, never persisted.
+#define M8_RENDER_DIRTY 1u
+#define M8_RENDER_PENDING 2u
+#define M8_RENDER_REBUILD 4u
 #define MERKABA_M8_LOAD_REQUEST_CAPACITY 262144u
 #define MERKABA_M8_LOAD_REQUEST_MASK 262143u
 #define MERKABA_M8_SURFACE_CANDIDATE_CAPACITY 2097152u
@@ -129,7 +155,20 @@
 #define M8_COUNTER_READOUT_PLANE_LEGACY_INVALID 96u
 #define M8_COUNTER_READOUT_EMITTED_VERTICES 97u
 #define M8_COUNTER_CARVE_HALO_LOAD_REQUEST 98u
-#define M8_COUNTER_COUNT 99u
+#define M8_COUNTER_RENDER_DIRTY_MARKS 99u
+#define M8_COUNTER_RENDER_REBUILD_TILES 100u
+#define M8_COUNTER_RENDER_BUILD_OVERFLOW 101u
+#define M8_COUNTER_RENDER_RESERVED_102 102u
+#define M8_COUNTER_RENDER_RESERVED_103 103u
+#define M8_COUNTER_RENDER_RESERVED_104 104u
+#define M8_COUNTER_RENDER_RESERVED_105 105u
+#define M8_COUNTER_RENDER_RESERVED_106 106u
+#define M8_COUNTER_RENDER_RESERVED_107 107u
+#define M8_COUNTER_RENDER_PENDING_TILES 108u
+#define M8_COUNTER_RENDER_CAPACITY_FAILED 109u
+#define M8_COUNTER_RENDER_PUBLISHED_PATCHES 110u
+#define M8_COUNTER_RENDER_PUBLISHED_TILES 111u
+#define M8_COUNTER_COUNT 112u
 
 #define M8_OBSERVATION_FAILURE_SURFACE_CAPACITY 1u
 #define M8_OBSERVATION_FAILURE_BLOCK_CAPACITY 2u
@@ -380,6 +419,31 @@ void M8CounterIncrement(uint counter)
 void M8SignalResidencyChange()
 {
     M8CounterIncrement(M8_COUNTER_RESIDENCY_EPOCH);
+}
+
+// The membrane of a tile depends on occupancy, the measured plane payload,
+// KNOWN-FREE separation and the emitted colour. Other evidence motion is
+// invisible to the readout and never schedules a rebuild.
+bool M8RenderInputChanged(KernelState before, KernelState after)
+{
+    const uint planeMask = 0xfffffffcu;
+    bool beforeFree = (before.flags & 1u) == 0u &&
+        before.evidence <= MERKABA_EXPORT_KNOWN_FREE;
+    bool afterFree = (after.flags & 1u) == 0u &&
+        after.evidence <= MERKABA_EXPORT_KNOWN_FREE;
+    return ((before.flags ^ after.flags) & 1u) != 0u ||
+        ((before.flags ^ after.flags) & planeMask) != 0u ||
+        beforeFree != afterFree ||
+        ((before.packedColor ^ after.packedColor) & 0xfcfcfcfcu) != 0u;
+}
+
+void M8MarkRenderDirty(uint physicalSlot)
+{
+    uint previous;
+    InterlockedOr(_M8TileRecords[M8TileRuntimeIndex(physicalSlot)].w,
+        M8_RENDER_DIRTY, previous);
+    if ((previous & M8_RENDER_DIRTY) == 0u)
+        M8CounterIncrement(M8_COUNTER_RENDER_DIRTY_MARKS);
 }
 
 bool M8IsHotRef(uint tileRef)

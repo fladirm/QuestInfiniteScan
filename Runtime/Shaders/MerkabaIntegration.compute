@@ -1400,6 +1400,7 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
     if (_M8FineRefineActive != 0u && !M8FineContains(targetWorld)) return;
 
     KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
+    KernelState stateBefore = state;
     int evidenceBefore = state.evidence;
     bool hadMeasuredPlaneBefore = M8HasSurfacePlane(state.flags);
     int authority = MerkabaSurfaceAuthority(asint(queued.y));
@@ -1488,6 +1489,8 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
     M8StoreKernelState(physicalSlot, kernelLocal, state);
     EnsureCarveActive(physicalSlot, kernelLocal);
     _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
+    if (M8RenderInputChanged(stateBefore, state))
+        M8MarkRenderDirty(physicalSlot);
 }
 
 uint M8ScanChildMask(int3 parentMin, int parentSpan)
@@ -1894,6 +1897,7 @@ void IntegrateCarveKernel(uint physicalSlot, uint kernelLocal)
     if (_M8FineRefineActive != 0u && !M8FineContains(worldPosition)) return;
 
     KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
+    KernelState stateBefore = state;
     bool occupiedBefore = (state.flags & MERKABA_OCCUPIED_FLAG) != 0u;
     bool alreadyStrongFree = !occupiedBefore &&
         state.evidence <= MERKABA_EXPORT_KNOWN_FREE;
@@ -1989,6 +1993,8 @@ void IntegrateCarveKernel(uint physicalSlot, uint kernelLocal)
         {
             M8StoreKernelState(physicalSlot, kernelLocal, state);
             _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
+            if (M8RenderInputChanged(stateBefore, state))
+                M8MarkRenderDirty(physicalSlot);
         }
     }
     else if (observationKind == 2)
@@ -2111,9 +2117,9 @@ void FinalizeObservation(uint id : SV_DispatchThreadID)
     uint pendingCount = completed != 0u && failure != 0u
         ? min(_M8Counters[M8_COUNTER_PENDING_NEW_TILE_COUNT],
             MERKABA_M8_PHYSICAL_TILE_CAPACITY) : 0u;
+    // Only a membrane-input change of some tile schedules a readout build.
     bool readoutChanged = completed != 0u && failure == 0u &&
-        (_M8Counters[M8_COUNTER_SURFACE_QUEUE_COUNT] != 0u ||
-         _M8Counters[M8_COUNTER_CARVE_OCCUPIED_TO_FREE] != 0u);
+        _M8Counters[M8_COUNTER_RENDER_DIRTY_MARKS] != 0u;
     _M8Counters[M8_COUNTER_CLEANUP_TOUCHED_COUNT] = touchedCount;
     _M8Counters[M8_COUNTER_CLEANUP_PENDING_COUNT] = pendingCount;
     _M8ObservationDispatchArgs[0] = max(touchedCount, pendingCount);
@@ -2340,7 +2346,11 @@ void M8EraseFineKernel(uint physicalSlot, uint kernelLocal)
             0xffffffffu, ignored);
     }
     if (stateChanged)
+    {
         M8StoreKernelState(physicalSlot, kernelLocal, (KernelState)0);
+        if (M8RenderInputChanged(state, (KernelState)0))
+            M8MarkRenderDirty(physicalSlot);
+    }
     if (stateChanged || occupied || carveActive ||
         (previousCandidate & bit) != 0u)
         _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
