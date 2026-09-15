@@ -10,7 +10,8 @@
 #define FS_RB_SLOTS   1
 #define FS_RB_SURFELS 2
 #define FS_RB_NODES   3
-#define FS_RB_ERRORS  4
+#define FS_RB_AGGSCRATCH 4   // blocks kernel: native aggregate scratch (transient overlay records)
+#define FS_TRANSIENT_COVERAGE 64u   // hashed-alpha coverage byte of a transient overlay quad (25 %)
 #define FS_RB_WORK    5
 #define FS_RB_DRAW    6      // emit/compact: Unity draw record buffer; nodes: native aggregate scratch (same binding id)
 #define FS_RB_HZB     7

@@ -1,7 +1,9 @@
 #version 450
-// Cull 3/4: ONE indirect dispatch, one 64-lane workgroup per emitted leaf block: lane 0 reserves the block's
-// records with a single atomic, lanes copy the immutable render surfels as world-space draw records
-// (transient evidence -> FS_DRAW_FLAG_TRANSIENT). Records beyond the opaque budget are dropped and counted.
+// Cull 3/4: ONE indirect dispatch, one 64-lane workgroup per emitted leaf block. Promoted surfels become opaque
+// world-space draw records (lane 0 reserves exactly the promoted count with one atomic, lanes rank by a shared scan);
+// TRANSIENT candidates (contract §8.6: "renders only as a transient overlay, never static geometry") go to the
+// aggregate bucket as sparse hashed-alpha quads (coverage 25 %) so they neither look like surface nor cost opaque
+// fill. Records beyond the budgets are dropped and counted.
 #extension GL_GOOGLE_include_directive : require
 #define FS_USE_FRAME
 #define FS_USE_RPAGES
@@ -10,30 +12,43 @@
 #define FS_USE_WORK
 #define FS_USE_DRAW
 #include "fs_render_common.glsl"
+layout(std430, set = 0, binding = FS_RB_AGGSCRATCH) writeonly buffer AggScratchBlock { FsDrawRecord aggScratch[]; };
 layout(local_size_x = FS_WG_SMALL) in;
 layout(push_constant) uniform Push { uint frameSlot; uint aggBase; uint aggCapacity; uint opaqueCapacity; uint parity; } pc;
-shared uint sBase; shared uint sCount;
+#define F frames[pc.frameSlot]
+shared uint sBase; shared uint sRank[FS_WG_SMALL];
 void main() {
     uint g = gl_WorkGroupID.x, lane = gl_LocalInvocationID.x;
     uint total = work[FS_WK_BLOCKS];
-    if (lane == 0u) {
-        sCount = 0u; sBase = 0u;
-        if (g < total && g < uint(FS_CULL_BLOCK_LIST_CAP)) {
-            uint node = work[uint(FS_WK_BLOCK_LIST) + 2u * g + 0u];
-            sCount = fsGet_FsClusterNode_leafSurfelCount(rnodes[node].node);
-            sBase = atomicAdd(work[FS_WK_OPAQUE], sCount);
-        }
+    uint node = 0u, slot = 0u, count = 0u;
+    if (g < total && g < uint(FS_CULL_BLOCK_LIST_CAP)) {
+        node = work[uint(FS_WK_BLOCK_LIST) + 2u * g + 0u]; slot = work[uint(FS_WK_BLOCK_LIST) + 2u * g + 1u];
+        count = fsGet_FsClusterNode_leafSurfelCount(rnodes[node].node);
     }
+    bool live = lane < count;
+    FsSurfel s; uint flags = 0u; uint block = 0u;
+    if (live) { block = rnodes[node].node.firstChildOrSurfel; s = rsurfels[block * uint(FS_RENDER_BLOCK_SURFELS) + lane]; flags = fsGet_FsSurfel_evidenceFlags(s); }
+    bool transient = live && (flags & FS_FLAG_TRANSIENT) != 0u;
+    bool opaque = live && !transient;
+    sRank[lane] = opaque ? 1u : 0u;
     barrier();
-    uint count = sCount, base = sBase;
-    if (count == 0u || lane >= count) return;
-    uint node = work[uint(FS_WK_BLOCK_LIST) + 2u * g + 0u], slot = work[uint(FS_WK_BLOCK_LIST) + 2u * g + 1u];
-    uint dst = base + lane;
-    if (dst >= pc.opaqueCapacity) return;                                       // over budget: counted by the compact pass
-    // No by-value copy of the 4.7 KB frame block (64 anchors): every field is read in place from the SSBO (C09R closure defect R).
-#define F frames[pc.frameSlot]
+    for (uint o = 1u; o < uint(FS_WG_SMALL); o <<= 1u) { uint v = lane >= o ? sRank[lane - o] : 0u; barrier(); sRank[lane] += v; barrier(); }
+    if (lane == uint(FS_WG_SMALL) - 1u) sBase = sRank[lane] > 0u ? atomicAdd(work[FS_WK_OPAQUE], sRank[lane]) : 0u;
+    barrier();
+    if (!live) return;
     FsPageDesc d = pages[slot];
     mat4 A = F.anchors[min(uint(max(d.key.anchorId, 0)), uint(FS_MAX_ANCHORS - 1))];
-    uint block = rnodes[node].node.firstChildOrSurfel;
-    draws[dst] = fsDrawRecordOf(rsurfels[block * uint(FS_RENDER_BLOCK_SURFELS) + lane], A, fsPageOrigin3(d.key));
+    FsDrawRecord r = fsDrawRecordOf(s, A, fsPageOrigin3(d.key));
+    if (opaque) {
+        uint dst = sBase + sRank[lane] - 1u;
+        if (dst < pc.opaqueCapacity) draws[dst] = r;                            // over budget: counted by the compact pass
+    } else {
+        uint i = atomicAdd(work[FS_WK_AGG], 1u);                                 // transient overlay: sparse quad, hashed alpha
+        if (i >= pc.aggCapacity) { atomicAdd(work[FS_WK_STAT + FS_CSTAT_BUDGET_DROPPED], 1u); return; }
+        r.colorOrHandle = (r.colorOrHandle & 0x00FFFFFFu) | (uint(FS_TRANSIENT_COVERAGE) << 24);
+        r.flags |= uint(FS_DRAW_FLAG_AGGREGATE);
+        aggScratch[i] = r;
+        atomicMax(work[FS_WK_COMPACT_ARGS], i / uint(FS_WG_SMALL) + 1u);
+        atomicAdd(work[FS_WK_STAT + FS_CSTAT_AGGREGATES], 1u);
+    }
 }

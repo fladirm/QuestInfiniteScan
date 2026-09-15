@@ -115,6 +115,9 @@ public:
         case R_CULL_EXPAND:
             if (binding == RB_DRAW) return &aggScratch_;
             break;
+        case R_CULL_BLOCKS:
+            if (binding == RB_AGGSCRATCH) return &aggScratch_;
+            break;
         default: break;
         }
         switch (binding) {

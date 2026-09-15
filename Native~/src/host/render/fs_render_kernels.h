@@ -14,7 +14,7 @@ namespace fs {
 namespace render {
 
 // Binding ids are the contract with fs_render_common.glsl (FS_RB_*): world pools bound read-only.
-enum : uint32_t { RB_FRAME = 0, RB_PAGES = 1, RB_RBLOCKS = 2, RB_RNODES = 3, RB_WORK = 5, RB_DRAW = 6, RB_HZB = 7,
+enum : uint32_t { RB_FRAME = 0, RB_PAGES = 1, RB_RBLOCKS = 2, RB_RNODES = 3, RB_AGGSCRATCH = 4, RB_WORK = 5, RB_DRAW = 6, RB_HZB = 7,
                   RB_ARGS = 3, RB_STATS = 4, RB_AGGSRC = 2, RB_DEPTH_PREV = 2, RB_DEPTH_ENV = 3 };
 struct PushFrame  { uint32_t frameSlot; };
 struct PushPages  { uint32_t frameSlot, pageCount; };
@@ -29,7 +29,7 @@ static const KernelSpec kRenderKernels[R_COUNT] = {
     {"render_hzb_mips",    FS_KS(kRenderHzbMipsSpirv),    0,                 {RB_WORK, RB_HZB}, 2, 0},
     {"render_cull_pages",  FS_KS(kRenderCullPagesSpirv),  sizeof(PushPages), {RB_FRAME, RB_PAGES, RB_WORK}, 3, 0},
     {"render_cull_expand", FS_KS(kRenderCullExpandSpirv), sizeof(PushCull),  {RB_FRAME, RB_PAGES, RB_RNODES, RB_WORK, RB_DRAW, RB_HZB}, 6, 0},
-    {"render_cull_blocks", FS_KS(kRenderCullBlocksSpirv), sizeof(PushCull),  {RB_FRAME, RB_PAGES, RB_RBLOCKS, RB_RNODES, RB_WORK, RB_DRAW}, 6, 0},
+    {"render_cull_blocks", FS_KS(kRenderCullBlocksSpirv), sizeof(PushCull),  {RB_FRAME, RB_PAGES, RB_RBLOCKS, RB_RNODES, RB_AGGSCRATCH, RB_WORK, RB_DRAW}, 7, 0},
     {"render_cull_compact",FS_KS(kRenderCullCompactSpirv),sizeof(PushCull),  {RB_FRAME, RB_AGGSRC, RB_ARGS, RB_STATS, RB_WORK, RB_DRAW}, 6, 0},
 };
 #undef FS_KS
