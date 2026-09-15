@@ -5,7 +5,7 @@
 // candidate. Both kernels run the identical function so counts and contents agree without a scratch record.
 #ifndef FS_CLUSTER_GLSL
 #define FS_CLUSTER_GLSL
-struct FsCand { vec3 p; vec3 n; float wN, wT; vec3 nSum; float mxx, myy, mxy; float d2; float fp; uint cnt; float sigmaN, sigmaT; };
+struct FsCand { vec3 p; vec3 n; float wN, wT; vec3 nSum; float mxx, myy, mxy; float d2; float fp; uint cnt; float sigmaN, sigmaT; vec3 col; float colW; };
 uint fsClusterSegment(uint start, uint count, uint key, vec3 origin, out FsCand cands[FS_CELL_NEW_MAX], out uint overflowed) {
     uint nc = 0u; overflowed = 0u;
     for (uint k = 0u; k < uint(FS_SEG_CLUSTER_MAX) + 1u; ++k) {
@@ -33,6 +33,7 @@ uint fsClusterSegment(uint start, uint count, uint key, vec3 origin, out FsCand 
         if (hit < 0) {
             if (nc >= uint(FS_CELL_NEW_MAX)) continue;                     // dedupe bound: extra sheets wait for the next epoch
             FsCand q; q.p = pm; q.n = nm; q.wN = wN; q.wT = wT; q.nSum = nm * wN; q.mxx = fp * fp; q.myy = fp * fp; q.mxy = 0.0; q.d2 = 0.0; q.fp = fp; q.cnt = 1u; q.sigmaN = sN; q.sigmaT = sT;
+            q.col = vec3(0.0); q.colW = 0.0; if ((m.reserved & FS_MEAS_COLOR_VALID) != 0u) { q.col = fsColorOf(m.reserved); q.colW = 1.0; }
             cands[nc] = q; nc++;
         } else {
             FsCand q = cands[hit];
@@ -46,6 +47,7 @@ uint fsClusterSegment(uint start, uint count, uint key, vec3 origin, out FsCand 
             vec2 tvv = vec2(dot(tv, t1), dot(tv, t2));
             q.mxx += tvv.x * tvv.x + fp * fp; q.myy += tvv.y * tvv.y + fp * fp; q.mxy += tvv.x * tvv.y;
             q.sigmaN = max(sqrt(1.0 / q.wN), FS_SIGMA_N_FLOOR_M); q.sigmaT = max(sqrt(1.0 / q.wT), FS_SIGMA_T_FLOOR_M);
+            if ((m.reserved & FS_MEAS_COLOR_VALID) != 0u) { q.col += fsColorOf(m.reserved); q.colW += 1.0; }
             cands[hit] = q;
         }
     }

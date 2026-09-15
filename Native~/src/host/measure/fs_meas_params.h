@@ -71,7 +71,11 @@
 #define FS_MEAS_CTR_FRACTION         12        // 16.16 fraction of the threshold bin kept
 #define FS_MEAS_CTR_CONSISTENT_ALT   13        // predicted texels within 1 sigma under the OTHER prediction row convention (receipt)
 #define FS_MEAS_CTR_WORDS            16        // counters region (words 13..15 reserved)
-#define FS_MEAS_FB_BYTES             624       // 64 B counters + 2 x mat4 anchorFromEye + 2 x vec4 fov + 2 x mat4 worldFromEye + 2 x mat4 predViewProj + 2 x mat4 predInvViewProj + uvec4 predInfo
+#define FS_MEAS_FB_BYTES             800       // 64 B counters + 2 x mat4 anchorFromEye + 2 x vec4 fov + 2 x mat4 worldFromEye + 2 x mat4 predViewProj + 2 x mat4 predInvViewProj + uvec4 predInfo + 2 x mat4 camFromWorld + 2 x vec4 camIntrinsics + uvec4 camInfo
+// ---- appearance sample (C16a, contract §14 keyframe authority = the PCA frame lease at its own pose/time): the emit kernel
+// projects the measured point into the PCA camera of the same eye captured closest to the depth time and stores RGB8 in
+// FsSurfaceMeasurement.reserved with FS_MEAS_COLOR_VALID; fusion blends it precision-weighted into appearanceHandle.
+#define FS_MEAS_CAM_MAX_AGE_NS       120000000  // |depth time - camera time| above this: no colour sample (the frame is not the same moment)
 #define FS_MEAS_SCORE_BINS           256
 
 // ---- bindings ----------------------------------------------------------------------------------------------
@@ -81,6 +85,8 @@
 #define FS_MEAS_B_PRED               3         // combined image sampler, sampler2DArray: canonical prediction (previous rendered depth)
 #define FS_MEAS_B_SCORE              4         // uint score[texel threads] (scratch, one job in flight)
 #define FS_MEAS_B_SELECT             5         // uint hist[256] + wgCount[FS_MEAS_MAX_GROUPS] + wgBase[FS_MEAS_MAX_GROUPS]
+#define FS_MEAS_B_CAM_L              6         // combined image sampler: PCA left frame (owned copy)
+#define FS_MEAS_B_CAM_R              7         // combined image sampler: PCA right frame
 #define FS_MEAS_SEL_HIST             0
 #define FS_MEAS_SEL_WGCOUNT          FS_MEAS_SCORE_BINS
 #define FS_MEAS_SEL_WGBASE           (FS_MEAS_SCORE_BINS + FS_MEAS_MAX_GROUPS)

@@ -89,6 +89,7 @@ namespace FinalScan.Host
         readonly long[] _cull = new long[FinalScanHostNative.CullStatsCount];
         readonly long[] _cls = new long[FinalScanHostNative.ClassStatsCount];
         EnvDepthFeeder _envDepth;
+        PcaFrameFeeder _pcaFrames;
         SensorAuthority _sensor;
 
         // ---- state exposed to HUD / residency / spin test -------------------------------------------------------
@@ -224,6 +225,7 @@ namespace FinalScan.Host
             _sensor = GetComponent<SensorAuthority>();
             if (_sensor == null) Debug.LogError("[FinalScan] SensorAuthority missing on " + name + ": no PCA / Environment Depth ingest (the editor setup attaches it).");
             _envDepth ??= new EnvDepthFeeder(this, _sensor);
+            _pcaFrames ??= new PcaFrameFeeder(this, _sensor);
         }
 
         void OnDisable()
@@ -288,6 +290,7 @@ namespace FinalScan.Host
             SendFrameHint();
             SendGpuHeadroom();
             _envDepth?.Update();
+            _pcaFrames?.Update();
             RefreshStats();
             EmitTelemetry();
         }
@@ -435,6 +438,7 @@ namespace FinalScan.Host
              .Prop("envDepthAccepted", _envDepth != null ? _envDepth.Accepted : 0)
              .Prop("envDepthRc", _envDepth != null ? _envDepth.LastResult : -1).Prop("measEnvDepthRc", _envDepth != null ? _envDepth.LastMeasResult : -1)
              .Prop("envDepthSource", _envDepth != null ? _envDepth.Source : "none")
+             .Prop("pcaFramesPushed", _pcaFrames != null ? _pcaFrames.Pushed : 0).Prop("pcaFrameRc", _pcaFrames != null ? _pcaFrames.LastResult : -1)
              .Prop("envDepthGated", _envDepth != null ? _envDepth.GatedFrames : 0).Prop("envDepthAngularDegPerSec", _envDepth != null ? _envDepth.LastAngularDegPerSec : 0f)
              .Prop("syntheticRc", _syntheticResult)
              .PropRaw("native", native)

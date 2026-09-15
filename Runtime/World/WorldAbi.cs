@@ -245,6 +245,8 @@ namespace FinalScan.World
         public const int IndexChainMax = 4;
         public const uint AssocKeyUnmatched = 2147483648u;
         public const uint AssocKeyNone = 4294967295u;
+        public const uint MeasColorValid = 2147483648u;
+        public const uint AppearanceMeasured = 2147483648u;
         public const int RenderBlockSurfels = 64;
         public const int RenderChildren = 8;
         public const float ClusterErrorInf = 1e+30f;

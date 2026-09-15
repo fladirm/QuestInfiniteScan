@@ -119,6 +119,7 @@ namespace FinalScan.Platform.Native
         [DllImport(Lib)] static extern int FsRender_SetMode(int mode);
         // Twin of FsRender_SetEnvDepth exported by the measurement module (same signature, same frame, same handle).
         [DllImport(Lib)] static extern int FsMeas_SetEnvDepth(IntPtr unityDepthTextureArray, uint width, uint height, float[] poseL16, float[] poseR16, float[] fovL4, float[] fovR4, float nearZ, float farZ, long xrTimeNs);
+        [DllImport(Lib)] static extern int FsMeas_SetCameraFrame(int eye, IntPtr unityTexture, uint width, uint height, uint sensorWidth, uint sensorHeight, float[] worldFromCamera16, float fx, float fy, float cx, float cy, int rowFlip, long xrTimeNs);
 
         static int s_abi = int.MinValue;
         /// <summary>True when the plugin loads and reports ABI 2. Cached after the first successful probe.</summary>
@@ -196,6 +197,9 @@ namespace FinalScan.Platform.Native
         /// <summary>Measurement front-end twin of <see cref="SetEnvDepth"/> (FsMeas_SetEnvDepth).</summary>
         public static int SetMeasEnvDepth(IntPtr depthTextureArray, uint width, uint height, float[] poseL16, float[] poseR16, float[] fovL4, float[] fovR4, float nearZ, float farZ, long xrTimeNs)
             => FsMeas_SetEnvDepth(depthTextureArray, width, height, poseL16, poseR16, fovL4, fovR4, nearZ, farZ, xrTimeNs);
+        /// <summary>FsMeas_SetCameraFrame (C16a, contract §14): the latest PCA frame of one eye for the appearance sample of every measurement.</summary>
+        public static int SetCameraFrame(int eye, IntPtr texture, uint width, uint height, uint sensorWidth, uint sensorHeight, float[] worldFromCamera16, float fx, float fy, float cx, float cy, bool rowFlip, long xrTimeNs)
+            => FsMeas_SetCameraFrame(eye, texture, width, height, sensorWidth, sensorHeight, worldFromCamera16, fx, fy, cx, cy, rowFlip ? 1 : 0, xrTimeNs);
         public static int SetMode(RenderModeId mode) => FsRender_SetMode((int)mode);
 #else
         public static bool Available => false;
@@ -233,6 +237,7 @@ namespace FinalScan.Platform.Native
         public static int SetGpuHeadroomUs(int headroomUs) => ResultUnavailable;
         public static int SetMode(RenderModeId mode) => ResultUnavailable;
         public static int SetMeasEnvDepth(IntPtr depthTextureArray, uint width, uint height, float[] poseL16, float[] poseR16, float[] fovL4, float[] fovR4, float nearZ, float farZ, long xrTimeNs) => ResultUnavailable;
+        public static int SetCameraFrame(int eye, IntPtr texture, uint width, uint height, uint sensorWidth, uint sensorHeight, float[] worldFromCamera16, float fx, float fy, float cx, float cy, bool rowFlip, long xrTimeNs) => ResultUnavailable;
 #endif
 
         /// <summary>

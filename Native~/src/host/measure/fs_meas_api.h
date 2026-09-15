@@ -16,7 +16,14 @@ int32_t FsMeas_SetEnvDepth(void* unityDepthTextureArray, uint32_t width, uint32_
 // Compaction / convention knobs (C09R-E2, contract §7.6): budget = measurements selected per depth frame by the
 // information score (0 = default), maxOut = hard cap of records per depth frame (clamped to FS_MEAS_GPU_RING_CAPACITY),
 // flags = FS_MEAS_FLAG_* (fs_meas_params.h: 1 flipY, 2 linear depth texels, 4 DETAIL keeps edges, 8 prediction flipY).
-int32_t FsMeas_SetParams(uint32_t budget, uint32_t maxOut, uint32_t flags);   // budget = measurements selected per depth frame (§7.6), maxOut = record cap
+int32_t FsMeas_SetParams(uint32_t budget, uint32_t maxOut, uint32_t flags);
+// C16a (contract §14 keyframe authority): the latest PCA frame of one eye (owned Unity texture copy, world-from-camera pose
+// column-major, pinhole intrinsics in delivered pixels with a bottom-left origin, capture XrTime). The emit kernel samples
+// the colour of every measurement whose depth time lies within FS_MEAS_CAM_MAX_AGE_NS of the frame. tex == null clears the eye.
+// Intrinsics are MRUK sensor-resolution values (sensorWidth x sensorHeight); the delivered image (width x height) is the
+// aspect-keeping centre crop. rowFlip = 1 when the owned copy was written by Graphics.Blit (RT: physical row 0 = top),
+// 0 for Graphics.CopyTexture of the producer texture (physical row 0 = bottom).
+int32_t FsMeas_SetCameraFrame(int32_t eye, void* unityTexture, uint32_t width, uint32_t height, uint32_t sensorWidth, uint32_t sensorHeight, const float worldFromCamera[16], float fx, float fy, float cx, float cy, int32_t rowFlip, int64_t xrTimeNs);   // budget = measurements selected per depth frame (§7.6), maxOut = record cap
 // out[8]: framesSeen, framesSubmitted, framesSuperseded, lastCount, lastOverflow, lastGpuUs, importFailures, lastEdgeTexels
 int32_t FsMeas_GetStats(int64_t out[8]);
 

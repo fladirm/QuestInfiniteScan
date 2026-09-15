@@ -52,7 +52,7 @@ void main() {
         FsPatch pt; pt.p = q.p; pt.n = nn; pt.angle = ang; pt.rM = rM; pt.rm = rm; pt.sigmaN = q.sigmaN; pt.sigmaT = q.sigmaT;
         pt.flags = min(q.cnt, uint(FS_EVIDENCE_COUNT_MAX)) | FS_FLAG_TRANSIENT | FS_FLAG_SIDED_A;
         if (q.cnt >= uint(FS_PROMOTE_STATIC)) pt.flags = (pt.flags & ~FS_FLAG_TRANSIENT) | FS_FLAG_PROMOTED;
-        pt.surfaceId = idBase + c; pt.appearance = fsPreviewColorFromNormal(nn);
+        pt.surfaceId = idBase + c; pt.appearance = q.colW > 0.0 ? (FS_APPEARANCE_MEASURED | fsColorPack(q.col / q.colW)) : fsPreviewColorFromNormal(nn);
         // keep inside the owner cell (the cluster mean lies in it by construction; guard the fixed-point rounding)
         vec3 bmin, bmax; fsCellBounds(cell, bmin, bmax);
         pt.p = clamp(pt.p, bmin + vec3(0.0005), bmax - vec3(0.0005));

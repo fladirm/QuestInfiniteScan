@@ -54,6 +54,8 @@ namespace FinalScan.Platform.Sensor
         public float recordFramesPerSecond = 5f;
 
         public SensorPipeline Pipeline { get; private set; }
+        /// <summary>True when the owned PCA copy is written by Graphics.Blit (RenderTexture row order: physical row 0 = top); false for CopyTexture (row 0 = bottom). Consumed by the native colour sample (C16a).</summary>
+        public bool PcaCopyUsesBlit { get; private set; }
         public ISensorSink Sink { get; set; }
         public StereoObservation Latest => Pipeline?.Pairer.Latest;
         public DepthFrame LatestDepth => Replayer != null ? Replayer.LatestDepth : _depth?.LatestDepth;
@@ -293,8 +295,8 @@ namespace FinalScan.Platform.Sensor
             lease.texture = dst;
             try
             {
-                if (src.graphicsFormat == dst.graphicsFormat && SystemInfo.copyTextureSupport != UnityEngine.Rendering.CopyTextureSupport.None) Graphics.CopyTexture(src, dst);
-                else Graphics.Blit(src, dst);
+                if (src.graphicsFormat == dst.graphicsFormat && SystemInfo.copyTextureSupport != UnityEngine.Rendering.CopyTextureSupport.None) { Graphics.CopyTexture(src, dst); PcaCopyUsesBlit = false; }
+                else { Graphics.Blit(src, dst); PcaCopyUsesBlit = true; }
                 return true;
             }
             catch (Exception ex) { Debug.LogWarning(TelemetryPrefix + " copy failed: " + ex.Message); return false; }

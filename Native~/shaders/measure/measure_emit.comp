@@ -11,6 +11,23 @@ layout(local_size_x = FS_MEAS_WG) in;
 layout(std430, set = 0, binding = FS_MEAS_B_RECORDS) writeonly buffer Records { FsSurfaceMeasurement rec[]; };
 layout(std430, set = 0, binding = FS_MEAS_B_SCORE) readonly buffer ScoreBlock { uint score[]; };
 layout(std430, set = 0, binding = FS_MEAS_B_SELECT) readonly buffer SelectBlock { uint sel[]; };
+layout(set = 0, binding = FS_MEAS_B_CAM_L) uniform sampler2D camL;
+layout(set = 0, binding = FS_MEAS_B_CAM_R) uniform sampler2D camR;
+// Appearance sample (contract §14, C16a; twin: SampleColor): the measured world point projected into the PCA camera of the
+// same eye (captured closest to the depth time, validity decided on the CPU); RGB8 | FS_MEAS_COLOR_VALID, else 0.
+uint fsSampleColor(uint eye, vec3 pWorld) {
+    if ((blk.camInfo.z & (1u << eye)) == 0u || blk.camInfo.x == 0u || blk.camInfo.y == 0u) return 0u;
+    vec3 pc = (blk.camFromWorld[eye] * vec4(pWorld, 1.0)).xyz;
+    if (pc.z <= 0.05) return 0u;
+    vec4 k = blk.camIntrinsics[eye];
+    float u = k.z + k.x * pc.x / pc.z, v = k.w + k.y * pc.y / pc.z;
+    if (u < 0.0 || v < 0.0 || u >= float(blk.camInfo.x) || v >= float(blk.camInfo.y)) return 0u;
+    ivec2 px = ivec2(int(u), int(v));
+    if (blk.camInfo.w != 0u) px.y = int(blk.camInfo.y) - 1 - px.y;
+    vec4 c = eye == 0u ? texelFetch(camL, px, 0) : texelFetch(camR, px, 0);
+    uvec3 c8 = uvec3(clamp(c.rgb, 0.0, 1.0) * 255.0 + 0.5);
+    return FS_MEAS_COLOR_VALID | c8.r | (c8.g << 8) | (c8.b << 16);
+}
 shared uint s_rank[FS_MEAS_WG];
 shared uint s_lowtex;
 void main() {
@@ -47,7 +64,7 @@ void main() {
             m.sigmaT = m.footprint;
             m.sourceFlags = FS_MEAS_SRC_DEPTH_PRIOR | (g.edge ? FS_MEAS_SRC_EDGE : 0u) | (g.isFlat ? FS_MEAS_SRC_LOW_TEXTURE : 0u) | (layer << FS_MEAS_SRC_EYE_SHIFT);
             m.observationId = pc.b.x;
-            m.reserved = 0u;
+            m.reserved = fsSampleColor(layer, (blk.worldFromEye[layer] * vec4(p, 1.0)).xyz);
             write = true;
         }
     }

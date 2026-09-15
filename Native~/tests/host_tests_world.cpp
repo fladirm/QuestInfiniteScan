@@ -275,6 +275,27 @@ static void TestFusionDeterminism() {
     for (size_t i = 1; i < recs.size(); ++i) { CHECK(recs[i - 1].key <= recs[i].key); if (recs[i - 1].key == recs[i].key) CHECK(recs[i - 1].meas < recs[i].meas); }
 }
 
+// C16a: measured colours fuse precision-weighted into the appearance; uncoloured measurements leave it untouched.
+static void TestAppearanceFusion() {
+    FsPageKey key{0, 0, 0, 0}; V3 origin = PageOrigin3(key);
+    FsSurfel s = MakeSurfel(SurfelSample{{0.31f, 0.52f, 0.73f}, {0, 0, 1}, 0.01f, 0.002f, 0.004f, 7}, key);
+    CHECK((s.appearanceHandle & FS_APPEARANCE_MEASURED) == 0u);                                     // preview from the normal
+    FsSurfelEvidence ev{}; ev.varianceQ = EncodeLog(1.f, (float)FS_VAR_NORM_BASE);
+    std::vector<FsSurfaceMeasurement> seq;
+    for (int i = 0; i < 8; ++i) { FsSurfaceMeasurement m = Meas(v3(0.31f, 0.52f, 0.7305f), v3(0, 0, 1), 0.002f, 0.004f, 0.006f, 1); m.reserved = i < 4 ? (FS_MEAS_COLOR_VALID | 0x0040C0u) : 0u; seq.push_back(m); }   // 4 coloured (R 192, G 64, B 0), 4 without
+    ReduceResult r = ReduceSegment(s, ev, seq, origin, 3);
+    Patch q = Unpack(r.surfel);
+    CHECK(q.appearance & FS_APPEARANCE_MEASURED); CHECK((q.appearance & 0xFFFFFFu) == 0x0040C0u);         // first colour: taken as is
+    ReduceResult r2 = ReduceSegment(r.surfel, r.evidence, std::vector<FsSurfaceMeasurement>{[&]{ FsSurfaceMeasurement m = seq[0]; m.reserved = FS_MEAS_COLOR_VALID | 0x000000u; return m; }()}, origin, 4);
+    Patch q2 = Unpack(r2.surfel);
+    CHECK((q2.appearance & 0xFFu) < 0xC0u && (q2.appearance & 0xFFu) > 0x80u);                          // one black sample against support 9: a small step toward black
+    ReduceResult r3 = ReduceSegment(r2.surfel, r2.evidence, std::vector<FsSurfaceMeasurement>{seq[4]}, origin, 5);
+    CHECK(Unpack(r3.surfel).appearance == q2.appearance);                                               // uncoloured contribution: appearance untouched
+    Cand c[FS_CELL_NEW_MAX]; bool over = false;
+    CHECK(ClusterSegment(seq, origin, c, over) == 1 && c[0].colW == 4.f); CHECK_NEAR(c[0].col.x / c[0].colW, 192.f / 255.f, 1e-6);
+    CHECK(ColorPack(ColorOf(0x123456u)) == 0x123456u);
+}
+
 static void TestConcurrentCandidates() {
     V3 origin = v3(0, 0, 0); Cand c[FS_CELL_NEW_MAX]; bool over = false;
     std::vector<FsSurfaceMeasurement> seg;
@@ -457,7 +478,7 @@ static void TestIndexGeneration() {
 
 int main() {
     TestPageHash(); TestEncodings(); TestSynthetic(); TestResidency(); TestHzbBand(); TestHzbDisagreement(); TestCullMath();
-    TestFusionDeterminism(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCrossPageFreeRay(); TestIndexGeneration();
+    TestFusionDeterminism(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCrossPageFreeRay(); TestIndexGeneration();
     std::printf("finalscan host world tests: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

@@ -380,6 +380,12 @@ static void TestPushLayout() {
     CHECK_EQ(offsetof(PushCompact, layers), 16u); CHECK_EQ(offsetof(PushCompact, budget), 20u); CHECK_EQ(offsetof(PushCompact, obsId), 32u);
     CHECK_EQ(sizeof(FrameBlock), (size_t)FS_MEAS_FB_BYTES); CHECK_EQ(offsetof(FrameBlock, anchorFromEye), 64u); CHECK_EQ(offsetof(FrameBlock, fov), 192u);
     CHECK_EQ(offsetof(FrameBlock, worldFromEye), 224u); CHECK_EQ(offsetof(FrameBlock, predViewProj), 352u); CHECK_EQ(offsetof(FrameBlock, predInvViewProj), 480u); CHECK_EQ(offsetof(FrameBlock, predInfo), 608u);
+    { float k[4]; DeliveredIntrinsics(871.8f, 871.8f, 642.3f, 644.0f, 1280, 1280, 1280, 960, k);                  // Quest 3S: 1280x960 delivered = centre crop of the 1280x1280 sensor frame
+      CHECK_NEAR(k[0], 871.8, 1e-3); CHECK_NEAR(k[1], 871.8, 1e-3); CHECK_NEAR(k[2], 642.3, 1e-3); CHECK_NEAR(k[3], 644.0 - 160.0, 1e-3);
+      DeliveredIntrinsics(871.8f, 871.8f, 642.3f, 644.0f, 1280, 1280, 640, 480, k);                              // half resolution: scaled + cropped
+      CHECK_NEAR(k[0], 435.9, 1e-3); CHECK_NEAR(k[2], 321.15, 1e-3); CHECK_NEAR(k[3], (644.0 - 160.0) * 0.5, 1e-3);
+      DeliveredIntrinsics(800.f, 800.f, 400.f, 300.f, 0, 0, 800, 600, k); CHECK_NEAR(k[2], 400.0, 1e-6); }         // unknown sensor: pass-through
+    CHECK_EQ(offsetof(FrameBlock, camFromWorld), 624u); CHECK_EQ(offsetof(FrameBlock, camIntrinsics), 752u); CHECK_EQ(offsetof(FrameBlock, camInfo), 784u);
     CHECK((size_t)FS_MEAS_SEL_WORDS * 4 < 65536); CHECK(FS_MEAS_DEFAULT_BUDGET <= FS_MEAS_DEFAULT_MAX_OUT);
     CHECK_EQ(sizeof(FsSurfaceMeasurement), 48u);
     CHECK_EQ((uint32_t)FS_MEAS_SRC_DEPTH_PRIOR, 1u << 2); CHECK_EQ((uint32_t)FS_MEAS_SRC_EDGE, 1u << 8); CHECK_EQ((uint32_t)FS_MEAS_SRC_LOW_TEXTURE, 1u << 9);

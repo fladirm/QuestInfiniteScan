@@ -38,7 +38,7 @@ void main() {
         FsSurfaceMeasurement m = meas[assocA[j].meas];
         vec3 pm = vec3(m.px, m.py, m.pz) - origin;
         vec3 nm = normalize(vec3(m.nx, m.ny, m.nz));
-        fsAccumAdd(acc, q, t1, t2, pm, nm, max(m.sigmaN, FS_SIGMA_N_FLOOR_M), max(m.sigmaT, FS_SIGMA_T_FLOOR_M), clamp(m.footprint, FS_RADIUS_MIN_M, FS_RADIUS_MAX_M));
+        fsAccumAdd(acc, q, t1, t2, pm, nm, max(m.sigmaN, FS_SIGMA_N_FLOOR_M), max(m.sigmaT, FS_SIGMA_T_FLOOR_M), clamp(m.footprint, FS_RADIUS_MIN_M, FS_RADIUS_MAX_M), m.reserved);
     }
     if (acc.n == 0u) return;
     if (overflow != 0u) atomicAdd(gctr[FS_GCTR_SEG_OVERFLOW], 1u);
@@ -76,6 +76,7 @@ void main() {
     if ((flags & FS_FLAG_TRANSIENT) != 0u && stat >= uint(FS_PROMOTE_STATIC)) flags = (flags & ~FS_FLAG_TRANSIENT) | FS_FLAG_PROMOTED;
     q.p = np; q.n = nn; q.angle = ang; q.rM = rM; q.rm = rm; q.sigmaN = newSigmaN; q.sigmaT = newSigmaT;
     q.flags = (flags & ~FS_EVIDENCE_COUNT_MASK) | cnt;
+    if (acc.colW > 0.0) q.appearance = fsBlendAppearance(q.appearance, acc.col / acc.colW, wPrior, acc.colW);
     surfels[h] = fsPack(q);
     fsSet_FsSurfelEvidence_staticEvidence(ev, stat);
     fsSet_FsSurfelEvidence_varianceQ(ev, fsEncodeLog(var, FS_VAR_NORM_BASE));

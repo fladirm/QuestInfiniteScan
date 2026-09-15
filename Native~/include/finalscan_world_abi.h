@@ -113,8 +113,10 @@ typedef struct FsSurfaceMeasurement {
     float    footprint;           // projected pixel footprint at this depth (m)
     uint32_t sourceFlags;         // 0 stereo, 1 temporal, 2 depthPrior, 3 planarFit, 8 edge, 9 lowTexture
     uint32_t observationId;
-    uint32_t reserved;
+    uint32_t reserved;            // appearance sample (C16a): FS_MEAS_COLOR_VALID | RGB8 (R low byte) or 0
 } FsSurfaceMeasurement;           // 48 B
+#define FS_MEAS_COLOR_VALID    0x80000000u   // FsSurfaceMeasurement.reserved carries a measured colour
+#define FS_APPEARANCE_MEASURED 0x80000000u   // FsSurfel.appearanceHandle: low 24 bits are a measured colour (else preview from the normal)
 
 // ---- Draw (contract §13) -----------------------------------------------------------------------
 // The native CULL pass writes compact draw records for the published FRONT of resident pages.

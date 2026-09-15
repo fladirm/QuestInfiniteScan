@@ -46,18 +46,19 @@ namespace {
 constexpr uint32_t kLogEveryFrames = 250;        // ~10 s at 25 Hz
 constexpr uint32_t kMaxThreads = FS_MEAS_DEPTH_W * FS_MEAS_DEPTH_H * FS_MEAS_DEPTH_LAYERS;   // score scratch (larger images are refused, logged)
 enum MeasKernel : uint32_t { K_SCORE = 0, K_SELECT, K_COUNT, K_PREFIX, K_EMIT, K_COUNT_ };
-struct KernelSpec { const char* name; const uint32_t* spirv; size_t words; uint32_t bindings[6]; uint32_t bindingCount; uint32_t samplers; };
+struct KernelSpec { const char* name; const uint32_t* spirv; size_t words; uint32_t bindings[8]; uint32_t bindingCount; uint32_t samplers; };
 #define FS_KS(sym) sym, sizeof(sym) / 4
 static const KernelSpec kKernels[K_COUNT_] = {     // sampler bindings come LAST in each list
     {"measure_score",  FS_KS(kMeasureScoreSpirv),  {FS_MEAS_B_COUNTERS, FS_MEAS_B_SCORE, FS_MEAS_B_SELECT, FS_MEAS_B_DEPTH, FS_MEAS_B_PRED}, 5, 2},
     {"measure_select", FS_KS(kMeasureSelectSpirv), {FS_MEAS_B_COUNTERS, FS_MEAS_B_SELECT}, 2, 0},
     {"measure_count",  FS_KS(kMeasureCountSpirv),  {FS_MEAS_B_COUNTERS, FS_MEAS_B_SCORE, FS_MEAS_B_SELECT}, 3, 0},
     {"measure_prefix", FS_KS(kMeasurePrefixSpirv), {FS_MEAS_B_COUNTERS, FS_MEAS_B_SELECT}, 2, 0},
-    {"measure_emit",   FS_KS(kMeasureEmitSpirv),   {FS_MEAS_B_RECORDS, FS_MEAS_B_COUNTERS, FS_MEAS_B_SCORE, FS_MEAS_B_SELECT, FS_MEAS_B_DEPTH}, 5, 1},
+    {"measure_emit",   FS_KS(kMeasureEmitSpirv),   {FS_MEAS_B_RECORDS, FS_MEAS_B_COUNTERS, FS_MEAS_B_SCORE, FS_MEAS_B_SELECT, FS_MEAS_B_DEPTH, FS_MEAS_B_CAM_L, FS_MEAS_B_CAM_R}, 7, 3},
 };
 #undef FS_KS
 constexpr int32_t  kAnchorId = 0;                // one anchor until the AnchorGraph cut (C19) assigns observations to anchors
 
+struct CameraInput { void* texture = nullptr; uint32_t width = 0, height = 0; float worldFromCamera[16]; float k[4]; int32_t rowFlip = 0; int64_t xrTimeNs = 0; uint64_t seq = 0; };
 struct EnvDepthInput {
     void* texture = nullptr; uint32_t width = 0, height = 0;
     float poseL[16], poseR[16], fovL[4], fovR[4];
@@ -138,7 +139,7 @@ public:
         if (pipeReady_) return true;
         for (uint32_t k = 0; k < K_COUNT_; ++k) {
             const KernelSpec& ks = kKernels[k];
-            VkDescriptorSetLayoutBinding b[6] = {};
+            VkDescriptorSetLayoutBinding b[8] = {};
             for (uint32_t i = 0; i < ks.bindingCount; ++i) {
                 b[i].binding = ks.bindings[i]; b[i].descriptorCount = 1; b[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
                 b[i].descriptorType = i >= ks.bindingCount - ks.samplers ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -159,6 +160,16 @@ public:
         memcpy(input_.poseL, poseL, 64); memcpy(input_.poseR, poseR, 64); memcpy(input_.fovL, fovL, 16); memcpy(input_.fovR, fovR, 16);
         input_.nearZ = nearZ > 0.f ? nearZ : 0.1f; input_.farZ = farZ; input_.xrTimeNs = xrTimeNs;
         input_.seq++; framesSeen_++;
+        return FS_OK;
+    }
+    int32_t SetCameraFrame(int32_t eye, void* tex, uint32_t w, uint32_t h, uint32_t sw, uint32_t sh, const float wfc[16], float fx, float fy, float cx, float cy, int32_t rowFlip, int64_t xrTimeNs) {
+        if (eye < 0 || eye > 1) return FS_ERR_INVALID;
+        std::lock_guard<std::mutex> g(m_);
+        CameraInput& c = cam_[eye];
+        if (!tex) { c.texture = nullptr; c.seq++; return FS_OK; }
+        if (!wfc || w == 0 || h == 0 || fx <= 0.f || fy <= 0.f) return FS_ERR_INVALID;
+        c.texture = tex; c.width = w; c.height = h; memcpy(c.worldFromCamera, wfc, 64); DeliveredIntrinsics(fx, fy, cx, cy, sw, sh, w, h, c.k); c.rowFlip = rowFlip ? 1 : 0; c.xrTimeNs = xrTimeNs; c.seq++;
+        camFrames_++;
         return FS_OK;
     }
     int32_t SetParams(uint32_t budget, uint32_t maxOut, uint32_t flags) {
@@ -201,6 +212,16 @@ public:
             }
         }
         if (!predValid_ && predView_ != view) { if (BindImage(pipes_[K_SCORE], FS_MEAS_B_PRED, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ExecSampler(false))) predView_ = view; }
+        // PCA frames (C16a): import both eyes every frame (Unity re-transitions the copies); a missing frame binds the depth view.
+        for (uint32_t e = 0; e < 2; ++e) {
+            CameraInput& c = cam_[e]; camImported_[e] = false;
+            VkImageView cv = view;
+            if (c.texture) {
+                VkImage ci; VkImageView cvv; VkFormat cf; uint32_t cw, ch, cl;
+                if (ImportUnityTexture(c.texture, ci, cvv, cf, cw, ch, cl)) { cv = cvv; camImported_[e] = true; camImportedW_[e] = cw; camImportedH_[e] = ch; }
+            }
+            if (cv != camView_[e]) { if (!BindImage(pipes_[K_EMIT], e == 0 ? FS_MEAS_B_CAM_L : FS_MEAS_B_CAM_R, cv, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ExecSampler(false))) { importFailures_++; return; } camView_[e] = cv; }
+        }
         importedW_ = w; importedH_ = h; importedLayers_ = layers; imported_ = input_.seq; importedFrame_ = frame;
         pendingSubmit_ = true;
     }
@@ -242,6 +263,16 @@ public:
             memcpy(blk.predInvViewProj[eye], pred_.invViewProj[eye], 64);
         }
         blk.predInfo[0] = pred_.width; blk.predInfo[1] = pred_.height; blk.predInfo[2] = pred_.layers; blk.predInfo[3] = predValid_ && pred_.width && pred_.height ? 1u : 0u;
+        // cameras (C16a): a frame is usable for this depth frame when its capture time is within FS_MEAS_CAM_MAX_AGE_NS
+        uint32_t camMask = 0; blk.camInfo[0] = blk.camInfo[1] = 0;
+        for (uint32_t e = 0; e < 2; ++e) {
+            CameraInput& c = cam_[e];
+            Mat4 wfc; memcpy(wfc.m, c.worldFromCamera, 64); Mat4 cfw; if (!Invert(wfc, cfw)) cfw = Identity();
+            memcpy(blk.camFromWorld[e], cfw.m, 64); memcpy(blk.camIntrinsics[e], c.k, 16);
+            const int64_t age = c.xrTimeNs > input_.xrTimeNs ? c.xrTimeNs - input_.xrTimeNs : input_.xrTimeNs - c.xrTimeNs;
+            if (camImported_[e] && c.texture && age <= FS_MEAS_CAM_MAX_AGE_NS && camImportedW_[e] == c.width && camImportedH_[e] == c.height) { camMask |= 1u << e; blk.camInfo[0] = c.width; blk.camInfo[1] = c.height; }
+        }
+        blk.camInfo[2] = camMask; blk.camInfo[3] = (uint32_t)cam_[(camMask & 1u) ? 0 : 1].rowFlip; if (camMask) camFramesUsed_++;
         memset(select_.mapped, 0, FS_MEAS_SCORE_BINS * 4);            // histogram reset (host-coherent, before submit)
         if (!scratchBound_) BindScratch();
         if (!scratchBound_) return;
@@ -293,9 +324,9 @@ public:
             if (slot.frame.count) { slot.state = SLOT_READY; obs = slot.frame.observationId; request = true; }
             else slot.state = SLOT_FREE;
             if (seq <= 3 || (seq % kLogEveryFrames) == 0) {
-                Log("FS-MEAS depth #%llu: %u records (valid %u, rejected %u, threshold %u frac %.2f, predicted %u consistent %u (alt convention %u) new %u, edge %u, lowTex %u, invalid %u, overflow %u, groups %u, pred %ux%ux%u valid=%u) gpu %lld us", (unsigned long long)seq,
+                Log("FS-MEAS depth #%llu: %u records (valid %u, rejected %u, threshold %u frac %.2f, predicted %u consistent %u (alt convention %u) new %u, edge %u, lowTex %u, invalid %u, overflow %u, groups %u, pred %ux%ux%u valid=%u, cam %ux%u mask=%u used=%llu/%llu) gpu %lld us", (unsigned long long)seq,
                     slot.frame.count, ctr[FS_MEAS_CTR_VALID], ctr[FS_MEAS_CTR_REJECTED], ctr[FS_MEAS_CTR_THRESHOLD], ctr[FS_MEAS_CTR_FRACTION] / 65536.0, ctr[FS_MEAS_CTR_PREDICTED], ctr[FS_MEAS_CTR_CONSISTENT], ctr[FS_MEAS_CTR_CONSISTENT_ALT], ctr[FS_MEAS_CTR_NEW],
-                    ctr[FS_MEAS_CTR_EDGE], ctr[FS_MEAS_CTR_LOWTEX], ctr[FS_MEAS_CTR_INVALID], slot.frame.overflow, ctr[FS_MEAS_CTR_GROUPS], slot.blk->predInfo[0], slot.blk->predInfo[1], slot.blk->predInfo[2], slot.blk->predInfo[3], (long long)lastGpuUs_);
+                    ctr[FS_MEAS_CTR_EDGE], ctr[FS_MEAS_CTR_LOWTEX], ctr[FS_MEAS_CTR_INVALID], slot.frame.overflow, ctr[FS_MEAS_CTR_GROUPS], slot.blk->predInfo[0], slot.blk->predInfo[1], slot.blk->predInfo[2], slot.blk->predInfo[3], slot.blk->camInfo[0], slot.blk->camInfo[1], slot.blk->camInfo[2], (unsigned long long)camFramesUsed_, (unsigned long long)camFrames_, (long long)lastGpuUs_);
                 // Receipt (§20): where the records are. Host-visible ring, read after the fence retired.
                 const FsSurfaceMeasurement* rec = (const FsSurfaceMeasurement*)slot.ring.records.mapped;
                 const uint32_t n = slot.frame.count, step = n > 512 ? n / 512 : 1;
@@ -349,6 +380,7 @@ private:
     uint64_t imported_ = 0, submitted_ = 0; uint32_t importedFrame_ = 0, importedW_ = 0, importedH_ = 0, importedLayers_ = 0; bool pendingSubmit_ = false;
     VkImageView view_ = VK_NULL_HANDLE; VkFormat fmt_ = VK_FORMAT_UNDEFINED;
     VkImageView predView_ = VK_NULL_HANDLE; fs::render::PredictionInfo pred_; bool predValid_ = false; uint64_t predBinds_ = 0;
+    CameraInput cam_[2]; VkImageView camView_[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE}; bool camImported_[2] = {false, false}; uint32_t camImportedW_[2] = {0, 0}, camImportedH_[2] = {0, 0}; uint64_t camFrames_ = 0, camFramesUsed_ = 0;
     Pipeline pipes_[K_COUNT_]; Buffer score_, select_; bool scratchBound_ = false;
     RingSlot slots_[FS_MEAS_GPU_RING_SLOTS];
     bool jobInFlight_ = false; uint64_t handoffSeq_ = 0, binds_ = 0, observationSeq_ = 0;
@@ -380,4 +412,6 @@ FS_API int32_t FsMeas_SetEnvDepth(void* unityDepthTextureArray, uint32_t width, 
     EnsureInit(); return M().SetEnvDepth(unityDepthTextureArray, width, height, poseL, poseR, fovL, fovR, nearZ, farZ, xrTimeNs);
 }
 FS_API int32_t FsMeas_SetParams(uint32_t budget, uint32_t maxOut, uint32_t flags) { EnsureInit(); return M().SetParams(budget, maxOut, flags); }
+FS_API int32_t FsMeas_SetCameraFrame(int32_t eye, void* unityTexture, uint32_t width, uint32_t height, uint32_t sensorWidth, uint32_t sensorHeight, const float worldFromCamera[16], float fx, float fy, float cx, float cy, int32_t rowFlip, int64_t xrTimeNs) {
+    EnsureInit(); return M().SetCameraFrame(eye, unityTexture, width, height, sensorWidth, sensorHeight, worldFromCamera, fx, fy, cx, cy, rowFlip, xrTimeNs); }
 FS_API int32_t FsMeas_GetStats(int64_t out[8]) { EnsureInit(); if (!out) return FS_ERR_INVALID; M().Stats(out); return FS_OK; }

@@ -96,6 +96,9 @@ struct FrameBlock {
     float    predViewProj[2][16];        // canonical prediction: world -> clip of the previous rendered eye views
     float    predInvViewProj[2][16];     // clip (ndc xy, depth01) -> world
     uint32_t predInfo[4];                // width, height, layers, valid (0 = no prediction this frame: every valid texel is NEW)
+    float    camFromWorld[2][16];        // PCA camera pose inverse per eye (Unity camera space: +X right, +Y up, +Z forward)
+    float    camIntrinsics[2][4];        // fx, fy, cx, cy (pixels, origin bottom-left as MRUK reports)
+    uint32_t camInfo[4];                 // width, height, validMask (bit e = eye e usable this frame), rowFlip (1 = row 0 top)
 };
 static_assert(sizeof(FrameBlock) == FS_MEAS_FB_BYTES, "frame block layout");
 
@@ -271,6 +274,32 @@ inline uint32_t ScoreTexel(const PushCompact& pc, const FrameBlock& blk, uint32_
     consistent = predicted && r <= 1.f;
     return ScoreOf(predicted, r, g.flat, g.steep, (pc.flags & FS_MEAS_FLAG_DETAIL) != 0u);
 }
+// MRUK intrinsics refer to the sensor resolution; the delivered image is the centre crop that keeps the aspect
+// (donor MerkabaProjectCameraUvCore): scale = delivered / sensor normalised by its max, crop = sensor (1 - scale) / 2.
+// Returns intrinsics expressed in delivered pixels so the kernel projects with u = cx' + fx' x/z directly.
+inline void DeliveredIntrinsics(float fx, float fy, float cx, float cy, uint32_t sensorW, uint32_t sensorH, uint32_t w, uint32_t h, float out[4]) {
+    if (sensorW == 0 || sensorH == 0 || w == 0 || h == 0) { out[0] = fx; out[1] = fy; out[2] = cx; out[3] = cy; return; }
+    float sx = (float)w / (float)sensorW, sy = (float)h / (float)sensorH, m = sx > sy ? sx : sy; sx /= m; sy /= m;
+    const float cropMinX = (float)sensorW * (1.f - sx) * 0.5f, cropMinY = (float)sensorH * (1.f - sy) * 0.5f;
+    const float cropW = (float)sensorW * sx, cropH = (float)sensorH * sy;
+    out[0] = fx * (float)w / cropW; out[1] = fy * (float)h / cropH;
+    out[2] = (cx - cropMinX) * (float)w / cropW; out[3] = (cy - cropMinY) * (float)h / cropH;
+}
+// Appearance sample (twin of the emit kernel): the world point projected into the PCA camera of `eye`; `cam(eye, px, py)`
+// returns the RGB8 texel (physical row order). Returns FS_MEAS_COLOR_VALID | rgb or 0.
+template <class CamFn>
+inline uint32_t SampleColor(const FrameBlock& blk, uint32_t eye, Vec3 pWorld, CamFn cam) {
+    if ((blk.camInfo[2] & (1u << eye)) == 0u || blk.camInfo[0] == 0u || blk.camInfo[1] == 0u) return 0u;
+    Mat4 C; memcpy(C.m, blk.camFromWorld[eye], 64);
+    const Vec3 pc = MulPoint(C, pWorld);
+    if (pc.z <= 0.05f) return 0u;
+    const float* k = blk.camIntrinsics[eye];
+    const float u = k[2] + k[0] * pc.x / pc.z, v = k[3] + k[1] * pc.y / pc.z;   // v up (bottom-left origin)
+    if (u < 0.f || v < 0.f || u >= (float)blk.camInfo[0] || v >= (float)blk.camInfo[1]) return 0u;
+    uint32_t px = (uint32_t)u, py = (uint32_t)v;
+    if (blk.camInfo[3]) py = blk.camInfo[1] - 1u - py;
+    return FS_MEAS_COLOR_VALID | (cam(eye, px, py) & 0x00FFFFFFu);
+}
 // Emit kernel body: the full back-projection of a selected texel.
 template <class DepthFn>
 inline TexelResult BackprojectTexel(const PushCompact& pc, const FrameBlock& blk, uint32_t layer, uint32_t x, uint32_t y, DepthFn depth, FsSurfaceMeasurement& out, bool& edge) {
@@ -295,15 +324,16 @@ inline TexelResult BackprojectTexel(const PushCompact& pc, const FrameBlock& blk
     out.sigmaT = out.footprint;
     out.sourceFlags = FS_MEAS_SRC_DEPTH_PRIOR | (edge ? FS_MEAS_SRC_EDGE : 0u) | (g.flat ? FS_MEAS_SRC_LOW_TEXTURE : 0u) | (layer << FS_MEAS_SRC_EYE_SHIFT);
     out.observationId = pc.obsId;
-    out.reserved = 0u;
+    out.reserved = 0u;                                    // colour: the dispatch reference fills it through SampleColor
     return TEXEL_WRITTEN;
 }
 
 // ---- whole-job reference (score -> select -> count -> prefix -> emit): deterministic record order -------------------
 // `depth(layer, x, y)` = raw Environment Depth texel; `pred(layer, px, py)` = raw rendered depth. Counters accumulate
 // into blk.ctr exactly like the kernels; `hist` is the select scratch. Records land at wgBase[g] + lane rank.
-template <class DepthFn, class PredFn>
-inline uint32_t CompactDispatchReference(const PushCompact& pc, FrameBlock& blk, DepthFn depth, PredFn pred, FsSurfaceMeasurement* records, uint32_t* scoresOut = nullptr) {
+inline uint32_t NoCamera(uint32_t, uint32_t, uint32_t) { return 0u; }
+template <class DepthFn, class PredFn, class CamFn = uint32_t (*)(uint32_t, uint32_t, uint32_t)>
+inline uint32_t CompactDispatchReference(const PushCompact& pc, FrameBlock& blk, DepthFn depth, PredFn pred, FsSurfaceMeasurement* records, uint32_t* scoresOut = nullptr, CamFn cam = NoCamera) {
     uint32_t* ctr = blk.ctr;
     const uint32_t threads = pc.width * pc.height * pc.layers;
     const uint32_t groups = (threads + FS_MEAS_WG - 1u) / FS_MEAS_WG;
@@ -339,6 +369,8 @@ inline uint32_t CompactDispatchReference(const PushCompact& pc, FrameBlock& blk,
             uint32_t layer, x, y; ThreadToTexel(t, pc.layers, pc.width, pc.height, pc.frame, layer, x, y);
             FsSurfaceMeasurement m; bool edge = false;
             if (BackprojectTexel(pc, blk, layer, x, y, [&](uint32_t xx, uint32_t yy) { return depth(layer, xx, yy); }, m, edge) != TEXEL_WRITTEN) continue;
+            { float tx, ty; RayTangents(x, y, pc.width, pc.height, blk.fov[layer & 1u], pc.flags, tx, ty); TexelGeometry gg; ClassifyTexel(pc, x, y, [&](uint32_t xx, uint32_t yy) { return depth(layer, xx, yy); }, gg);
+              Mat4 Wm; memcpy(Wm.m, blk.worldFromEye[layer & 1u], 64); m.reserved = SampleColor(blk, layer & 1u, MulPoint(Wm, EyePoint(tx, ty, gg.z)), cam); }
             const uint32_t idx = wgBase[g] + rank++;
             if (idx < pc.maxOut) { records[idx] = m; if (m.sourceFlags & FS_MEAS_SRC_LOW_TEXTURE) ctr[FS_MEAS_CTR_LOWTEX]++; }
         }
