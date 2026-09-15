@@ -76,6 +76,27 @@ def main():
         cut = rn.get("cut", {}); st = rn.get("stages", {})
         if cut: row("cut: frontier nodes / blocks / aggregates / uncertain / overflow", f"{cut.get('frontierNodes')} / {cut.get('blocks')} / {cut.get('aggregates')} / {cut.get('hzbUncertain')} / {cut.get('frontierOverflow')}", True, "informational")
         if st: row("render stage max us (pages/expand/blocks/compact/scatter/combine/mips)", " / ".join(str(st.get(k, {}).get("maxUs")) for k in ("cull.pages", "cull.expand", "cull.blocks", "cull.compact", "hzb.scatter", "hzb.combine", "hzb.mips")), True)
+        # C09R-E4.1C / E4.2R / E5 / C10 / C11 receipts (informational rows)
+        row("sheet edges / nodes / crossPage / contractions / refineBirths", f"{fu.get('sheetEdges')} / {fu.get('sheetNodes')} / {fu.get('crossPageEdges')} / {fu.get('edgeContractions')} / {fu.get('refinementBirths')}", True, "E4.1C")
+        row("coverage overlap / hole mm2 (sums)", f"{fu.get('coverageOverlapMm2')} / {fu.get('coverageHoleMm2')}", True, "E4.2R cells")
+        row("publish chunks / leavesChunk / sheet jobs / sheetBatch", f"{w.get('publishChunks')} / {w.get('leavesChunk')} / {w.get('sheetJobs')} / {w.get('sheetBatch')}", True, "E5")
+        row("last us: fuse / maint / leaves / levels / sheet", f"{w.get('fuseGpuUsLast')} / {w.get('publishMaintUsLast')} / {w.get('publishLeavesUsLast')} / {w.get('publishLevelsUsLast')} / {w.get('sheetGpuUsLast')}", True, "E5")
+        row("frames abandoned / measurements abandoned", f"{w.get('framesAbandoned')} / {w.get('measurementsAbandoned')}", True, "E5")
+        row("render recuts / reused cuts", f"{rn.get('recuts')} / {rn.get('reusedCuts')}", True, "E5")
+        so = last.get("stereo") if isinstance(last.get("stereo"), dict) else {}
+        if so:
+            bn, br = so.get("binN", [0]*4), so.get("binResidual0p1mm", [0]*4)
+            res = " ".join(f"{(br[i]*0.1/bn[i]) if bn[i] else 0:.1f}mm(n{bn[i]})" for i in range(4))
+            v = so.get("valid") or 0
+            row("stereo tested / valid / lowTex / ambiguous / bandEdge / noCover", f"{so.get('tested')} / {v} / {so.get('lowTex')} / {so.get('ambiguous')} / {so.get('bandEdge')} / {so.get('noCover')}", True, "C10")
+            row("stereo |z_s - z_env| by bin <0.75/<1.5/<2.5/>=2.5 m", res, True, "C10")
+            row("stereo sigma mean vs env sigma mean (mm)", f"{(so.get('sigmaUm',0)/1000/v) if v else 0:.2f} vs {(so.get('envSigmaUm',0)/1000/v) if v else 0:.2f}", True, "C10")
+        mv = last.get("multiview") if isinstance(last.get("multiview"), dict) else {}
+        if mv:
+            tv, pv = mv.get("temporalValid") or 0, mv.get("planarValid") or 0
+            row("temporal tested / valid / lowTex / ambiguous / bandEdge / noCover / disagree", f"{mv.get('temporalTested')} / {tv} / {mv.get('temporalLowTex')} / {mv.get('temporalAmbiguous')} / {mv.get('temporalBandEdge')} / {mv.get('temporalNoCover')} / {mv.get('temporalDisagree')}", True, "C11")
+            row("temporal sigma mean mm / keyframes set / frames with keyframe", f"{(mv.get('temporalSigmaUm',0)/1000/tv) if tv else 0:.2f} / {mv.get('keyframesSet')} / {mv.get('framesWithKeyframe')}", True, "C11")
+            row("planar tested / valid / rejected / sigma mm / rms mm", f"{mv.get('planarTested')} / {pv} / {mv.get('planarRejected')} / {(mv.get('planarSigmaUm',0)/1000/pv) if pv else 0:.2f} / {(mv.get('planarRmsUm',0)/1000/pv) if pv else 0:.2f}", True, "C11")
         # sort share (review gap 3): native stage ring of the last records
         sort_us, fuse_us = 0.0, 0.0
         for r in tele[-5:]:

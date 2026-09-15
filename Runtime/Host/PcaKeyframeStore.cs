@@ -1,6 +1,7 @@
 using System;
 using FinalScan.Platform.Native;
 using FinalScan.Platform.Sensor;
+using FinalScan.Render;
 using UnityEngine;
 
 namespace FinalScan.Host
