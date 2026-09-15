@@ -91,8 +91,10 @@
 #define FS_FACE_PENDING         0u       // face states (meta bits 0..1)
 #define FS_FACE_ACTIVE          1u
 #define FS_FACE_SUSPECT         2u
-#define FS_FACE_MISS_SUSPECT    2        // a persistent face tolerates isolated local triangulation misses
-#define FS_FACE_MISS_RETIRE     12       // destruction is deliberately slower than construction
+// word5 of a persistent face is {last distinct evidence observation tag:24 | miss count:8}.
+// A topology pass by itself NEVER advances the count.
+#define FS_FACE_MISS_SUSPECT    2        // distinct evidence observations missing the face before SUSPECT
+#define FS_FACE_MISS_RETIRE     12       // distinct evidence observations missing the face before retirement
 #define FS_TOPO_FLAG_INTERIOR   1u       // vertex flags: fan closed
 #define FS_TOPO_FLAG_BOUNDARY   2u
 #define FS_TRI_OFFSET_RANGE_M   0.128    // render copy: triangle vertex offsets from the owner vertex, 10 bits signed per axis
@@ -134,9 +136,11 @@
 #define FS_REFINE_MIN_OUTLIERS  3       // ... in one observation, at least this many
 #define FS_REFINE_MIN_SUPPORT   4       // ... on a surfel with this much support: insert a site at the worst residual
 #define FS_REFINE_BIRTHS_MAX    256     // site insertions per epoch (bounded sequential pass)
-#define FS_SHEET_NODE_WORDS   12        // nbr[8], degree, topology record, contraction generation, last observation regularised
-#define FS_SHEET_REG_OBS_WORD 11        // topology-only requeues must not move/coarsen canonical geometry again
-#define FS_RELOC_MAX          1024      // C09R-E4 relocation records per epoch (centre crossed its index cell); beyond: the position update waits (counted)
+#define FS_SHEET_NODE_WORDS       13    // nbr[8], degree, topology record, contraction generation, last regularisation obs, topology flags
+#define FS_SHEET_REG_OBS_WORD     11    // topology-only requeues must not move/coarsen canonical geometry again
+#define FS_SHEET_TOPO_FLAGS_WORD  12
+#define FS_SHEET_TOPO_REVISIT     1u    // topology waits for NEW sensor evidence; fusion re-marks it once the vertex is observed again
+#define FS_RELOC_MAX              1024  // C09R-E4 relocation records per epoch (centre crossed its index cell); beyond: the position update waits (counted)
 #define FS_VAR_NORM_BASE      0.001     // log base of the normalised residual variance (varianceQ): 0.001 .. ~6e4 (E3b; run 00:12: 111 k splits against the fused sigma)
 #define FS_MERGE_MIN_DOT      0.98      // coplanar within ~11 deg ...
 #define FS_MERGE_OVERLAP_K    0.75      // ... centres closer than k * (rA + rB), plane distance inside the gate

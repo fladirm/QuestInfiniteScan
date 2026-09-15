@@ -172,7 +172,9 @@ public:
         for (uint32_t p = 0; p < 6; ++p) { rings_[p].Init(caps[p], pools + p * FS_POOL_HEADER_WORDS, pools + ringBase, ringBase); ringBase += caps[p]; }
         cpuRec_ = (FsSurfaceMeasurement*)cpuRecords_.mapped; cpuCtr_ = (uint32_t*)cpuCounters_.mapped; memset(cpuCtr_, 0, 64);
         fuseInFlight_ = publishInFlight_ = releaseInFlight_ = sheetInFlight_ = 0; pubStage_ = PUB_IDLE; publishWanted_ = false; cpuSlotReady_ = false; cpuSlotBusy_ = false; liveLease_ = 0;
-        idBase_ = kSurfaceIdBase; tick_ = 0; toPublish_.clear(); publishSeq_ = 0; lastFuseServiceNs_ = NowNs();
+        idBase_ = kSurfaceIdBase; tick_ = 0; toPublish_.clear(); publishSeq_ = 0;
+        const int64_t serviceNow = NowNs();
+        for (uint32_t k = 0; k < ST_COUNT; ++k) lastServiceNs_[k] = serviceNow;
         Log("FS-WORLD pools: %.1f MiB total (surfels %.1f, evidence %.1f, index %.1f, render nodes %.1f, render blocks %.1f, rdir %.1f)",
             bytesTotal_ / 1048576.0, buf_.surfels.size / 1048576.0, buf_.evidence.size / 1048576.0, buf_.index.size / 1048576.0, buf_.render.size / 1048576.0, buf_.rblocks.size / 1048576.0, buf_.rdir.size / 1048576.0);
         return true;
@@ -423,7 +425,6 @@ public:
             if (ok) {
                 stats_.fuseUs = e > s ? (int64_t)((e - s) / 1000) : 0;
                 const uint32_t items = AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_COUNT);
-                lastFuseServiceNs_ = NowNs();
                 AfterJob(false);
                 fuseCost_.Add(items, stats_.fuseUs); Charge(ST_FUSE, stats_.fuseUs);
                 epochMeasCap_ = fuseCost_.Batch(ClassQuantumUs(FS_JOB_SCAN), FS_EPOCH_MEAS_MIN, FS_TICK_MEAS_MAX, 4096u);
@@ -561,32 +562,39 @@ public:
         { uint32_t* T = gctr_ + FS_GCTR_COUNT; T[FS_T_TOPO_GEN] = ++topoGen_; T[FS_T_TARGET_COUNT] = 0; T[FS_T_TOPO_FREE_COUNT] = 0; std::atomic_thread_fence(std::memory_order_release); }
         JobDesc jd; jd.cls = FS_JOB_SCAN; jd.name = "world.sheet"; jd.dispatches = js->d.data(); jd.dispatchCount = (uint32_t)js->d.size();
         jd.onRetired = [this, js](bool ok, uint64_t s, uint64_t e) {
-            std::lock_guard<std::recursive_mutex> g(m_);
-            sheetInFlight_--;
-            if (!ok) return;
-            stats_.sheetUs = e > s ? (int64_t)((e - s) / 1000) : 0;
-            const uint32_t items = AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_SHEET_COUNT);
-            sheetCost_.Add(items, stats_.sheetUs); Charge(ST_SHEET, stats_.sheetUs);
-            FoldGpuCounters();
-            const int64_t now = NowNs();
-            for (uint32_t t : sheetAgeTicks_) { const float a = WorkAgeMs(t, now); sheetAge_.Add(a); if (a > (float)FS_SCHED_SHEET_DEADLINE_MS) deadlineMiss_[ST_SHEET]++; }
-            sheetAgeTicks_.clear();
-            sheetJobs_++; lastSheetBatch_ = items;
-            CollectTopology();
+            std::vector<meas::RefineTarget> targets;
+            {
+                std::lock_guard<std::recursive_mutex> g(m_);
+                sheetInFlight_--;
+                if (!ok) return;
+                stats_.sheetUs = e > s ? (int64_t)((e - s) / 1000) : 0;
+                const uint32_t items = AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_SHEET_COUNT);
+                sheetCost_.Add(items, stats_.sheetUs); Charge(ST_SHEET, stats_.sheetUs);
+                FoldGpuCounters();
+                const int64_t now = NowNs();
+                for (uint32_t t : sheetAgeTicks_) { const float a = WorkAgeMs(t, now); sheetAge_.Add(a); if (a > (float)FS_SCHED_SHEET_DEADLINE_MS) deadlineMiss_[ST_SHEET]++; }
+                sheetAgeTicks_.clear();
+                sheetJobs_++; lastSheetBatch_ = items;
+                targets = CollectTopology();
+            }
+            // Cross-module handoff OUTSIDE World::m_. The measurement mailbox has its own lock.
+            if (!targets.empty()) meas::MeasGpu_SetRefineTargets(targets.data(), (uint32_t)targets.size());
         };
         if (!SubmitWorldJob(jd)) return false;
         sheetInFlight_++;
         return true;
     }
-    // E6R: released topology / sheet ids back to their rings (canonical side, scanner-only) and the C11R2 targets to the measurement front-end
-    void CollectTopology() {
+    // E6R: released topology / sheet ids back to their rings (canonical side, scanner-only).
+    // Returns the C11R2 target snapshot; the caller publishes it to Measure only AFTER releasing World::m_.
+    std::vector<meas::RefineTarget> CollectTopology() {
+        std::vector<meas::RefineTarget> targets;
         const uint32_t* tp = (uint32_t*)buf_.topo.mapped;
         const uint32_t nFree = std::min<uint32_t>(AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_TOPO_FREE_COUNT), FS_TOPO_FREE_MAX);
         const uint64_t fb = TopoFreeBase();
         for (uint32_t k = 0; k < nFree; ++k) { const uint32_t v = tp[fb + k]; rings_[(v >> 30) == 0 ? 4 : 5].Free(v & 0x3FFFFFFFu); }
         const uint32_t nT = std::min<uint32_t>(AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_TARGET_COUNT), FS_TEMPORAL_TARGETS);
         if (nT) {
-            std::vector<meas::RefineTarget> targets(nT);
+            targets.resize(nT);
             const uint64_t tb = fb + FS_TOPO_FREE_MAX;
             float worldFromAnchor[16]; memcpy(worldFromAnchor, anchors_[std::max(0, std::min(scanAnchor_, (int32_t)FS_MAX_ANCHORS - 1))], 64);
             for (uint32_t k = 0; k < nT; ++k) {
@@ -599,8 +607,8 @@ public:
                 for (int c = 0; c < 3; ++c) { t.pos[c] = worldFromAnchor[c] * p[0] + worldFromAnchor[4 + c] * p[1] + worldFromAnchor[8 + c] * p[2] + worldFromAnchor[12 + c]; t.normal[c] = worldFromAnchor[c] * n[0] + worldFromAnchor[4 + c] * n[1] + worldFromAnchor[8 + c] * n[2]; }
                 memcpy(&t.sigmaN, w + 4, 4); t.surfaceId = w[5]; t.support = w[6];
             }
-            meas::MeasGpu_SetRefineTargets(targets.data(), nT);
         }
+        return targets;
     }
     uint32_t SheetEntryTick(uint32_t t) const {
         const uint64_t base = (uint64_t)AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_SHEET_RING_BASE) + FS_SHEET_RING_CAP + (uint64_t)FS_SHEET_BATCH_MAX * 8 + (uint64_t)FS_TICK_MEAS_MAX * 8;
@@ -625,12 +633,14 @@ public:
         return (float)((now - workTimeNs_[k]) / 1e6);
     }
     uint32_t ClassQuantumUs(FsJobClass cls) { int64_t st[8]; return ExecClassStats(cls, st) && st[7] > 0 ? (uint32_t)st[7] : 2000u; }
-    // deficit round robin over GPU time: every charged job credits all stages by their share and debits the stage that ran
+    // Deficit accounting plus an independent service clock. Backlog age can remain huge while a bounded class makes progress;
+    // the service clock is what proves that no runnable class can starve.
     void Charge(SchedStage st, int64_t us) {
         static constexpr double kShare[ST_COUNT] = {FS_SCHED_SHARE_FUSE, FS_SCHED_SHARE_PUBLISH, FS_SCHED_SHARE_SHEET};
         for (uint32_t k = 0; k < ST_COUNT; ++k) deficit_[k] = std::min(deficit_[k] + kShare[k] * (double)us, (double)FS_SCHED_DEFICIT_CAP_US);
         deficit_[st] -= (double)us;
         schedJobs_[st]++;
+        lastServiceNs_[st] = NowNs();
     }
     bool SubmitRelease(const std::vector<uint32_t>& slots) {
         auto js = std::make_shared<JobStorage>();
@@ -841,22 +851,25 @@ public:
         // Once an observation is leased, finish its bounded slices. Aborting mid-observation made almost every depth frame
         // contribute one fragment, then disappear before it could provide coherent evidence/refinement.
         const bool fuseRunnable = slice_.count != 0 || (liveBound_ && meas::MeasGpu_ReadyFrames() > 0) || cpuSlotReady_;
-        // Newest READY age alone is not a starvation clock: a 25 Hz producer can keep it permanently small. Also age the
-        // FUSE service itself; if no fuse slice has completed for one deadline, FUSE becomes overdue regardless of new arrivals.
+        // Pending age answers "how old is the oldest work?". Service age independently answers
+        // "how long has this runnable class received no completed GPU service?". Both are required.
         float observationAge = 0;
         if (slice_.count != 0 && slice_.readyNs) observationAge = (float)((now - slice_.readyNs) / 1e6);
         else if (liveBound_) { const int64_t r = meas::MeasGpu_NewestReadyNs(); if (r) observationAge = (float)((now - r) / 1e6); }
-        float serviceAge = lastFuseServiceNs_ > 0 ? (float)((now - lastFuseServiceNs_) / 1e6) : observationAge;
-        float fuseAge = fuseRunnable ? std::max(observationAge, serviceAge) : 0.f;
+        const float fuseAge = fuseRunnable ? observationAge : 0.f;
         fusePendingAgeMs_ = fuseAge;
         const float fuseOver = fuseRunnable ? fuseAge / (float)FS_SCHED_FUSE_DEADLINE_MS : 0.f;
-        // E6R: overdue = normalized lateness > 1; the most late runnable class wins; otherwise the weighted deficit decides. No class can
-        // starve: every class ages while it waits and eventually carries the largest lateness.
+
         (void)fuseOver; (void)pubOver; (void)sheetOver;
         const bool runnable[3] = {fuseRunnable, pubRunnable, sheetRunnable};
-        const float ages[3] = {fuseAge, pubAge, sheetAge}, deadlines[3] = {(float)FS_SCHED_FUSE_DEADLINE_MS, (float)FS_SCHED_PUBLISH_DEADLINE_MS, (float)FS_SCHED_SHEET_DEADLINE_MS};
+        const float ages[3] = {fuseAge, pubAge, sheetAge};
+        const float deadlines[3] = {(float)FS_SCHED_FUSE_DEADLINE_MS, (float)FS_SCHED_PUBLISH_DEADLINE_MS, (float)FS_SCHED_SHEET_DEADLINE_MS};
+        float serviceAges[3] = {0.f, 0.f, 0.f};
+        for (uint32_t k = 0; k < ST_COUNT; ++k)
+            if (runnable[k] && lastServiceNs_[k] > 0) serviceAges[k] = (float)((now - lastServiceNs_[k]) / 1e6);
+
         bool overdue = false;
-        const int picked = PickStage(runnable, ages, deadlines, deficit_, &overdue);
+        const int picked = PickStage(runnable, ages, serviceAges, deadlines, deficit_, &overdue);
         SchedStage pick = picked < 0 ? ST_COUNT : (SchedStage)picked;
         if (overdue && pick < ST_COUNT) schedOverdue_[pick]++;
         if (pick == ST_PUB) {
@@ -982,9 +995,12 @@ public:
         return (int32_t)n;
     }
     std::string TelemetryJson() {
-        // Do not hold World::m_ while acquiring Executor::mutex. The value is diagnostic and may be one scheduling
-        // instant older than the rest of the snapshot; lock-order correctness is more important than atomic telemetry.
+        // Cross-module snapshots are collected BEFORE World::m_. They may be one scheduling instant older than the
+        // world snapshot; an atomic diagnostic snapshot is never worth a lock cycle.
         const uint64_t retirementBacklog = (uint64_t)RetirementBacklog();
+        uint64_t observationsReceived = 0, observationsSuperseded = 0;
+        meas::MeasGpu_FrameTotals(observationsReceived, observationsSuperseded);
+
         std::lock_guard<std::recursive_mutex> g(m_);
         JsonWriter w; w.BeginObject();
         w.KV("epochs", stats_.epochs); w.KV("tick", tick_); w.KV("fuseGpuUsLast", stats_.fuseUs); w.KV("publishGpuUsLast", stats_.publishUs);
@@ -1006,7 +1022,12 @@ public:
         w.KV("fuseAgeP50Ms", fuseAge_.Quantile(0.5f)); w.KV("fuseAgeP95Ms", fuseAge_.Quantile(0.95f)); w.KV("fuseAgeMaxMs", fuseAge_.Max());
         w.KV("publishAgeMaxMs", pubAge_.Max()); w.KV("topologyAgeP50Ms", sheetAge_.Quantile(0.5f)); w.KV("topologyAgeP95Ms", sheetAge_.Quantile(0.95f)); w.KV("topologyAgeMaxMs", sheetAge_.Max());
         w.KV("pendingFuseAgeMs", fusePendingAgeMs_);
-        { uint64_t ready = 0, sup = 0; meas::MeasGpu_FrameTotals(ready, sup); w.KV("observationsReceived", ready); w.KV("observationsSuperseded", sup + framesAbandoned_); }
+        const int64_t serviceNow = NowNs();
+        w.KV("fuseServiceAgeMs", lastServiceNs_[ST_FUSE] ? (double)(serviceNow - lastServiceNs_[ST_FUSE]) / 1e6 : 0.0);
+        w.KV("publishServiceAgeMs", lastServiceNs_[ST_PUB] ? (double)(serviceNow - lastServiceNs_[ST_PUB]) / 1e6 : 0.0);
+        w.KV("topologyServiceAgeMs", lastServiceNs_[ST_SHEET] ? (double)(serviceNow - lastServiceNs_[ST_SHEET]) / 1e6 : 0.0);
+        w.KV("observationsReceived", observationsReceived);
+        w.KV("observationsSuperseded", observationsSuperseded + framesAbandoned_);
         w.KV("fuseDeferred", fuseDeferred_); w.KV("observationsLeased", observationsLeased_); w.KV("observationsFused", observationsFused_); w.KV("workSerial", (uint64_t)workSerial_);
         w.KV("promotedLive", (int64_t)gctrTotal_[FS_GCTR_PROMOTIONS] - (int64_t)gctrTotal_[FS_GCTR_PROMOTED_REMOVED]);
         auto cm = [&](const char* name, const CostModel& c) { w.KV((std::string(name) + "FixedUs").c_str(), (int64_t)c.fixedUs); w.KV((std::string(name) + "PerItemUs1000").c_str(), (int64_t)(c.perItemUs * 1000.0)); w.KV((std::string(name) + "Structural").c_str(), c.structural); w.KV((std::string(name) + "Learned").c_str(), c.samples); w.KV((std::string(name) + "Skipped").c_str(), c.skipped); };
@@ -1057,7 +1078,7 @@ private:
     CostModel fuseCost_, maintCost_, leavesCost_, sheetCost_;
     uint32_t workSerial_ = 0; std::vector<int64_t> workTimeNs_ = std::vector<int64_t>(FS_SCHED_SERIAL_WINDOW, 0); std::vector<uint32_t> workTimeSerial_ = std::vector<uint32_t>(FS_SCHED_SERIAL_WINDOW, 0u); int64_t pubStartNs_ = 0;
     AgeWindow fuseAge_; float fusePendingAgeMs_ = 0; uint64_t fuseDeferred_ = 0; uint64_t deadlineMiss_[3] = {0, 0, 0}, observationsLeased_ = 0, observationsFused_ = 0;
-    int64_t lastFuseServiceNs_ = 0;
+    int64_t lastServiceNs_[3] = {0, 0, 0};
     std::vector<uint32_t> pubAgeTicks_, sheetAgeTicks_; AgeWindow pubAge_, sheetAge_, pubChainMs_;
     double deficit_[3] = {0, 0, 0}; uint64_t schedJobs_[3] = {0, 0, 0}, schedOverdue_[3] = {0, 0, 0}; float pubPendingAgeMs_ = 0, sheetPendingAgeMs_ = 0;
     uint64_t pubChunks_ = 0, sheetJobs_ = 0, framesAbandoned_ = 0, measAbandoned_ = 0; std::vector<uint32_t> chainRenderRetire_;

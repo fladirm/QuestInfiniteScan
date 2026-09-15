@@ -604,6 +604,19 @@ static void TestSchedulerNoStarvation() {
     const bool run[3] = {true, true, false}; const float ages2[3] = {70, 1000, 0}; double def2[3] = {0, 0, 0};
     CHECK(fs::PickStage(run, ages2, deadline, def2) == 1);
     const float ages3[3] = {1000, 1000, 0}; CHECK(fs::PickStage(run, ages3, deadline, def2) == 0);   // fuse 16.7x late beats publish 13.3x
+
+    // Device regression: topology may have a multi-second oldest item while each bounded topology job DOES make progress.
+    // That backlog age must not starve a runnable FUSE class past its own service deadline.
+    const bool runAll[3] = {true, true, true};
+    const float backlogAge[3] = {30.f, 40.f, 5000.f};
+    const float serviceAge[3] = {130.f, 10.f, 10.f};
+    bool serviceOverdue = false;
+    CHECK(fs::PickStage(runAll, backlogAge, serviceAge, deadline, def2, &serviceOverdue) == 0);
+    CHECK(serviceOverdue);
+
+    // Once service ages are healthy, the genuinely oldest pending topology backlog gets serviced.
+    const float healthyService[3] = {10.f, 10.f, 10.f};
+    CHECK(fs::PickStage(runAll, backlogAge, healthyService, deadline, def2) == 2);
 }
 
 static void TestEvidenceHysteresis() {

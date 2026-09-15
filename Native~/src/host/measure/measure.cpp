@@ -238,7 +238,12 @@ public:
     void StereoStats(int64_t out[17]) { std::lock_guard<std::mutex> g(m_); for (uint32_t k = 0; k < 16; ++k) out[k] = (int64_t)stereoTotals_[k]; out[16] = (int64_t)stereoFrames_; }
     // C11 receipts (totals): temporal tested, valid, lowTex, ambiguous, bandEdge, noCover, disagree, sigmaUm, planar tested, valid, rejected, sigmaUm, rmsUm, keyframes set, frames with keyframe
     // + candidates stereo, candidates temporal, refine skipped, refine jobs, pairs rejected for geometry, refine ms per frame p95, last compaction us
-    void SetRefineTargets(const RefineTarget* t, uint32_t n) { std::lock_guard<std::mutex> g(m_); refineTargets_.assign(t, t + std::min<uint32_t>(n, FS_MEAS_TARGETS_MAX)); }
+    // Cross-module mailbox: World::CollectTopology may publish targets without taking the main measurement mutex.
+    // Tick consumes the latest complete target set at an observation boundary.
+    void SetRefineTargets(const RefineTarget* t, uint32_t n) {
+        std::lock_guard<std::mutex> g(targetMutex_);
+        pendingRefineTargets_.assign(t, t + std::min<uint32_t>(n, FS_MEAS_TARGETS_MAX));
+    }
     // C11R2 totals: considered, textureEligible, keyframeEligible, baselineRejected, visibilityRejected, written, solved, accepted, sigmaBeforeUm, sigmaAfterUm, infoGain x1000
     void TargetStats(int64_t out[11]) { std::lock_guard<std::mutex> g(m_); for (uint32_t k = 0; k < 11; ++k) out[k] = (int64_t)stereoTotals_[32 + k]; }
     void MultiviewStats(int64_t out[22]) { std::lock_guard<std::mutex> g(m_); for (uint32_t k = 0; k < 13; ++k) out[k] = (int64_t)stereoTotals_[16 + k]; out[13] = (int64_t)keyframesSet_; out[14] = (int64_t)keyFramesUsed_;
@@ -311,10 +316,19 @@ public:
 
     // ---- SCAN-class scheduler tick (fs-sched thread) -----------------------------------------------------
     void Tick(uint32_t budgetUs) {
+        if (budgetUs == 0) return;
+
+        // LOCK-ORDER CLOSURE:
+        // Measure::m_ must never be held while entering World. World legitimately samples the measurement ring
+        // while holding World::m_; the reverse edge caused the device ABBA freeze at t=153.5 s.
+        const bool yieldToFusion = fs::world::FuseBackpressure();                 // lock-free atomic
+        float anchorSnapshot[FS_MAX_ANCHORS * 16] = {};
+        if (!yieldToFusion) fs::world::CopyAnchors(anchorSnapshot);               // World lock, but Measure::m_ is NOT held
+
         std::lock_guard<std::mutex> g(m_);
-        if (!deviceUp_ || !pipeReady_ || jobInFlight_ || budgetUs == 0) return;
+        if (!deviceUp_ || !pipeReady_ || jobInFlight_) return;
         // E6R backpressure: fusion could not get SCAN budget -> this frame's budget is left to it (a newer depth frame just waits / supersedes)
-        if (fs::world::FuseBackpressure()) { yieldedToFusion_++; return; }
+        if (yieldToFusion) { yieldedToFusion_++; return; }
         // C10R: a frame whose cheap pass admitted stereo / temporal candidates is refined (bounded chunks) before a new frame is compacted
         for (uint32_t s = 0; s < FS_MEAS_GPU_RING_SLOTS; ++s) if (slots_[s].state == SLOT_REFINING) { SubmitRefineLocked(s); return; }
         if (!pendingSubmit_) return;
@@ -331,9 +345,9 @@ public:
             framesSuperseded_++; v.state = SLOT_FREE;
         }
         RingSlot& slot = slots_[pick];
-        // anchor-local transform: anchorFromWorld * worldFromEye (anchor 0)
+        // anchor-local transform: anchorFromWorld * worldFromEye (anchor 0), from the lock-order-safe snapshot above.
         Mat4 worldFromAnchor = Identity();
-        { static float anchors[64 * 16]; fs::world::CopyAnchors(anchors); memcpy(worldFromAnchor.m, anchors + kAnchorId * 16, 64); }
+        memcpy(worldFromAnchor.m, anchorSnapshot + kAnchorId * 16, 64);
         Mat4 anchorFromWorld; if (!Invert(worldFromAnchor, anchorFromWorld)) anchorFromWorld = Identity();
         const uint32_t w = importedW_ ? importedW_ : input_.width, h = importedH_ ? importedH_ : input_.height;
         const uint32_t layers = importedLayers_ >= 2 ? 2u : 1u;
@@ -385,8 +399,12 @@ public:
         p.obsId = obsId; p.frame = (uint32_t)input_.seq; p.width = w; p.height = h;
         const uint32_t groups = (w * h * layers + FS_MEAS_WG - 1) / FS_MEAS_WG;
         // compaction job (information-first, cheap): texture tiles -> planar tiles -> score -> select -> count -> prefix -> emit (+ gates)
-        // C11R2: this frame's refinement targets from the topology pass (consumed once)
+        // C11R2: atomically take the latest topology target mailbox at this observation boundary, then consume it once.
         {
+            {
+                std::lock_guard<std::mutex> tg(targetMutex_);
+                if (!pendingRefineTargets_.empty()) refineTargets_.swap(pendingRefineTargets_);
+            }
             const uint32_t nT = std::min<uint32_t>((uint32_t)refineTargets_.size(), FS_MEAS_TARGETS_MAX);
             uint32_t* tw = (uint32_t*)targetsBuf_.mapped;
             for (uint32_t k = 0; k < nT; ++k) { const RefineTarget& t = refineTargets_[k]; memcpy(tw + k * 9, t.pos, 12); memcpy(tw + k * 9 + 3, t.normal, 12); memcpy(tw + k * 9 + 6, &t.sigmaN, 4); tw[k * 9 + 7] = t.surfaceId; tw[k * 9 + 8] = t.support; }
@@ -564,6 +582,7 @@ public:
 
 private:
     std::mutex m_;
+    std::mutex targetMutex_;                    // cross-module C11R2 mailbox; never nests World::m_ with Measure::m_
     bool inited_ = false, deviceUp_ = false, pipeReady_ = false;
     // XR_META_environment_depth / OpenGL depth image convention: texel row 0 is the LOWER (tanDown) edge (the Meta
     // reference sample projects NDC to depth UV as xy * 0.5 + 0.5 with no Y flip; the donor's FineLoadWorld maps texel
@@ -577,7 +596,9 @@ private:
     VkImageView predView_ = VK_NULL_HANDLE; fs::render::PredictionInfo pred_; bool predValid_ = false; uint64_t predBinds_ = 0;
     CameraInput cam_[2]; StereoPairInput pair_; uint64_t stereoFrames_ = 0; uint64_t stereoTotals_[48] = {};
     uint64_t framesReady_ = 0, yieldedToFusion_ = 0;
-    Buffer tiles_, targetsBuf_; std::vector<RefineTarget> refineTargets_; CostModel refineCost_; AgeWindow refineFrameUs_; uint64_t refineJobs_ = 0, pairsGeometryRejected_ = 0; int64_t lastRefineUs_ = 0;
+    Buffer tiles_, targetsBuf_;
+    std::vector<RefineTarget> refineTargets_, pendingRefineTargets_;
+    CostModel refineCost_; AgeWindow refineFrameUs_; uint64_t refineJobs_ = 0, pairsGeometryRejected_ = 0; int64_t lastRefineUs_ = 0;
     CameraInput key_[FS_MEAS_KEYFRAMES]; int32_t keySel_ = -1; uint64_t keySelSeq_ = 0; bool keyImported_ = false; VkImageView keyView_ = VK_NULL_HANDLE; uint64_t keyframesSet_ = 0, keyFramesUsed_ = 0; VkImageView camView_[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE}; bool camImported_[2] = {false, false}; uint32_t camImportedW_[2] = {0, 0}, camImportedH_[2] = {0, 0}; uint64_t camFrames_ = 0, camFramesUsed_ = 0;
     Pipeline pipes_[K_COUNT_]; Buffer score_, select_; bool scratchBound_ = false;
     RingSlot slots_[FS_MEAS_GPU_RING_SLOTS];

@@ -51,16 +51,57 @@ struct CostModel {
     }
 };
 
-// E6R scheduler decision (twin of World::Tick): normalized lateness = age / deadline; any runnable class with lateness > 1 -> the largest
-// lateness wins; otherwise the runnable class with the largest GPU-time deficit. Returns -1 when nothing is runnable.
-inline int PickStage(const bool runnable[3], const float ageMs[3], const float deadlineMs[3], const double deficit[3], bool* overdueOut = nullptr) {
-    int pick = -1; float bestLate = 1.f;
-    for (int k = 0; k < 3; ++k) if (runnable[k] && deadlineMs[k] > 0 && ageMs[k] / deadlineMs[k] > bestLate) { bestLate = ageMs[k] / deadlineMs[k]; pick = k; }
-    if (overdueOut) *overdueOut = pick >= 0;
-    if (pick >= 0) return pick;
-    double best = -1e300;
-    for (int k = 0; k < 3; ++k) if (runnable[k] && deficit[k] > best) { best = deficit[k]; pick = k; }
+// E6R scheduler decision (twin of World::Tick).
+//
+// There are TWO ages and they are intentionally not interchangeable:
+//   pendingAge: how old the oldest item of the class is;
+//   serviceAge: how long the runnable class itself has received no completed GPU service.
+//
+// A large persistent backlog must not monopolise the executor merely because its oldest item stays old while a
+// bounded job makes progress. Service starvation therefore wins first, then pending-deadline lateness, then
+// weighted deficit. This is the device-proven closure for PUBLISH/TOPOLOGY starving FUSE.
+inline int PickStage(const bool runnable[3], const float pendingAgeMs[3], const float serviceAgeMs[3],
+                     const float deadlineMs[3], const double deficit[3], bool* overdueOut = nullptr) {
+    int pick = -1;
+    float best = 1.f;
+
+    // Hard anti-starvation: a runnable class not serviced for one class deadline is overdue independently of backlog age.
+    for (int k = 0; k < 3; ++k) {
+        if (!runnable[k] || deadlineMs[k] <= 0.f) continue;
+        const float late = serviceAgeMs[k] / deadlineMs[k];
+        if (late > best) { best = late; pick = k; }
+    }
+    if (pick >= 0) {
+        if (overdueOut) *overdueOut = true;
+        return pick;
+    }
+
+    // No service starvation: now honour the oldest pending work.
+    best = 1.f;
+    for (int k = 0; k < 3; ++k) {
+        if (!runnable[k] || deadlineMs[k] <= 0.f) continue;
+        const float late = pendingAgeMs[k] / deadlineMs[k];
+        if (late > best) { best = late; pick = k; }
+    }
+    if (pick >= 0) {
+        if (overdueOut) *overdueOut = true;
+        return pick;
+    }
+
+    // All runnable classes are inside their service and pending deadlines: weighted GPU-time deficit decides.
+    double bestDeficit = -1e300;
+    for (int k = 0; k < 3; ++k)
+        if (runnable[k] && deficit[k] > bestDeficit) { bestDeficit = deficit[k]; pick = k; }
+
+    if (overdueOut) *overdueOut = false;
     return pick;
+}
+
+// Compatibility overload for pure host callers which do not model service age.
+inline int PickStage(const bool runnable[3], const float pendingAgeMs[3], const float deadlineMs[3],
+                     const double deficit[3], bool* overdueOut = nullptr) {
+    const float serviceAgeMs[3] = {0.f, 0.f, 0.f};
+    return PickStage(runnable, pendingAgeMs, serviceAgeMs, deadlineMs, deficit, overdueOut);
 }
 
 // Rolling p50 / p95 of a bounded sample window (ages in ms).
