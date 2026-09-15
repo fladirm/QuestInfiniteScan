@@ -124,7 +124,7 @@ void main() {
         vec3 tM, tm; fsPatchFrame(q, tM, tm);
         FsSurfelEvidence ev = evidence[h];
         FsSurfelEvidence halfEv = ev; fsSet_FsSurfelEvidence_staticEvidence(halfEv, max(fsGet_FsSurfelEvidence_staticEvidence(ev) / 2u, 1u));
-        fsSet_FsSurfelEvidence_varianceQ(halfEv, fsEncodeLog(q.sigmaN * q.sigmaN, FS_SIGMA_BASE_M * FS_SIGMA_BASE_M));
+        fsSet_FsSurfelEvidence_varianceQ(halfEv, fsEncodeLog(1.0, FS_VAR_NORM_BASE));   // children start at "residual = measurement noise"
         if (!fsIndexRemove(page, cell, q.p, h)) continue;
         FsSurfel dead = surfels[h]; fsSet_FsSurfel_evidenceFlags(dead, q.flags | FS_FLAG_REMOVED); surfels[h] = dead;
         for (uint c = 0u; c < 2u; ++c) {

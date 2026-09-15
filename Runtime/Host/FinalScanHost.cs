@@ -435,6 +435,7 @@ namespace FinalScan.Host
              .Prop("envDepthAccepted", _envDepth != null ? _envDepth.Accepted : 0)
              .Prop("envDepthRc", _envDepth != null ? _envDepth.LastResult : -1).Prop("measEnvDepthRc", _envDepth != null ? _envDepth.LastMeasResult : -1)
              .Prop("envDepthSource", _envDepth != null ? _envDepth.Source : "none")
+             .Prop("envDepthGated", _envDepth != null ? _envDepth.GatedFrames : 0).Prop("envDepthAngularDegPerSec", _envDepth != null ? _envDepth.LastAngularDegPerSec : 0f)
              .Prop("syntheticRc", _syntheticResult)
              .PropRaw("native", native)
              .PropRaw("world", world)

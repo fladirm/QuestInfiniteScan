@@ -65,8 +65,10 @@ void main() {
     np = clamp(np, bmin + vec3(0.0005), bmax - vec3(0.0005));
     // evidence
     FsSurfelEvidence ev = evidence[h];
-    float var = fsDecodeLog(fsGet_FsSurfelEvidence_varianceQ(ev), FS_SIGMA_BASE_M * FS_SIGMA_BASE_M);
-    float meanD2 = acc.d2 / float(acc.n);
+    // varianceQ = residual variance NORMALISED by the measurement sigma^2 (chi-square scale, dimensionless; E3b): a
+    // persistent residual is one that exceeds what the measurements themselves explain, not the shrinking fused sigma.
+    float var = fsDecodeLog(fsGet_FsSurfelEvidence_varianceQ(ev), FS_VAR_NORM_BASE);
+    float meanD2 = (acc.d2 / float(acc.n)) / max(acc.s2 / float(acc.n), 1e-12);
     var += (meanD2 - var) * (float(acc.n) / float(cnt + acc.n));
     uint stat = min(fsGet_FsSurfelEvidence_staticEvidence(ev) + acc.n, 65535u);
     uint flags = q.flags;
@@ -76,7 +78,7 @@ void main() {
     q.flags = (flags & ~FS_EVIDENCE_COUNT_MASK) | cnt;
     surfels[h] = fsPack(q);
     fsSet_FsSurfelEvidence_staticEvidence(ev, stat);
-    fsSet_FsSurfelEvidence_varianceQ(ev, fsEncodeLog(var, FS_SIGMA_BASE_M * FS_SIGMA_BASE_M));
+    fsSet_FsSurfelEvidence_varianceQ(ev, fsEncodeLog(var, FS_VAR_NORM_BASE));
     fsSet_FsSurfelEvidence_lastSeenFrame(ev, FS_TK(FS_T_TICK) & 0xFFFFu);
     evidence[h] = ev;
     atomicAdd(gctr[FS_GCTR_SEGMENTS_MATCHED], 1u);

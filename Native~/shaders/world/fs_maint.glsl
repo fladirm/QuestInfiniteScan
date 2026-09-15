@@ -32,8 +32,8 @@ uint fsCollectLeaves(uint page, uint cell, out uint leaves[FS_MAINT_LEAVES_MAX])
 bool fsSplitWanted(FsPatch q, FsSurfelEvidence ev) {
     uint cnt = q.flags & FS_EVIDENCE_COUNT_MASK;
     if (cnt < uint(FS_SPLIT_MIN_SUPPORT) || (q.flags & FS_FLAG_PROMOTED) == 0u) return false;
-    float var = fsDecodeLog(fsGet_FsSurfelEvidence_varianceQ(ev), FS_SIGMA_BASE_M * FS_SIGMA_BASE_M);
-    return sqrt(var) > FS_SPLIT_VAR_K * q.sigmaN && q.rM > 2.0 * FS_RADIUS_MIN_M;
+    float var = fsDecodeLog(fsGet_FsSurfelEvidence_varianceQ(ev), FS_VAR_NORM_BASE);   // normalised: residual / measurement sigma
+    return sqrt(var) > FS_SPLIT_VAR_K && q.rM > 2.0 * FS_RADIUS_MIN_M;
 }
 // Merge priority: higher static evidence, then lower sigma, then lower SurfaceID survives.
 bool fsSurvives(FsPatch a, FsSurfelEvidence ea, FsPatch b, FsSurfelEvidence eb) {

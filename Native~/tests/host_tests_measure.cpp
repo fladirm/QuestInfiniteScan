@@ -26,7 +26,7 @@ static float ProjectDepth(float z, float n, float f) {
 }
 static PushCompact DefaultPush(uint32_t layers = 1) {
     PushCompact pc; memset(&pc, 0, sizeof pc);
-    pc.nearZ = 0.1f; pc.farZ = 0.f; pc.maxDepthM = (float)FS_MEAS_MAX_DEPTH_M;
+    pc.nearZ = 0.1f; pc.farZ = 0.f; pc.maxDepthM = (float)FS_MEAS_MAX_DEPTH_M; pc.minDepthM = (float)FS_MEAS_MIN_DEPTH_M;
     pc.layers = layers; pc.budget = 2 * W * H; pc.maxOut = FS_MEAS_GPU_RING_CAPACITY; pc.flags = 0;   // budget above every valid count: nothing rejected, maxOut is the only limit
     pc.obsId = 0xC09u; pc.frame = 7; pc.width = W; pc.height = H;
     return pc;

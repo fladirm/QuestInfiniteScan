@@ -60,10 +60,11 @@ struct FsAccum {
     vec2  tMean;         // precision-weighted tangential offset (canonical frame of the surfel normal)
     float mxx, myy, mxy; // weighted second moments of tangential offsets (+ footprint)
     float d2;            // sum of squared plane distances (residual)
+    float s2;            // sum of squared measurement sigmaN (expected residual scale)
     float fp;            // max footprint
     uint  n;
 };
-FsAccum fsAccumInit() { FsAccum a; a.wN = 0.0; a.dN = 0.0; a.nSum = vec3(0.0); a.wT = 0.0; a.tMean = vec2(0.0); a.mxx = 0.0; a.myy = 0.0; a.mxy = 0.0; a.d2 = 0.0; a.fp = 0.0; a.n = 0u; return a; }
+FsAccum fsAccumInit() { FsAccum a; a.wN = 0.0; a.dN = 0.0; a.nSum = vec3(0.0); a.wT = 0.0; a.tMean = vec2(0.0); a.mxx = 0.0; a.myy = 0.0; a.mxy = 0.0; a.d2 = 0.0; a.s2 = 0.0; a.fp = 0.0; a.n = 0u; return a; }
 void fsAccumAdd(inout FsAccum a, FsPatch q, vec3 t1, vec3 t2, vec3 pm, vec3 nm, float sigmaNm, float sigmaTm, float footprint) {
     float wN = 1.0 / (sigmaNm * sigmaNm), wT = 1.0 / (sigmaTm * sigmaTm);
     vec3 delta = pm - q.p;
@@ -73,6 +74,6 @@ void fsAccumAdd(inout FsAccum a, FsPatch q, vec3 t1, vec3 t2, vec3 pm, vec3 nm, 
     a.wT += wT; a.tMean += tv * wT;
     float f2 = footprint * footprint;
     a.mxx += wT * (tv.x * tv.x + f2); a.myy += wT * (tv.y * tv.y + f2); a.mxy += wT * tv.x * tv.y;
-    a.d2 += d * d; a.fp = max(a.fp, footprint); a.n++;
+    a.d2 += d * d; a.s2 += sigmaNm * sigmaNm; a.fp = max(a.fp, footprint); a.n++;
 }
 #endif // FS_FUSION_GLSL

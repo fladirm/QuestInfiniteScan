@@ -122,7 +122,7 @@ inline void RadixSortAssoc(std::vector<FsAssociation>& a) {
 }
 
 // ---- F2 segmented reduce (twin: fs_fusion.glsl FsAccum + fuse_reduce.comp) -----------------------------
-struct Accum { float wN = 0, dN = 0; V3 nSum; float wT = 0; float tx = 0, ty = 0; float mxx = 0, myy = 0, mxy = 0, d2 = 0, fp = 0; uint32_t n = 0; };
+struct Accum { float wN = 0, dN = 0; V3 nSum; float wT = 0; float tx = 0, ty = 0; float mxx = 0, myy = 0, mxy = 0, d2 = 0, s2 = 0, fp = 0; uint32_t n = 0; };
 inline void AccumAdd(Accum& a, const Patch& q, V3 t1, V3 t2, V3 pm, V3 nm, float sigmaNm, float sigmaTm, float footprint) {
     float wN = 1.f / (sigmaNm * sigmaNm), wT = 1.f / (sigmaTm * sigmaTm);
     V3 delta = pm - q.p; float d = Dot(q.n, delta);
@@ -131,7 +131,7 @@ inline void AccumAdd(Accum& a, const Patch& q, V3 t1, V3 t2, V3 pm, V3 nm, float
     a.wT += wT; a.tx += tvx * wT; a.ty += tvy * wT;
     float f2 = footprint * footprint;
     a.mxx += wT * (tvx * tvx + f2); a.myy += wT * (tvy * tvy + f2); a.mxy += wT * tvx * tvy;
-    a.d2 += d * d; a.fp = fmaxf(a.fp, footprint); a.n++;
+    a.d2 += d * d; a.s2 += sigmaNm * sigmaNm; a.fp = fmaxf(a.fp, footprint); a.n++;
 }
 struct ReduceResult { FsSurfel surfel; FsSurfelEvidence evidence; uint32_t folded = 0; bool overflow = false; bool changed = false; };
 // One matched segment = one surfel; `seg` in sorted (measurement-sequence) order; `origin` = page origin.
@@ -166,9 +166,9 @@ inline ReduceResult ReduceSegment(const FsSurfel& s, const FsSurfelEvidence& evI
     float bmin[3], bmax[3]; CellBounds(cell, bmin, bmax);
     np = ClampV(np, v3(bmin[0] + 0.0005f, bmin[1] + 0.0005f, bmin[2] + 0.0005f), v3(bmax[0] - 0.0005f, bmax[1] - 0.0005f, bmax[2] - 0.0005f));
     FsSurfelEvidence ev = evIn;
-    const float varBase = kSigmaBaseM * kSigmaBaseM;
+    const float varBase = (float)FS_VAR_NORM_BASE;
     float var = DecodeLog(ev.varianceQ, varBase);
-    float meanD2 = acc.d2 / (float)acc.n;
+    float meanD2 = (acc.d2 / (float)acc.n) / fmaxf(acc.s2 / (float)acc.n, 1e-12f);
     var += (meanD2 - var) * ((float)acc.n / (float)(cnt + acc.n));
     uint32_t stat = std::min<uint32_t>(ev.staticEvidence + acc.n, 65535u);
     uint32_t flags = q.flags;
@@ -384,8 +384,8 @@ private:
 inline bool SplitWanted(const Patch& q, const FsSurfelEvidence& ev) {
     uint32_t cnt = q.flags & kEvidenceCountMask;
     if (cnt < FS_SPLIT_MIN_SUPPORT || (q.flags & kFlagPromoted) == 0) return false;
-    float var = DecodeLog(ev.varianceQ, kSigmaBaseM * kSigmaBaseM);
-    return sqrtf(var) > (float)FS_SPLIT_VAR_K * q.sigmaN && q.rM > 2.f * (float)FS_RADIUS_MIN_M;
+    float var = DecodeLog(ev.varianceQ, (float)FS_VAR_NORM_BASE);
+    return sqrtf(var) > (float)FS_SPLIT_VAR_K && q.rM > 2.f * (float)FS_RADIUS_MIN_M;
 }
 // Merge priority: higher static evidence, then lower sigma, then lower SurfaceID survives.
 inline bool Survives(const Patch& a, const FsSurfelEvidence& ea, const Patch& b, const FsSurfelEvidence& eb) {

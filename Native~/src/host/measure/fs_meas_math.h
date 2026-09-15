@@ -80,7 +80,7 @@ inline bool Invert(const Mat4& in, Mat4& out) {
 // ---- push constants / frame block: byte-identical to the measure_*.comp kernels -------------------------------------
 struct PushCompact {                     // 48 B (contract §15.3: <= 128 B)
     float    nearZ, farZ;                // farZ <= 0 = unbounded
-    float    maxDepthM, pad0;
+    float    maxDepthM, minDepthM;       // gates: minDepthM = max(nearZ, FS_MEAS_MIN_DEPTH_M) (contract §6: hands / cables never measure)
     uint32_t layers, budget, maxOut, flags;
     uint32_t obsId, frame, width, height;
 };
@@ -247,13 +247,13 @@ inline TexelResult ClassifyTexel(const PushCompact& pc, uint32_t x, uint32_t y, 
     if (x >= w || y >= h) return TEXEL_INVALID;
     if (x == 0u || y == 0u || x + 1u >= w || y + 1u >= h) return TEXEL_INVALID;      // no central differences at the border
     g.z = LinearizeDepth(depth(x, y), pc.nearZ, pc.farZ, pc.flags);
-    if (!DepthUsable(g.z, pc.nearZ, pc.maxDepthM)) return TEXEL_INVALID;
+    if (!DepthUsable(g.z, pc.minDepthM, pc.maxDepthM)) return TEXEL_INVALID;
     g.zxm = LinearizeDepth(depth(x - 1u, y), pc.nearZ, pc.farZ, pc.flags);
     g.zxp = LinearizeDepth(depth(x + 1u, y), pc.nearZ, pc.farZ, pc.flags);
     g.zym = LinearizeDepth(depth(x, y - 1u), pc.nearZ, pc.farZ, pc.flags);
     g.zyp = LinearizeDepth(depth(x, y + 1u), pc.nearZ, pc.farZ, pc.flags);
-    if (!DepthUsable(g.zxm, pc.nearZ, pc.maxDepthM) || !DepthUsable(g.zxp, pc.nearZ, pc.maxDepthM) ||
-        !DepthUsable(g.zym, pc.nearZ, pc.maxDepthM) || !DepthUsable(g.zyp, pc.nearZ, pc.maxDepthM)) return TEXEL_INVALID;   // hole next to us
+    if (!DepthUsable(g.zxm, pc.minDepthM, pc.maxDepthM) || !DepthUsable(g.zxp, pc.minDepthM, pc.maxDepthM) ||
+        !DepthUsable(g.zym, pc.minDepthM, pc.maxDepthM) || !DepthUsable(g.zyp, pc.minDepthM, pc.maxDepthM)) return TEXEL_INVALID;   // hole / too close next to us
     g.edge = IsEdge(g.z, g.zxm, g.zxp, g.zym, g.zyp);
     if (g.edge && !(pc.flags & FS_MEAS_FLAG_DETAIL)) return TEXEL_EDGE;
     g.flat = IsFlat(g.z, g.zxm, g.zxp, g.zym, g.zyp);

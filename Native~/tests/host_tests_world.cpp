@@ -235,7 +235,7 @@ static void TestFusionDeterminism() {
     FsPageKey key{0, 0, 0, 0}; V3 origin = PageOrigin3(key);
     SurfelSample smp{{0.31f, 0.52f, 0.73f}, {0, 0, 1}, 0.01f, 0.002f, 0.004f, 7};
     FsSurfel s = MakeSurfel(smp, key); s.evidenceFlags = (uint16_t)(2 | kFlagTransient);   // transient candidate, 2 observations
-    FsSurfelEvidence ev{}; ev.staticEvidence = 2; ev.varianceQ = EncodeLog(1e-6f, kSigmaBaseM * kSigmaBaseM);
+    FsSurfelEvidence ev{}; ev.staticEvidence = 2; ev.varianceQ = EncodeLog(1.f, (float)FS_VAR_NORM_BASE);
     std::mt19937 rng(11); std::normal_distribution<float> nz(0.f, 0.001f), nt(0.f, 0.004f);
     std::vector<FsSurfaceMeasurement> seq;
     for (int i = 0; i < 40; ++i) seq.push_back(Meas(v3(0.31f + nt(rng), 0.52f + nt(rng), 0.73f + 0.0015f + nz(rng)), Norm(v3(0.02f * nz(rng) * 100.f, 0.f, 1.f)), 0.002f, 0.004f, 0.006f, 100u + (uint32_t)i));
@@ -307,7 +307,7 @@ static void TestDenseBucket() {
     uint32_t folded = 0; for (uint32_t i = 0; i < n; ++i) folded += c[i].cnt;
     CHECK(folded == FS_SEG_CLUSTER_MAX);                                                   // bounded, counted, never unbounded
     FsPageKey key{0, 0, 0, 0}; FsSurfel s = MakeSurfel(SurfelSample{{0.01f, 0.01f, 0.5f}, {0, 0, 1}, 0.01f, 0.002f, 0.004f, 1}, key);
-    FsSurfelEvidence ev{}; ev.varianceQ = EncodeLog(1e-6f, kSigmaBaseM * kSigmaBaseM);
+    FsSurfelEvidence ev{}; ev.varianceQ = EncodeLog(1.f, (float)FS_VAR_NORM_BASE);
     ReduceResult r = ReduceSegment(s, ev, seg, PageOrigin3(key), 1);
     CHECK(r.overflow && r.folded == FS_SEG_REDUCE_MAX);
     CHECK((Unpack(r.surfel).flags & kEvidenceCountMask) == 1 + FS_SEG_REDUCE_MAX);
@@ -327,10 +327,11 @@ static void TestDeterministicMerge() {
     Patch e = b; e.p = v3(0.12f, 0.1f, 0.1f); CHECK(!Mergeable(a, e));                        // 2 cm apart > 0.75 * (rA + rB)
     Patch f = b; f.flags = kFlagTransient | 1; CHECK(!Mergeable(a, f));                       // candidates never merge
     // split: persistent residual with support
-    FsSurfelEvidence ev{}; ev.varianceQ = EncodeLog(0.0001f, kSigmaBaseM * kSigmaBaseM);   // std 1 cm > 4 x 2 mm
+    FsSurfelEvidence ev{}; ev.varianceQ = EncodeLog(25.f, (float)FS_VAR_NORM_BASE);        // residual std = 5 x the measurement sigma
     Patch g = a; g.flags = kFlagPromoted | 8; CHECK(SplitWanted(g, ev));
     g.flags = kFlagPromoted | 3; CHECK(!SplitWanted(g, ev));                                 // support below FS_SPLIT_MIN_SUPPORT
-    ev.varianceQ = EncodeLog(1e-6f, kSigmaBaseM * kSigmaBaseM); g.flags = kFlagPromoted | 8; CHECK(!SplitWanted(g, ev));
+    ev.varianceQ = EncodeLog(1.f, (float)FS_VAR_NORM_BASE); g.flags = kFlagPromoted | 8; CHECK(!SplitWanted(g, ev));   // residual = measurement noise: never split
+    g.sigmaN = 0.0003f; CHECK(!SplitWanted(g, ev));                                          // a tiny fused sigma alone never triggers a split (run 00:12: 111 k splits)
 }
 
 static void TestPoolsAndRetirement() {

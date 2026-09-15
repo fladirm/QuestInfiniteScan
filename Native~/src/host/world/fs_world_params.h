@@ -52,7 +52,8 @@
 #define FS_PROMOTE_STATIC     3         // consistent observations before a transient candidate becomes canonical
 #define FS_GHOST_MOTION_MIN   3         // free-space contradictions before a candidate / weak surfel is removed
 #define FS_GHOST_STATIC_K     2         // + staticEvidence / K contradictions for supported surfels
-#define FS_SPLIT_VAR_K        4.0       // split when residual std > K * sigmaN and support >= FS_SPLIT_MIN_SUPPORT
+#define FS_SPLIT_VAR_K        4.0       // split when the residual std exceeds K x the MEASUREMENT sigma (normalised variance) and support >= FS_SPLIT_MIN_SUPPORT
+#define FS_VAR_NORM_BASE      0.001     // log base of the normalised residual variance (varianceQ): 0.001 .. ~6e4 (E3b; run 00:12: 111 k splits against the fused sigma)
 #define FS_SPLIT_MIN_SUPPORT  6
 #define FS_MERGE_MIN_DOT      0.98      // coplanar within ~11 deg ...
 #define FS_MERGE_OVERLAP_K    0.75      // ... centres closer than k * (rA + rB), plane distance inside the gate

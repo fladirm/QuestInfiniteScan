@@ -12,6 +12,7 @@
 
 // ---- geometry gates ------------------------------------------------------------------------------------
 #define FS_MEAS_MAX_DEPTH_M          6.0       // provisional far gate for the depth prior (contract §6)
+#define FS_MEAS_MIN_DEPTH_M          0.5       // contract §6 invariant: closer texels (hands, cables, controllers) are never measurements
 #define FS_MEAS_EDGE_RATIO           0.10      // neighbour depth step > 10 % of depth = discontinuity (edge, bit 8)
 #define FS_MEAS_FLAT_LAPLACIAN_RATIO 0.005     // |laplacian| < 0.5 % of depth = flat region (lowTexture, bit 9)
 

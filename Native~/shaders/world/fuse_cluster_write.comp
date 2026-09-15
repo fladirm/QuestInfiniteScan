@@ -57,7 +57,7 @@ void main() {
         vec3 bmin, bmax; fsCellBounds(cell, bmin, bmax);
         pt.p = clamp(pt.p, bmin + vec3(0.0005), bmax - vec3(0.0005));
         surfels[h] = fsPack(pt);
-        FsSurfelEvidence ev; ev.staticEvidence_motionEvidence = min(q.cnt, 65535u); ev.varianceQ_lastSeenFrame = (tick16 << 16) | fsEncodeLog(q.d2 / float(q.cnt), FS_SIGMA_BASE_M * FS_SIGMA_BASE_M);
+        FsSurfelEvidence ev; ev.staticEvidence_motionEvidence = min(q.cnt, 65535u); ev.varianceQ_lastSeenFrame = (tick16 << 16) | fsEncodeLog(max((q.d2 / float(q.cnt)) / max(q.sigmaN * q.sigmaN, 1e-12), 1e-3), FS_VAR_NORM_BASE);   // normalised residual variance (E3b)
         evidence[h] = ev;
         if (fsIndexInsert(page, cell, pt.p, h)) written++;
         else { FsSurfel dead = surfels[h]; fsSet_FsSurfel_evidenceFlags(dead, pt.flags | FS_FLAG_REMOVED); surfels[h] = dead; }

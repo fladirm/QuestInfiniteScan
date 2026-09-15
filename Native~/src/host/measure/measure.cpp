@@ -246,7 +246,7 @@ public:
         if (!scratchBound_) BindScratch();
         if (!scratchBound_) return;
         static PushCompact p;                                         // referenced by the dispatches until the executor recorded them (SubmitJob records synchronously)
-        p.nearZ = input_.nearZ; p.farZ = input_.farZ; p.maxDepthM = (float)FS_MEAS_MAX_DEPTH_M; p.pad0 = 0.f;
+        p.nearZ = input_.nearZ; p.farZ = input_.farZ; p.maxDepthM = (float)FS_MEAS_MAX_DEPTH_M; p.minDepthM = std::max(input_.nearZ, (float)FS_MEAS_MIN_DEPTH_M);
         p.layers = layers; p.budget = budget_; p.maxOut = maxOut_; p.flags = flags_;
         p.obsId = obsId; p.frame = (uint32_t)input_.seq; p.width = w; p.height = h;
         const uint32_t groups = (w * h * layers + FS_MEAS_WG - 1) / FS_MEAS_WG;

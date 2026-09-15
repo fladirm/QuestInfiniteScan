@@ -35,6 +35,9 @@ namespace FinalScan.Host
         public int LastMeasResult => _lastMeasRc;
         public long Pushed { get; private set; }
         public long PausedFrames { get; private set; }
+        /// <summary>Depth frames refused as geometry evidence by the angular-velocity gate (contract §4.5; still fed to the HZB).</summary>
+        public long GatedFrames { get; private set; }
+        public float LastAngularDegPerSec { get; private set; }
         public long LastTimestampNs => _dedupe.LastTimestampNs;
 
         /// <summary>Main thread, once per host frame: forwards the authority's newest depth frame when it changed.</summary>
@@ -55,6 +58,16 @@ namespace FinalScan.Host
             if (float.IsInfinity(far) || float.IsNaN(far)) far = 0f;
             float near = d.planesValid && d.near > 0f ? d.near : 0.1f;
             _lastRc = FinalScanHostNative.SetEnvDepth(ptr, (uint)d.width, (uint)d.height, _poseL, _poseR, _fovL, _fovR, near, far, d.xrTimeNs);
+            // Motion gate (§4.5): the head angular speed around the depth capture time decides whether the frame is geometry
+            // evidence. Environment Depth is computed over an exposure window; during a fast turn its surfaces land offset
+            // from the canonical world (run 00:12: matched fell from 97 % to 68 % on a turn, +8 k surfels "in the air").
+            var pipeline = _authority.Pipeline;
+            if (pipeline != null && pipeline.Poses != null)
+            {
+                var verdict = pipeline.Gate.Evaluate(pipeline.Poses, d.xrTimeNs - MotionGate.WindowPadNs, d.xrTimeNs + MotionGate.WindowPadNs, out float ang, out _);
+                LastAngularDegPerSec = ang;
+                if (verdict == MotionVerdict.NotGeometryEvidence) { GatedFrames++; return; }
+            }
             _lastMeasRc = FinalScanHostNative.SetMeasEnvDepth(ptr, (uint)d.width, (uint)d.height, _poseL, _poseR, _fovL, _fovR, near, far, d.xrTimeNs);
             Pushed++;
         }
