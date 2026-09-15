@@ -1,23 +1,20 @@
-// C09R-E4.1 surface sheet / manifold closure rules (twin: fs::world::SheetEdge / SheetUpdate in fs_fusion_ref.h).
-// Canonical authority stays the adaptive metric surfel (contract §8); the SurfaceGraph is disposable: per epoch, per
-// dirty cell, over PROMOTED surfels of the 27-cell neighbourhood. An edge joins two surfels of the same physical sheet
-// (compatible normal, signed plane distance inside the bounded gate = no depth discontinuity, supports no farther apart
-// than FS_SHEET_GAP_MAX_M). Over the 1-ring: robust local plane fit (flat -> centre pulled along its normal onto the fit,
-// normal blended; curved -> untouched), coverage closure (support grows toward the neighbours' half distance, never
-// beyond FS_SHEET_RADIUS_MAX_M, never where no edge exists) and redundant collapse (a surfel sitting inside a stronger
-// same-sheet neighbour is removed).
+// C09R-E4.1R surface complex rules (twin: fs::world::SheetEdgeR / SheetFitR in fs_fusion_ref.h). Promoted surfels are
+// control sites of one surface; the SurfaceGraph is derived: per node the true metric top-K compatible neighbours of a
+// ball query (FS_SHEET_LINK_R_M, across cells and pages). An edge is valid only when both ends propose each other.
 #ifndef FS_SHEET_GLSL
 #define FS_SHEET_GLSL
-// Symmetric edge test of a <-> b; tangential distance in `td`, signed plane distance in `d` (frame of the mean normal).
-bool fsSheetEdge(FsPatch a, FsPatch b, out float td, out float d) {
-    td = 0.0; d = 0.0;
+// Symmetric edge gate in world space (positions of different pages are comparable): normals within FS_SHEET_MIN_DOT,
+// signed plane distance in the mean-normal frame inside the sigma gate bounded by FS_SHEET_PLANE_MAX_M, distance <= R.
+bool fsSheetEdge(FsPatch a, vec3 pa, FsPatch b, vec3 pb, out float dist) {
+    dist = 1e30;
     if (dot(a.n, b.n) < FS_SHEET_MIN_DOT) return false;
-    vec3 nm = normalize(a.n + b.n);                                          // symmetric: the mean normal (a surfel's own tilt does not break the edge)
-    vec3 delta = b.p - a.p; d = dot(nm, delta);
-    float planeTol = min(FS_ASSOC_SIGMA_GATE * sqrt(a.sigmaN * a.sigmaN + b.sigmaN * b.sigmaN), FS_SHEET_PLANE_MAX_M);
-    if (abs(d) > planeTol) return false;
-    td = length(delta - d * nm);
-    if (td > FS_SHEET_REACH_MAX_M) return false;
-    return td <= a.rM + b.rM + FS_SHEET_GAP_MAX_M;
+    vec3 nm = normalize(a.n + b.n);
+    vec3 delta = pb - pa;
+    float d = dot(nm, delta);
+    if (abs(d) > min(FS_ASSOC_SIGMA_GATE * sqrt(a.sigmaN * a.sigmaN + b.sigmaN * b.sigmaN), FS_SHEET_PLANE_MAX_M)) return false;
+    dist = length(delta);
+    return dist <= FS_SHEET_LINK_R_M;
 }
+// World grid helpers: global cell index along one axis -> page coordinate and page-local cell coordinate.
+int fsFloorDiv32(int g) { return g >= 0 ? g / 32 : -((-g + 31) / 32); }
 #endif

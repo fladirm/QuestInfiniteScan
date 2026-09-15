@@ -3,7 +3,7 @@ using System;
 namespace FinalScan.Render
 {
     /// <summary>Contract §13.5 render modes. Switching a mode changes only cull policy and shader, never residency or canonical data.</summary>
-    public enum RenderMode { Scan = 0, XRay = 1, Plan = 2 }
+    public enum RenderMode { Scan = 0, XRay = 1, Plan = 2, Geometry = 3 }
 
     public static class RenderModeParser
     {
@@ -21,6 +21,7 @@ namespace FinalScan.Render
                 case "scan": case "live": case "0": mode = RenderMode.Scan; return true;
                 case "xray": case "x-ray": case "radar": case "1": mode = RenderMode.XRay; return true;
                 case "plan": case "2": mode = RenderMode.Plan; return true;
+                case "geometry": case "geo": case "3": mode = RenderMode.Geometry; return true;   // E4.1R geometry debug: neutral grey, no appearance gating
                 default: return false;
             }
         }
@@ -31,6 +32,7 @@ namespace FinalScan.Render
             {
                 case RenderMode.XRay: return "xray";
                 case RenderMode.Plan: return "plan";
+                case RenderMode.Geometry: return "geometry";
                 default: return "scan";
             }
         }

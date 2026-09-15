@@ -29,7 +29,7 @@ bool fsProjectAabb(vec3 wmin, vec3 wmax, out float nearest, out vec2 ndcMin, out
     return true;
 }
 void fsEmitAggregate(mat4 A, vec3 origin, FsClusterNode nd) {
-    bool measured = (nd.repColorOrHandle >> 24) != 0u;
+    bool measured = (nd.repColorOrHandle >> 24) != 0u && frames[pc.frameSlot].misc.x != uint(FS_RENDER_MODE_GEOMETRY);
     if (!measured && frames[pc.frameSlot].misc.x == uint(FS_RENDER_MODE_SCAN)) return;   // SCAN shows measured photometry only (E4.2)
     uint i = atomicAdd(work[FS_WK_AGG], 1u);
     if (i >= pc.aggCapacity) { atomicAdd(work[FS_WK_STAT + FS_CSTAT_BUDGET_DROPPED], 1u); return; }
@@ -83,7 +83,7 @@ void main() {
     }
     float nearest; vec2 ndcMin, ndcMax;
     bool projected = fsProjectAabb(wmin, wmax, nearest, ndcMin, ndcMax);
-    if (projected && F.misc.x == uint(FS_RENDER_MODE_SCAN)) {                 // HZB band test, fail-open
+    if (projected && (F.misc.x == uint(FS_RENDER_MODE_SCAN) || F.misc.x == uint(FS_RENDER_MODE_GEOMETRY))) {                 // HZB band test, fail-open
         vec2 tMin = clamp((ndcMin * 0.5 + 0.5) * float(FS_HZB_SIZE), vec2(0.0), vec2(FS_HZB_SIZE - 1));
         vec2 tMax = clamp((ndcMax * 0.5 + 0.5) * float(FS_HZB_SIZE), vec2(0.0), vec2(FS_HZB_SIZE - 1));
         uint lv = fsHzbLevelForExtent(max(tMax.x - tMin.x, tMax.y - tMin.y));

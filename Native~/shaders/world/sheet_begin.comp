@@ -1,0 +1,13 @@
+#version 450
+// E4.1R 0/3: takes this publication's bounded batch from the graph-dirty ring (FS_SHEET_BATCH_MAX) and writes the indirect args
+// of the graph / fit / apply passes. One invocation.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_GCTR
+#include "fs_world_blocks.glsl"
+layout(local_size_x = 1) in;
+void main() {
+    uint head = FS_TK(FS_T_SHEET_HEAD), tail = FS_TK(FS_T_SHEET_TAIL);
+    uint n = min(tail - head, uint(FS_SHEET_BATCH_MAX));
+    FS_TK(FS_T_SHEET_BEGIN) = head; FS_TK(FS_T_SHEET_COUNT) = n; FS_TK(FS_T_SHEET_HEAD) = head + n;
+    FS_TK(FS_T_ARGS_SHEET + 0) = (n + uint(FS_WG_SMALL) - 1u) / uint(FS_WG_SMALL); FS_TK(FS_T_ARGS_SHEET + 1) = 1u; FS_TK(FS_T_ARGS_SHEET + 2) = 1u; FS_TK(FS_T_ARGS_SHEET + 3) = n;
+}

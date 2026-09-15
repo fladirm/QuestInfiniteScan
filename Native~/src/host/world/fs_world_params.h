@@ -53,18 +53,21 @@
 #define FS_HUBER_K            1.345     // C09R-E4 robust update: contribution weight min(1, k * gate_sigma / |plane residual|)
 #define FS_ASSOC_PLANE_MAX_M  0.08      // C09R-E4 topological bound of the plane gate: a broad depth-prior sigma never joins sheets farther apart (provisional)
 #define FS_DEPTH_PRIOR_SIGMA_FLOOR_M 0.005  // C09R-E4 systematic floor of a depth-prior-only surfel (random noise averages, bias does not; C01 characterises it)
-// ---- C09R-E4.1 surface sheet / manifold closure (SurfaceGraph over promoted surfels; provisional numbers) ----------
+// ---- C09R-E4.1R surface complex core (provisional numbers). Canonical rM/rm = statistical support only; the SurfaceGraph is
+// derived and persistent per surfel handle; coverage (readout) is derived from mutual edges, never grown into the canonical.
+#define FS_SHEET_K            6         // proposed neighbours per node (true metric top-K of the ball query)
+#define FS_SHEET_LINK_R_M     0.06      // ball query radius / maximum edge length
+#define FS_SHEET_CAND_MAX     384       // candidates examined per ball query (counted beyond)
 #define FS_SHEET_MIN_DOT      0.9       // edge: normals within ~26 deg (a 90 deg corner never connects)
-#define FS_SHEET_PLANE_MAX_M  0.02      // edge: signed plane distance bound (together with the sigma gate) - no depth discontinuity
-#define FS_SHEET_GAP_MAX_M    0.03      // edge: supports at most this far apart (a larger gap stays a gap: foliage, cables)
-#define FS_SHEET_REACH_MAX_M  0.15      // edge: centre distance hard bound
-#define FS_SHEET_RING         8         // 1-ring size (nearest compatible neighbours by tangential distance)
-#define FS_SHEET_NEIGH_MAX    96        // promoted surfels gathered from the 27-cell neighbourhood (bounded)
-#define FS_SHEET_OWN_MAX      32        // promoted surfels of the owner cell updated per epoch (bounded)
-#define FS_SHEET_FLAT_K       1.5       // flat when the ring's plane RMS <= K x the ring's mean sigma (else curvature is preserved)
-#define FS_SHEET_BLEND        0.5       // flat sheet: fraction of the local fit applied per epoch (normal + offset along the normal)
-#define FS_SHEET_RADIUS_MAX_M 0.08      // coverage growth never beyond this semi-axis
-#define FS_SHEET_REDUNDANT_K  0.5       // a surfel whose centre lies within K x min(radius) of a stronger same-sheet neighbour collapses into it
+#define FS_SHEET_PLANE_MAX_M  0.02      // edge: signed plane distance bound in the mean-normal frame (no depth discontinuity)
+#define FS_SHEET_FLAT_K       1.5       // flat when the mutual ring's plane RMS <= K x its mean sigma (else curvature is preserved)
+#define FS_SHEET_BLEND        0.5       // flat sheet: fraction of the fitted normal offset / normal applied per graph update
+#define FS_SHEET_COVER_MAX_M  0.05      // derived coverage radius bound (readout only)
+#define FS_SHEET_MOVE_MIN_M   0.002     // reduce marks a promoted surfel graph-dirty when its centre moved more than this ...
+#define FS_SHEET_TURN_MIN_COS 0.9994    // ... or its normal turned more than ~2 deg (converged in-plane updates cost no graph work)
+#define FS_SHEET_RING_CAP     262144    // graph-dirty ring (power of two; dedupe bit per handle)
+#define FS_SHEET_BATCH_MAX    4096      // graph-dirty surfels processed per publication (bounded work)
+#define FS_SHEET_NODE_WORDS   8         // per handle: nbr[6] (page << 22 | handle), meta (degree << 24 | coverage 0.01 mm), component
 #define FS_RELOC_MAX          1024      // C09R-E4 relocation records per epoch (centre crossed its index cell); beyond: the position update waits (counted)
 #define FS_GHOST_MOTION_MIN   3         // free-space contradictions before a candidate / weak surfel is removed
 #define FS_GHOST_STATIC_K     2         // + staticEvidence / K contradictions for supported surfels
@@ -120,6 +123,7 @@
 #define FS_RENDER_MODE_SCAN       0
 #define FS_RENDER_MODE_XRAY       1
 #define FS_RENDER_MODE_PLAN       2
+#define FS_RENDER_MODE_GEOMETRY   3     // E4.1R geometry debug: SCAN culling, every promoted surface neutral grey (no appearance gating)
 
 // ---- GPU counter words (gctr buffer, host-visible; the sched tick folds deltas into FsCounter / telemetry) --
 #define FS_GCTR_PAGE_LOOKUPS       0
@@ -154,11 +158,19 @@
 #define FS_GCTR_RELOCATIONS        29     // index relocations applied (surfel centre moved to another cell, SurfaceID kept)
 #define FS_GCTR_NEXT_SURFACE_ID    30     // deterministic id base for the epoch (CPU advances it by the epoch's total)
 #define FS_GCTR_RELOC_DEFERRED     31     // relocations refused by FS_RELOC_MAX (position update deferred to a later observation)
-#define FS_GCTR_SHEET_EDGES        32     // E4.1: compatible neighbour edges found (SurfaceGraph)
-#define FS_GCTR_SHEET_SMOOTHED     33     // surfels pulled onto their local flat sheet fit
-#define FS_GCTR_SHEET_GROWN        34     // surfels whose support grew toward their neighbours (coverage closure)
-#define FS_GCTR_SHEET_COLLAPSED    35     // redundant surfels collapsed into a stronger same-sheet neighbour
-#define FS_GCTR_COUNT              36
+#define FS_GCTR_SHEET_EDGES        32     // E4.1R: mutual edges seen by the fit (directed: each unordered edge counts once per updated end)
+#define FS_GCTR_SHEET_NODES        33     // graph nodes updated (fit)
+#define FS_GCTR_CROSS_PAGE_EDGES   34     // mutual edges whose ends live in different pages
+#define FS_GCTR_COVER_OVERLAP_MM2  35     // derived coverage overlap area along mutual edges (mm^2, directed sum)
+#define FS_GCTR_COVER_HOLE_MM2     36     // derived coverage hole area along mutual edges (mm^2, directed sum)
+#define FS_GCTR_PLANE_RMS_UM       37     // sum over updated nodes of the ring plane RMS (um)
+#define FS_GCTR_NORMAL_RMS_MDEG    38     // sum over updated nodes of |normal - fitted normal| (millidegrees)
+#define FS_GCTR_SHEET_FRONTIER_DROP 39    // graph-dirty marks refused by the ring bound
+#define FS_GCTR_SHEET_SMOOTHED     40     // nodes pulled onto their flat local fit
+#define FS_GCTR_EDGE_CONTRACTIONS  41     // E4.1C graph edge contractions
+#define FS_GCTR_REFINE_BIRTHS      42     // E4.1C refinement births
+#define FS_GCTR_SHEET_CAND_OVERFLOW 43    // ball queries that hit FS_SHEET_CAND_MAX
+#define FS_GCTR_COUNT              44
 
 // ---- fusion scratch layout (u32 words in the `tick` buffer; per epoch) -------------------------------------
 #define FS_T_COUNT           0          // measurements in the epoch (GPU-written from the ring counters)
@@ -170,11 +182,18 @@
 #define FS_T_RETIRE_COUNT    6
 #define FS_T_PENDING_COUNT   7
 #define FS_T_COW_COUNT       8          // dirty nodes at the current level (per-level indirect args reuse)
+#define FS_T_SHEET_HEAD      10         // graph-dirty ring: consumer head (sheet_begin)
+#define FS_T_SHEET_TAIL      11         // graph-dirty ring: producer tail (atomic)
+#define FS_T_SHEET_BEGIN     12         // this publication's batch: first ring index
+#define FS_T_SHEET_COUNT     13         // this publication's batch size
+#define FS_T_SHEET_MASK_BASE 14         // word offsets inside the sheet buffer (CPU-written, depend on the surfel capacity)
+#define FS_T_SHEET_RING_BASE 15
 #define FS_T_RELOC_COUNT     9          // relocation records (written by fuse_reduce / fuse_maint_apply, consumed and zeroed by world_relocate)
 #define FS_T_ARGS_MEAS       16         // {ceil(count/64), 1, 1, 0}
 #define FS_T_ARGS_SORTBLK    20         // {blocks, 1, 1, 0}
 #define FS_T_ARGS_DIRTY      24         // {ceil(dirty/64), 1, 1, 0}
 #define FS_T_ARGS_COW        28         // {ceil(cowNodes/64), 1, 1, 0}
+#define FS_T_ARGS_SHEET      36         // {ceil(sheetCount/64), 1, 1, 0}
 #define FS_T_ARGS_PENDING    32         // {ceil(pending/64), 1, 1, 0}
 #define FS_T_LEVEL_ARGS      40         // 6 x {groups, 1, 1, count}: indirect args + entry count of the dirty list per render-tree level 1..5 (index by level)
 #define FS_T_IDX_LEAF_BASE   72         // u32 word offsets of the leaf / node regions inside the index arena (pool sizes are runtime)

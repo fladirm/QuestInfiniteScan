@@ -175,7 +175,7 @@ public:
         }
         // Depth priors: import + bind every frame we (re)build the HZB (Unity may re-transition the image)
         bool hzbWanted = false, prevOk = false, envOk = false;
-        if (renderMode_ == FS_RENDER_MODE_SCAN && (prev_.valid || env_.valid) && hzbBuiltVersion_ != DepthVersion()) {
+        if ((renderMode_ == FS_RENDER_MODE_SCAN || renderMode_ == FS_RENDER_MODE_GEOMETRY) && (prev_.valid || env_.valid) && hzbBuiltVersion_ != DepthVersion()) {
             VkImage img; VkImageView viewPrev = VK_NULL_HANDLE, viewEnv = VK_NULL_HANDLE; VkFormat fmt; uint32_t w, h, layers;
             if (prev_.valid && ImportUnityTexture(prev_.unityPtr, img, viewPrev, fmt, w, h, layers)) { prevOk = true; prev_.width = w; prev_.height = h; prev_.layers = layers; }
             if (env_.valid && ImportUnityTexture(env_.unityPtr, img, viewEnv, fmt, w, h, layers)) { envOk = true; env_.width = w; env_.height = h; env_.layers = layers; }
@@ -392,7 +392,7 @@ public:
         UpdateDrawLayout(); forceRecut_ = true; return 0;
     }
     int32_t SetHeadroom(int32_t us) { std::lock_guard<std::recursive_mutex> g(m_); headroomUs_ = us; return 0; }
-    int32_t SetMode(int32_t mode) { std::lock_guard<std::recursive_mutex> g(m_); if (mode < 0 || mode > FS_RENDER_MODE_PLAN) return 2; renderMode_ = mode; forceRecut_ = true; return 0; }
+    int32_t SetMode(int32_t mode) { std::lock_guard<std::recursive_mutex> g(m_); if (mode < 0 || mode > FS_RENDER_MODE_GEOMETRY) return 2; renderMode_ = mode; forceRecut_ = true; return 0; }
     int32_t GetDrawLayout(uint32_t* oc, uint32_t* ab, uint32_t* ac) { std::lock_guard<std::recursive_mutex> g(m_); if (oc) *oc = opaqueCapacity_; if (ab) *ab = aggBase_; if (ac) *ac = aggCapacity_; return 0; }
     int32_t GetLastCullStats(int64_t out[4]) {           // newest stats ring entry the GPU wrote (host-visible, no wait)
         std::lock_guard<std::recursive_mutex> g(m_);

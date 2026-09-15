@@ -155,7 +155,7 @@ namespace FinalScan.Host
         }
         public bool Scanning { get => ScanEnabled; set => ScanEnabled = value; }
         public void ToggleScanning() => ScanEnabled = !ScanEnabled;
-        public void CycleMode() { renderMode = (RenderMode)(((int)renderMode + 1) % 3); ModeSource = "ui"; _modeSent = false; }
+        public void CycleMode() { renderMode = (RenderMode)(((int)renderMode + 1) % 4); ModeSource = "ui"; _modeSent = false; }
         public string LastResetResult { get; private set; } = "none";
 
         /// <summary>

@@ -339,48 +339,53 @@ static void TestAppearanceFusion() {
     CHECK(ColorPack(ColorOf(0x123456u)) == 0x123456u);
 }
 
-// C09R-E4.1 surface sheet closure: a flat wall of sparse surfels becomes one coherent sheet (normals unified, centres on
-// the plane, supports grown to close the gaps); a 90 deg corner never connects; a gap wider than FS_SHEET_GAP_MAX_M stays
-// open (foliage); a redundant surfel inside a stronger neighbour collapses.
+// C09R-E4.1R surface complex core: true metric top-K ball query, mutual edges, immutable fit -> apply, canonical radii untouched,
+// derived coverage from the graph, corners / steps never connect, curvature preserved, cross-page sites connect.
 static Patch SheetPatch(V3 p, V3 n, float r, float sigma) { Patch q; q.p = p; q.n = Norm(n); q.rM = q.rm = r; q.sigmaN = sigma; q.sigmaT = 0.004f; q.flags = kFlagPromoted | 5; q.angle = 0.f; return q; }
-static void TestSurfaceSheet() {
-    std::vector<Patch> wall; std::vector<FsSurfelEvidence> wallEv;
-    std::mt19937 rng(5); std::normal_distribution<float> tilt(0.f, 0.08f), off(0.f, 0.003f);
-    for (int y = -2; y <= 2; ++y) for (int x = -2; x <= 2; ++x) {                               // 3.5 cm grid, 5 mm supports: 2.5 cm gaps
-        if (x == 0 && y == 0) continue;
-        wall.push_back(SheetPatch(v3(0.035f * x, 0.035f * y, off(rng)), v3(tilt(rng), tilt(rng), 1.f), 0.005f, 0.004f));
-        FsSurfelEvidence e{}; e.staticEvidence = 5; wallEv.push_back(e);
-    }
-    Patch a = SheetPatch(v3(0, 0, 0.008f), v3(0.15f, -0.1f, 1.f), 0.005f, 0.004f); FsSurfelEvidence ea{}; ea.staticEvidence = 5;
-    SheetResult r = SheetUpdate(a, ea, wall, wallEv);
-    CHECK(r.edges >= 4 && !r.collapsed && r.smoothed && r.grown);                                 // the 4-neighbourhood (diagonal gaps 3.95 cm stay open)
-    CHECK(fabsf(r.out.p.z) < fabsf(a.p.z));                                                           // pulled toward the common plane
-    CHECK(Dot(r.out.n, v3(0, 0, 1)) > Dot(a.n, v3(0, 0, 1)));                                         // normal toward the sheet normal
-    CHECK(fabsf(r.out.p.x) < 5e-4f && fabsf(r.out.p.y) < 5e-4f);                                      // moves along the fitted normal only (no tangential drift beyond its tilt)
-    CHECK(r.out.rM >= 0.016f && r.out.rM <= (float)FS_SHEET_RADIUS_MAX_M);                            // support grows to ~half the 3.5 cm spacing
-    // 90 deg corner: the other wall never becomes an edge
-    std::vector<Patch> corner; std::vector<FsSurfelEvidence> cEv;
-    for (int k = 1; k <= 6; ++k) { corner.push_back(SheetPatch(v3(0.01f, 0.03f * k - 0.09f, 0.01f), v3(1, 0, 0), 0.005f, 0.004f)); cEv.push_back(wallEv[0]); }
-    SheetResult rc = SheetUpdate(SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.005f, 0.004f), ea, corner, cEv);
-    CHECK(rc.edges == 0 && !rc.grown && !rc.smoothed);
-    // gap wider than FS_SHEET_GAP_MAX_M (leaves 6 cm apart, 5 mm supports): no edge, no growth
-    std::vector<Patch> sparse; std::vector<FsSurfelEvidence> sEv;
-    for (int k = 0; k < 6; ++k) { float ang = 6.2831853f * (float)k / 6.f; sparse.push_back(SheetPatch(v3(0.06f * cosf(ang), 0.06f * sinf(ang), 0), v3(0, 0, 1), 0.005f, 0.004f)); sEv.push_back(wallEv[0]); }
-    SheetResult rs = SheetUpdate(SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.005f, 0.004f), ea, sparse, sEv);
-    CHECK(rs.edges == 0 && !rs.grown);
-    // a 2 cm step (depth discontinuity) is not the same sheet
-    std::vector<Patch> step; for (int k = 0; k < 4; ++k) step.push_back(SheetPatch(v3(0.02f * (k - 1.5f), 0.02f, 0.025f), v3(0, 0, 1), 0.005f, 0.002f));
-    SheetResult rst = SheetUpdate(SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.005f, 0.002f), ea, step, std::vector<FsSurfelEvidence>(4, wallEv[0]));
-    CHECK(rst.edges == 0);
-    // curved surface (sphere of radius 5 cm): no plane smoothing (curvature preserved), coverage still closes
-    std::vector<Patch> sph; for (int k = 0; k < 8; ++k) { float ang = 6.2831853f * (float)k / 8.f; V3 p = v3(0.02f * cosf(ang), 0.02f * sinf(ang), 0.f); float z = 0.05f - sqrtf(0.05f * 0.05f - Dot(p, p)); p.z = z; sph.push_back(SheetPatch(p, v3(-p.x, -p.y, 0.05f - z), 0.006f, 0.0005f)); }
-    SheetResult rsp = SheetUpdate(SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.006f, 0.0005f), ea, sph, std::vector<FsSurfelEvidence>(8, wallEv[0]));
-    CHECK(rsp.edges == 8 && !rsp.smoothed && rsp.grown);
-    // redundant: a weaker surfel 1 mm from a stronger same-sheet neighbour collapses
-    std::vector<Patch> dup{SheetPatch(v3(0.001f, 0, 0), v3(0, 0, 1), 0.01f, 0.004f), SheetPatch(v3(0.03f, 0, 0), v3(0, 0, 1), 0.01f, 0.004f)};
-    FsSurfelEvidence strong{}; strong.staticEvidence = 20; FsSurfelEvidence weak{}; weak.staticEvidence = 3;
-    CHECK(SheetUpdate(SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.01f, 0.004f), weak, dup, {strong, strong}).collapsed);
-    CHECK(!SheetUpdate(SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.01f, 0.004f), strong, dup, {weak, weak}).collapsed);
+static std::vector<SheetSite> Sites(const std::vector<Patch>& ps) { std::vector<SheetSite> s; for (size_t i = 0; i < ps.size(); ++i) { SheetSite x; x.q = ps[i]; x.world = ps[i].p; x.id = (uint32_t)i; s.push_back(x); } return s; }
+static void TestSurfaceComplex() {
+    // flat noisy wall, 2.5 cm grid
+    std::vector<Patch> ps; std::mt19937 rng(5); std::normal_distribution<float> tilt(0.f, 0.05f), off(0.f, 0.002f);
+    for (int y = -3; y <= 3; ++y) for (int x = -3; x <= 3; ++x) ps.push_back(SheetPatch(v3(0.025f * x, 0.025f * y, off(rng)), v3(tilt(rng), tilt(rng), 1.f), 0.004f, 0.004f));
+    std::vector<SheetSite> sites = Sites(ps);
+    std::vector<std::vector<uint32_t>> props; for (auto& s : sites) props.push_back(SheetProposals(s, sites));
+    const uint32_t centre = 24;                                                                       // (0,0)
+    CHECK(props[centre].size() == FS_SHEET_K);
+    // true metric top-K: the 4 axis neighbours (2.5 cm) come first, then diagonals (3.5 cm); a far candidate listed first never wins
+    std::vector<SheetSite> shuffled = sites; std::reverse(shuffled.begin(), shuffled.end());
+    CHECK(SheetProposals(sites[centre], shuffled) == props[centre]);
+    for (size_t k = 0; k < 4; ++k) CHECK_NEAR(Len(sites[props[centre][k]].world - sites[centre].world), 0.025, 0.004);
+    std::vector<float> cover(sites.size(), 0.f);
+    SheetDelta d = SheetFitR(sites[centre], props[centre], sites, props, cover);
+    CHECK(d.degree >= 4 && d.flat);
+    CHECK(d.coverR >= 0.012f && d.coverR <= 0.018f);                                                 // half the median mutual edge (~2.5-3.5 cm)
+    Patch moved = SheetApplyR(ps[centre], d);
+    CHECK(moved.rM == ps[centre].rM && moved.rm == ps[centre].rm);                                    // canonical statistical support untouched
+    CHECK(Dot(moved.n, v3(0, 0, 1)) >= Dot(ps[centre].n, v3(0, 0, 1)) - 1e-6f);
+    // mutual only: a site that proposes the centre but the centre (with 6 closer neighbours) does not propose back -> frontier, no edge
+    std::vector<Patch> ps2 = ps; ps2.push_back(SheetPatch(v3(0.05f, 0.0f, 0.0f), v3(0, 0, 1), 0.004f, 0.004f));   // duplicate of (2,0) spot
+    std::vector<SheetSite> s2 = Sites(ps2); std::vector<std::vector<uint32_t>> p2; for (auto& s : s2) p2.push_back(SheetProposals(s, s2));
+    SheetDelta dFar = SheetFitR(s2.back(), p2.back(), s2, p2, std::vector<float>(s2.size(), 0.f));
+    CHECK(dFar.degree + dFar.frontier.size() == p2.back().size());
+    // 90 deg corner never connects
+    std::vector<Patch> corner{SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.004f, 0.004f), SheetPatch(v3(0.01f, 0, 0.01f), v3(1, 0, 0), 0.004f, 0.004f), SheetPatch(v3(0.01f, 0.02f, 0.01f), v3(1, 0, 0), 0.004f, 0.004f)};
+    std::vector<SheetSite> sc = Sites(corner); CHECK(SheetProposals(sc[0], sc).empty());
+    // a 2.5 cm step is a depth discontinuity, not the same sheet
+    std::vector<Patch> step{SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.004f, 0.002f), SheetPatch(v3(0.02f, 0, 0.025f), v3(0, 0, 1), 0.004f, 0.002f)};
+    std::vector<SheetSite> sst = Sites(step); CHECK(SheetProposals(sst[0], sst).empty());
+    // beyond the link radius: no edge (a gap between leaves stays a gap)
+    std::vector<Patch> gap{SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.004f, 0.004f), SheetPatch(v3(0.07f, 0, 0), v3(0, 0, 1), 0.004f, 0.004f)};
+    std::vector<SheetSite> sg = Sites(gap); CHECK(SheetProposals(sg[0], sg).empty());
+    // curved (5 cm sphere): sites connect but the fit is not flat, nothing moves
+    std::vector<Patch> sph{SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.004f, 0.0005f)};
+    for (int k = 0; k < 8; ++k) { float ang = 6.2831853f * (float)k / 8.f; V3 p = v3(0.02f * cosf(ang), 0.02f * sinf(ang), 0.f); p.z = 0.05f - sqrtf(0.05f * 0.05f - Dot(p, p)); sph.push_back(SheetPatch(p, v3(-p.x, -p.y, 0.05f - p.z), 0.004f, 0.0005f)); }
+    std::vector<SheetSite> ss = Sites(sph); std::vector<std::vector<uint32_t>> psph; for (auto& s : ss) psph.push_back(SheetProposals(s, ss));
+    SheetDelta dsp = SheetFitR(ss[0], psph[0], ss, psph, std::vector<float>(ss.size(), 0.f));
+    CHECK(dsp.degree >= 3 && !dsp.flat && SheetApplyR(sph[0], dsp).p.z == sph[0].p.z);
+    // cross page: world positions of sites in different pages connect exactly like same-page sites
+    SheetSite pa; pa.q = SheetPatch(v3(1.99f, 0, 0), v3(0, 0, 1), 0.004f, 0.004f); pa.world = v3(3.99f, 0, 0); pa.id = 0;
+    SheetSite pb; pb.q = SheetPatch(v3(-1.99f, 0, 0), v3(0, 0, 1), 0.004f, 0.004f); pb.world = v3(4.01f, 0, 0); pb.id = 1;
+    CHECK(SheetProposals(pa, {pa, pb}).size() == 1);
 }
 
 static void TestConcurrentCandidates() {
@@ -568,7 +573,7 @@ static void TestIndexGeneration() {
 
 int main() {
     TestPageHash(); TestEncodings(); TestSynthetic(); TestResidency(); TestHzbBand(); TestHzbDisagreement(); TestCullMath();
-    TestFusionDeterminism(); TestRelocationAcrossCell(); TestSurfaceSheet(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCrossPageFreeRay(); TestIndexGeneration();
+    TestFusionDeterminism(); TestRelocationAcrossCell(); TestSurfaceComplex(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCrossPageFreeRay(); TestIndexGeneration();
     std::printf("finalscan host world tests: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

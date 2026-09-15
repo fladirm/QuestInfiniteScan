@@ -124,6 +124,29 @@ bool fsPushRelocation(uint h, uint page, uint oldCell, uint newCell, FsSurfel ol
 vec3 fsPageRangeGuard(vec3 l) { float hh = FS_PAGE_EXTENT_M * 0.5 - 0.0005; return clamp(l, vec3(-hh), vec3(hh)); }
 #endif
 #endif
+#ifdef FS_USE_SHEET
+layout(std430, set = 0, binding = FS_B_SHEET) buffer SheetBlock { uint sheet[]; };
+#endif
+#ifdef FS_USE_SHEET_RO
+layout(std430, set = 0, binding = FS_B_SHEET) readonly buffer SheetBlockRO { uint sheet[]; };
+#endif
+#if defined(FS_USE_SHEET) || defined(FS_USE_SHEET_RO)
+uint fsSheetNodeWord(uint h, uint w) { return h * uint(FS_SHEET_NODE_WORDS) + w; }
+uint fsSheetDeltaWord(uint i, uint w) { return FS_TK(FS_T_SHEET_RING_BASE) + uint(FS_SHEET_RING_CAP) + i * 4u + w; }
+uint fsSheetPack(uint page, uint h) { return (page << 22) | h; }
+#endif
+#if defined(FS_USE_SHEET) && defined(FS_USE_GCTR)
+// Marks a promoted surfel graph-dirty once (dedupe bit); the ring entry is consumed by a later publication's bounded batch.
+void fsSheetMark(uint page, uint h) {
+    uint mw = FS_TK(FS_T_SHEET_MASK_BASE) + (h >> 5u); uint bit = 1u << (h & 31u);
+    uint prev = atomicOr(sheet[mw], bit);
+    if ((prev & bit) != 0u) return;
+    uint t = atomicAdd(FS_TK(FS_T_SHEET_TAIL), 1u);
+    if (t - FS_TK(FS_T_SHEET_HEAD) >= uint(FS_SHEET_RING_CAP)) { atomicAnd(sheet[mw], ~bit); atomicAdd(gctr[FS_GCTR_SHEET_FRONTIER_DROP], 1u); return; }
+    sheet[FS_TK(FS_T_SHEET_RING_BASE) + (t & (uint(FS_SHEET_RING_CAP) - 1u))] = fsSheetPack(page, h);
+}
+bool fsSheetMarked(uint h) { return (sheet[FS_TK(FS_T_SHEET_MASK_BASE) + (h >> 5u)] & (1u << (h & 31u))) != 0u; }
+#endif
 #ifdef FS_USE_RENDER
 layout(std430, set = 0, binding = FS_B_RENDER) buffer RenderNodeBlock { FsRenderNode rnodes[]; };
 #endif

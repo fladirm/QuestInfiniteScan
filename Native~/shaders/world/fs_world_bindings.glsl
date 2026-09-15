@@ -22,4 +22,5 @@
 #define FS_B_PENDING    17   // FsPendingPublish[FS_MAX_PAGES]
 #define FS_B_MEAS_RING  18   // ingest only: the measurement ring slot records
 #define FS_B_MEAS_CTR   19   // ingest only: the ring slot frame block (count)
+#define FS_B_SHEET      20   // E4.1R SurfaceGraph: nodes[surfelCap * FS_SHEET_NODE_WORDS], dirty bitmask, dirty ring, batch deltas
 #endif

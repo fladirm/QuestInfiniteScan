@@ -1,0 +1,89 @@
+#version 450
+// E4.1R 2/3 immutable surface analysis (one dispatch over the batch): reads canonical surfels and every node's proposals, writes only
+// its own SheetDelta slot. Mutual edges (both ends propose each other) form the SurfaceGraph; a proposed neighbour that does not
+// propose back is marked graph-dirty (frontier), so the graph converges without scanning unchanged regions. Over the mutual ring:
+// local plane fit (flat -> normal offset + normal target; curved -> none), derived coverage radius = half the median mutual edge
+// length (readout only), component label = min packed id, receipts (plane / normal RMS, coverage overlap / hole along edges).
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_PAGES_RO
+#define FS_USE_SURFELS_RO
+#define FS_USE_GCTR
+#define FS_USE_SHEET
+#include "fs_world_blocks.glsl"
+#include "fs_fusion.glsl"
+#include "fs_sheet.glsl"
+layout(local_size_x = FS_WG_SMALL) in;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= FS_TK(FS_T_SHEET_COUNT)) return;
+    uint e = sheet[FS_TK(FS_T_SHEET_RING_BASE) + ((FS_TK(FS_T_SHEET_BEGIN) + i) & (uint(FS_SHEET_RING_CAP) - 1u))];
+    uint page = e >> 22, h = e & 0x3FFFFFu;
+    uint dw = fsSheetDeltaWord(i, 0u);
+    sheet[dw] = 0u; sheet[dw + 1u] = 0u; sheet[dw + 2u] = 0u; sheet[dw + 3u] = e;
+    if (!fsSheetMarked(h)) return;
+    FsPatch a = fsUnpack(surfels[h]);
+    if ((a.flags & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) != 0u || (a.flags & FS_FLAG_PROMOTED) == 0u) return;
+    vec3 pa = fsPageOrigin3(pages[page].key) + a.p;
+    uint mut[FS_SHEET_K]; vec3 mp[FS_SHEET_K]; float md[FS_SHEET_K]; uint nm = 0u, cross = 0u;
+    uint component = e;
+    for (uint k = 0u; k < uint(FS_SHEET_K); ++k) {
+        uint nbE = sheet[fsSheetNodeWord(h, k)];
+        if (nbE == FS_INDEX_NONE) continue;
+        uint nbP = nbE >> 22, nbH = nbE & 0x3FFFFFu;
+        FsPatch b = fsUnpack(surfels[nbH]);
+        if ((b.flags & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) != 0u) continue;
+        bool mutual = false;
+        for (uint j = 0u; j < uint(FS_SHEET_K); ++j) if (sheet[fsSheetNodeWord(nbH, j)] == e) { mutual = true; break; }
+        if (!mutual) { fsSheetMark(nbP, nbH); continue; }                         // frontier: the neighbour re-evaluates its graph
+        vec3 pb = fsPageOrigin3(pages[nbP].key) + b.p;
+        mut[nm] = nbE; mp[nm] = pb; md[nm] = length(pb - pa); nm++;
+        if (nbP != page) cross++;
+        component = min(component, sheet[fsSheetNodeWord(nbH, 7u)] != 0u ? min(sheet[fsSheetNodeWord(nbH, 7u)], nbE) : nbE);
+    }
+    atomicAdd(gctr[FS_GCTR_SHEET_NODES], 1u);
+    if (nm == 0u) { sheet[dw + 2u] = 0u; sheet[dw + 3u] = e; return; }
+    atomicAdd(gctr[FS_GCTR_SHEET_EDGES], nm);
+    if (cross != 0u) atomicAdd(gctr[FS_GCTR_CROSS_PAGE_EDGES], cross);
+    // ---- derived coverage radius: half the median mutual edge length (insertion sort of <= 6)
+    float sd[FS_SHEET_K]; for (uint k = 0u; k < uint(FS_SHEET_K); ++k) sd[k] = k < nm ? md[k] : 1e30;
+    for (uint x = 1u; x < nm; ++x) { float v = sd[x]; uint y = x; while (y > 0u && sd[y - 1u] > v) { sd[y] = sd[y - 1u]; y--; } sd[y] = v; }
+    float coverR = clamp(0.5 * sd[nm / 2u], a.rM, FS_SHEET_COVER_MAX_M);
+    // ---- coverage receipts along mutual edges (neighbour coverage from its node meta; its statistical radius when not yet derived)
+    float overlap = 0.0, hole = 0.0;
+    for (uint k = 0u; k < uint(FS_SHEET_K); ++k) {
+        if (k >= nm) break;
+        uint nbH = mut[k] & 0x3FFFFFu;
+        uint meta = sheet[fsSheetNodeWord(nbH, 6u)];
+        float rb = (meta & 0xFFFFu) != 0u ? float(meta & 0xFFFFu) * 1e-5 : fsDecodeLogRadius(fsGet_FsSurfel_radiusMajor(surfels[nbH]));
+        float gap = md[k] - coverR - rb, w = 2.0 * min(coverR, rb);
+        if (gap < 0.0) overlap += -gap * w; else hole += gap * w;
+    }
+    atomicAdd(gctr[FS_GCTR_COVER_OVERLAP_MM2], uint(overlap * 1e6));
+    atomicAdd(gctr[FS_GCTR_COVER_HOLE_MM2], uint(hole * 1e6));
+    // ---- local plane fit over {a} + mutual ring
+    float wA = 1.0 / (a.sigmaN * a.sigmaN);
+    vec3 cSum = pa * wA, nSum = a.n * wA; float wSum = wA, s2Sum = wA * a.sigmaN * a.sigmaN;
+    for (uint k = 0u; k < uint(FS_SHEET_K); ++k) {
+        if (k >= nm) break;
+        FsPatch b = fsUnpack(surfels[mut[k] & 0x3FFFFFu]);
+        float w = (1.0 / (b.sigmaN * b.sigmaN)) / (1.0 + (md[k] * md[k]) / (FS_SHEET_LINK_R_M * FS_SHEET_LINK_R_M));
+        cSum += mp[k] * w; nSum += b.n * w; wSum += w; s2Sum += w * b.sigmaN * b.sigmaN;
+    }
+    vec3 cFit = cSum / wSum, nFit = normalize(nSum);
+    float res2 = wA * pow(dot(nFit, pa - cFit), 2.0);
+    for (uint k = 0u; k < uint(FS_SHEET_K); ++k) {
+        if (k >= nm) break;
+        FsPatch b = fsUnpack(surfels[mut[k] & 0x3FFFFFu]);
+        float w = (1.0 / (b.sigmaN * b.sigmaN)) / (1.0 + (md[k] * md[k]) / (FS_SHEET_LINK_R_M * FS_SHEET_LINK_R_M));
+        res2 += w * pow(dot(nFit, mp[k] - cFit), 2.0);
+    }
+    float rms = sqrt(res2 / wSum);
+    bool isFlat = rms <= FS_SHEET_FLAT_K * sqrt(s2Sum / wSum);
+    atomicAdd(gctr[FS_GCTR_PLANE_RMS_UM], uint(rms * 1e6));
+    atomicAdd(gctr[FS_GCTR_NORMAL_RMS_MDEG], uint(degrees(acos(clamp(dot(a.n, nFit), -1.0, 1.0))) * 1000.0));
+    float offset = isFlat ? dot(nFit, cFit - pa) : 0.0;
+    sheet[dw] = floatBitsToUint(offset);
+    sheet[dw + 1u] = isFlat ? fsEncodeOct32(nFit) : 0u;
+    sheet[dw + 2u] = (isFlat ? 1u : 0u) | (min(nm, 15u) << 4) | (min(uint(coverR * 1e5 + 0.5), 0xFFFFu) << 16);
+    sheet[dw + 3u] = component;
+}

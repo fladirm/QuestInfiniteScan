@@ -12,6 +12,7 @@
 #define FS_USE_GCTR
 #define FS_USE_ASSOC_A_RO
 #define FS_USE_DIRTY
+#define FS_USE_SHEET
 #include "fs_world_blocks.glsl"
 #include "fs_fusion.glsl"
 layout(local_size_x = FS_WG_SMALL) in;
@@ -79,6 +80,9 @@ void main() {
     uint flags = q.flags;
     cnt = min(cnt + 1u, uint(FS_EVIDENCE_COUNT_MAX));
     if ((flags & FS_FLAG_TRANSIENT) != 0u && stat >= uint(FS_PROMOTE_STATIC)) flags = (flags & ~FS_FLAG_TRANSIENT) | FS_FLAG_PROMOTED;
+    // E4.1R changed frontier: a surfel promoted now, or a promoted one that moved / turned noticeably, re-evaluates its SurfaceGraph
+    bool promotedNow = (flags & FS_FLAG_PROMOTED) != 0u && (q.flags & FS_FLAG_PROMOTED) == 0u;
+    if (promotedNow || ((flags & FS_FLAG_PROMOTED) != 0u && (length(np - q.p) > FS_SHEET_MOVE_MIN_M || dot(nn, q.n) < FS_SHEET_TURN_MIN_COS))) fsSheetMark(page, h);
     q.p = np; q.n = nn; q.angle = ang; q.rM = rM; q.rm = rm; q.sigmaN = newSigmaN; q.sigmaT = newSigmaT;
     q.flags = (flags & ~FS_EVIDENCE_COUNT_MASK) | cnt;
     if (acc.colW > 0.0) q.appearance = fsBlendAppearance(q.appearance, acc.col / acc.colW, wPrior, 1.0);

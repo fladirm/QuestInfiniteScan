@@ -13,6 +13,7 @@
 #define FS_USE_RBLOCKS
 #define FS_USE_RDIR
 #define FS_USE_RETIRE
+#define FS_USE_SHEET_RO
 #include "fs_world_blocks.glsl"
 #include "fs_render_agg.glsl"
 #define FS_MAINT_LEAVES_MAX 64
@@ -91,6 +92,9 @@ void main() {
                 curBlock = fsPoolAlloc(FS_POOL_RBLOCK); fill = 0u;
                 if (curBlock == FS_INDEX_NONE) { atomicAdd(gctr[FS_GCTR_POOL_RBLOCK_EMPTY], 1u); break; }
             }
+            // E4.1R derived readout coverage (mutual degree >= 2): isotropic half median edge length; the canonical radii stay statistical
+            uint meta = sheet[fsSheetNodeWord(h, 6u)];
+            if ((meta >> 24) >= 2u && (meta & 0xFFFFu) != 0u) { uint r16 = fsEncodeLogRadius(float(meta & 0xFFFFu) * 1e-5); fsSet_FsSurfel_radiusMajor(s, r16); fsSet_FsSurfel_radiusMinor(s, r16); }
             rsurfels[curBlock * uint(FS_RENDER_BLOCK_SURFELS) + fill] = s; fill++; total++;
         }
     }

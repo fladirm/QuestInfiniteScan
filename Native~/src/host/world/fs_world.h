@@ -28,6 +28,7 @@ struct WorldBuffers {          // valid while DeviceUp(); all fs::Buffer (§15.3
     Buffer pending;            // FsPendingPublish[FS_MAX_PAGES] (host-visible)
     Buffer publishRing;        // FS_CULL_FRAME_RING x FS_MAX_PAGES pending entries applied at FRAME_BEGIN
     Buffer hash;               // FsPageHashEntry mirror
+    Buffer sheet;              // E4.1R SurfaceGraph nodes, graph-dirty mask / ring, batch deltas (host-visible: cleared at reset / release)
     uint32_t pageCount = 0;
 };
 

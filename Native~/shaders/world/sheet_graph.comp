@@ -1,0 +1,96 @@
+#version 450
+// E4.1R 1/3 neighbour graph (one dispatch over the batch). Canonical surfels and every OTHER node are read-only; the invocation
+// writes only its own node's proposal slots. Ball query: every world grid cell (12.5 cm) the sphere of FS_SHEET_LINK_R_M touches,
+// in the own page or any other resident page (page hash), candidates walked through the page-local index; the edge gate
+// (fs_sheet.glsl) plus the free-space separator (the midpoint cell was seen through by this or the previous observation);
+// the true metric top-K is kept over ALL examined candidates (bounded by FS_SHEET_CAND_MAX, counted).
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_PAGES_RO
+#define FS_USE_SURFELS_RO
+#define FS_USE_INDEX_RO
+#define FS_USE_HASH
+#define FS_USE_FREESPACE_RO
+#define FS_USE_GCTR
+#define FS_USE_SHEET
+#include "fs_world_blocks.glsl"
+#include "fs_fusion.glsl"
+#include "fs_index.glsl"
+#include "fs_maint.glsl"
+#include "fs_sheet.glsl"
+layout(local_size_x = FS_WG_SMALL) in;
+layout(push_constant) uniform Push { uint hashMask; } pc;
+bool fsPageHashLookup(FsPageKey key, out uint slot) {
+    uint i = fsHashPageKey(key) & pc.hashMask;
+    for (uint d = 0u; d < FS_PAGE_HASH_MAX_PROBE; ++d) {
+        FsPageHashEntry e = hash[i];
+        if (e.slot == FS_INDEX_NONE) return false;
+        if (e.probeDistance < d) return false;
+        if (fsKeyEq(e.key, key)) { slot = e.slot; return true; }
+        i = (i + 1u) & pc.hashMask;
+    }
+    return false;
+}
+// global grid cell -> (resident page slot, page-local cell); false when the page is not resident
+bool fsGlobalCell(ivec3 g, uint ownPage, int anchorId, out uint slot, out uint cell) {
+    ivec3 k = ivec3(fsFloorDiv32(g.x), fsFloorDiv32(g.y), fsFloorDiv32(g.z));
+    ivec3 c = g - k * 32;
+    cell = uint(c.x) | (uint(c.y) << 5) | (uint(c.z) << 10);
+    FsPageKey own = pages[ownPage].key;
+    if (k.x == own.x && k.y == own.y && k.z == own.z) { slot = ownPage; return true; }
+    FsPageKey key; key.anchorId = anchorId; key.x = k.x; key.y = k.y; key.z = k.z;
+    return fsPageHashLookup(key, slot);
+}
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= FS_TK(FS_T_SHEET_COUNT)) return;
+    uint e = sheet[FS_TK(FS_T_SHEET_RING_BASE) + ((FS_TK(FS_T_SHEET_BEGIN) + i) & (uint(FS_SHEET_RING_CAP) - 1u))];
+    uint page = e >> 22, h = e & 0x3FFFFFu;
+    if (!fsSheetMarked(h)) return;
+    FsPatch a = fsUnpack(surfels[h]);
+    uint nw = fsSheetNodeWord(h, 0u);
+    bool valid = (a.flags & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) == 0u && (a.flags & FS_FLAG_PROMOTED) != 0u;
+    uint bestE[FS_SHEET_K]; float bestD[FS_SHEET_K]; uint nb = 0u;
+    for (uint k = 0u; k < uint(FS_SHEET_K); ++k) { bestE[k] = FS_INDEX_NONE; bestD[k] = 1e30; }
+    if (valid) {
+        int anchorId = pages[page].key.anchorId;
+        vec3 pa = fsPageOrigin3(pages[page].key) + a.p;
+        ivec3 gmin = ivec3(floor((pa - vec3(FS_SHEET_LINK_R_M)) / FS_CELL_EXTENT_M)), gmax = ivec3(floor((pa + vec3(FS_SHEET_LINK_R_M)) / FS_CELL_EXTENT_M));
+        uint examined = 0u; bool over = false;
+        uint stampNow = 1u + (FS_TK(FS_T_TICK) % 255u), stampPrev = 1u + ((FS_TK(FS_T_TICK) + 254u) % 255u);
+        for (int gz = gmin.z; gz <= gmax.z; ++gz) for (int gy = gmin.y; gy <= gmax.y; ++gy) for (int gx = gmin.x; gx <= gmax.x; ++gx) {
+            uint slot, cell;
+            if (!fsGlobalCell(ivec3(gx, gy, gz), page, anchorId, slot, cell)) continue;
+            vec3 origin = fsPageOrigin3(pages[slot].key);
+            uint leaves[FS_MAINT_LEAVES_MAX]; uint nl = fsCollectLeaves(slot, cell, leaves);
+            for (uint l = 0u; l < uint(FS_MAINT_LEAVES_MAX); ++l) {
+                if (l >= nl) break;
+                uint cnt = min(idx[fsIdxLeafWord(leaves[l], 0u)], uint(FS_INDEX_LEAF_CAP));
+                for (uint s = 0u; s < uint(FS_INDEX_LEAF_CAP); ++s) {
+                    if (s >= cnt) break;
+                    uint hb = idx[fsIdxLeafWord(leaves[l], 2u + s)];
+                    if (hb == h) continue;
+                    if (examined >= uint(FS_SHEET_CAND_MAX)) { over = true; break; }
+                    examined++;
+                    FsPatch b = fsUnpack(surfels[hb]);
+                    if ((b.flags & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) != 0u || (b.flags & FS_FLAG_PROMOTED) == 0u) continue;
+                    vec3 pb = origin + b.p;
+                    float dist; if (!fsSheetEdge(a, pa, b, pb, dist)) continue;
+                    // free-space separator: the midpoint was seen through by this or the previous observation
+                    vec3 mid = 0.5 * (pa + pb); uint ms, mc;
+                    if (fsGlobalCell(ivec3(floor(mid / FS_CELL_EXTENT_M)), page, anchorId, ms, mc)) {
+                        uint byteIndex = pages[ms].freeSpaceBase + mc; uint st = (freeSpace[byteIndex >> 2u] >> ((byteIndex & 3u) * 8u)) & 0xFFu;
+                        if (st == stampNow || st == stampPrev) continue;
+                    }
+                    uint packed = fsSheetPack(slot, hb);
+                    if (nb == uint(FS_SHEET_K) && (dist > bestD[FS_SHEET_K - 1] || (dist == bestD[FS_SHEET_K - 1] && packed >= bestE[FS_SHEET_K - 1]))) continue;
+                    uint pos = min(nb, uint(FS_SHEET_K) - 1u);
+                    for (uint m = pos; m > 0u; --m) { if (bestD[m - 1u] < dist || (bestD[m - 1u] == dist && bestE[m - 1u] < packed)) break; bestD[m] = bestD[m - 1u]; bestE[m] = bestE[m - 1u]; pos = m - 1u; }
+                    bestD[pos] = dist; bestE[pos] = packed; if (nb < uint(FS_SHEET_K)) nb++;
+                }
+                if (over) break;
+            }
+        }
+        if (over) atomicAdd(gctr[FS_GCTR_SHEET_CAND_OVERFLOW], 1u);
+    }
+    for (uint k = 0u; k < uint(FS_SHEET_K); ++k) sheet[nw + k] = bestE[k];
+}

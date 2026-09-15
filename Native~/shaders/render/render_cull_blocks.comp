@@ -32,6 +32,7 @@ void main() {
     bool transient = live && (flags & FS_FLAG_TRANSIENT) != 0u;
     bool measured = (s.appearanceHandle & FS_APPEARANCE_MEASURED) != 0u;
     if (live && !measured && F.misc.x == uint(FS_RENDER_MODE_SCAN)) live = false;   // E4.2: SCAN never draws geometry without measured appearance
+    if (F.misc.x == uint(FS_RENDER_MODE_GEOMETRY)) measured = false;                // E4.1R GEOMETRY debug: every promoted surface neutral grey
     bool opaque = live && !transient;
     sRank[lane] = opaque ? 1u : 0u;
     barrier();
