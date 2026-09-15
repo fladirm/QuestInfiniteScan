@@ -427,7 +427,8 @@ public:
                 const uint32_t items = AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_COUNT);
                 AfterJob(false);
                 fuseCost_.Add(items, stats_.fuseUs); Charge(ST_FUSE, stats_.fuseUs);
-                epochMeasCap_ = fuseCost_.Batch(ClassQuantumUs(FS_JOB_SCAN), FS_EPOCH_MEAS_MIN, FS_TICK_MEAS_MAX, 4096u);
+                epochMeasCap_ = fuseCost_.Batch(ClassQuantumUs(FS_JOB_SCAN),
+                                                FS_EPOCH_MEAS_MIN, FS_EPOCH_MEAS_MAX, FS_EPOCH_MEAS_INITIAL);
             }
             onDone(ok);
         };
@@ -458,7 +459,8 @@ public:
         auto js = std::make_shared<JobStorage>();
         const Buffer* G = &buf_.gctr;
         const uint32_t head = AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_DIRTY_HEAD), pending = DirtyPending();
-        const uint32_t take = std::min<uint32_t>(pending, maintCost_.Batch(ClassQuantumUs(FS_JOB_PUBLISH), FS_PUB_DIRTY_MIN, FS_DIRTY_CELLS_MAX, 1024u));
+        const uint32_t take = std::min<uint32_t>(pending, maintCost_.Batch(ClassQuantumUs(FS_JOB_PUBLISH),
+                                                                          FS_PUB_DIRTY_MIN, FS_PUB_DIRTY_MAX, 128u));
         epochDirtyCap_ = take;
         // age receipt: enqueue ticks of the batch (evenly sampled), resolved to milliseconds at the FRONT commit
         pubAgeTicks_.clear();
@@ -492,7 +494,8 @@ public:
     }
     bool SubmitPubLeaves() {
         auto js = std::make_shared<JobStorage>();
-        const uint32_t chunk = leavesCost_.Batch(ClassQuantumUs(FS_JOB_PUBLISH), FS_PUB_LEAVES_MIN, FS_DIRTY_CELLS_MAX, 256u);
+        const uint32_t chunk = leavesCost_.Batch(ClassQuantumUs(FS_JOB_PUBLISH),
+                                                 FS_PUB_LEAVES_MIN, FS_PUB_LEAVES_MAX, 64u);
         const uint32_t count = std::min<uint32_t>(chunk, pubTotal_ - pubDone_);
         PushRange pr{pubDone_, count};
         AddDispatch(*js, pipes_[K_PUBLISH_LEAVES], (count + FS_WG_SMALL - 1) / FS_WG_SMALL, 1, &pr, sizeof pr);
@@ -545,7 +548,8 @@ public:
         auto js = std::make_shared<JobStorage>();
         const Buffer* G = &buf_.gctr;
         const uint32_t head = AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_SHEET_HEAD), pending = AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_SHEET_TAIL) - head;
-        const uint32_t batch = sheetCost_.Batch(ClassQuantumUs(FS_JOB_SCAN), FS_SHEET_BATCH_MIN, FS_SHEET_BATCH_MAX, 1024u);
+        const uint32_t batch = sheetCost_.Batch(ClassQuantumUs(FS_JOB_SCAN),
+                                                FS_SHEET_BATCH_MIN, FS_SHEET_JOB_MAX, 64u);
         const uint32_t n = std::min(pending, batch);
         sheetAgeTicks_.clear();
         for (uint32_t k = 0; k < std::min<uint32_t>(n, 32u); ++k) sheetAgeTicks_.push_back(SheetEntryTick(head + (uint32_t)((uint64_t)k * n / std::min<uint32_t>(n, 32u))));
@@ -1084,9 +1088,8 @@ private:
     uint64_t pubChunks_ = 0, sheetJobs_ = 0, framesAbandoned_ = 0, measAbandoned_ = 0; std::vector<uint32_t> chainRenderRetire_;
     bool publishWanted_ = false, resetPending_ = false, resetDraining_ = false;
     uint32_t tick_ = 0, idBase_ = kSurfaceIdBase; int32_t scanAnchor_ = 0;
-    // Quantum gate (C09R review gap 1): epoch caps adapt to the measured job GPU time vs the class quantum; a frame
-    // larger than the cap is processed in slices (offset walks the frame), dirty cells beyond the cap stay dirty.
-    uint32_t epochMeasCap_ = FS_TICK_MEAS_MAX, epochDirtyCap_ = FS_DIRTY_CELLS_MAX; uint64_t slices_ = 0, capHalvings_ = 0;
+    // Quantum gate: adaptive inside hard device-proven maxima. ABI capacities are storage limits, never job sizes.
+    uint32_t epochMeasCap_ = FS_EPOCH_MEAS_INITIAL, epochDirtyCap_ = FS_PUB_DIRTY_MAX; uint64_t slices_ = 0, capHalvings_ = 0;
     struct SliceState { bool live = false; uint64_t seq = 0; uint32_t slot = 0, phase = 0, stride = 1, count = 0; int32_t anchor = 0; bool eyeValid = false; float eye[2][3] = {}; uint64_t importFrameEnd = 0; int64_t readyNs = 0; } slice_;
     std::vector<uint32_t> releaseQueue_; std::vector<std::pair<uint32_t, uint32_t>> pendingLoads_;
     std::deque<PublishBatch> toPublish_;

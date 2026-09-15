@@ -105,9 +105,27 @@ void main() {
     const bool geometryChanged = (flags & FS_FLAG_PROMOTED) != 0u && (length(np - q.p) > FS_SHEET_MOVE_MIN_M || dot(nn, q.n) < FS_SHEET_TURN_MIN_COS);
     const bool topologyAwaitingEvidence = (sheet[fsSheetNodeWord(h, uint(FS_SHEET_TOPO_FLAGS_WORD))] & uint(FS_SHEET_TOPO_REVISIT)) != 0u;
     if (promotedNow || geometryChanged || topologyAwaitingEvidence) fsSheetMark(page, h);
+
+    const uint oldAppearance = q.appearance;
+    uint newAppearance = oldAppearance;
+    if (acc.colW > 0.0) newAppearance = fsBlendAppearance(oldAppearance, acc.col / acc.colW, wPrior, 1.0);
+    const bool oldConfirmed = fsAppearanceConfirmed(oldAppearance);
+    const bool newConfirmed = fsAppearanceConfirmed(newAppearance);
+    const bool appearanceChanged = oldConfirmed != newConfirmed ||
+        (oldConfirmed && newConfirmed && length(fsColorOf(oldAppearance) - fsColorOf(newAppearance)) > 0.01);
+
+    // FRONT publication has its own materiality threshold. Canonical convergence may continue below it without
+    // rebuilding immutable render trees every observation.
+    const bool renderChanged = promotedNow || ((flags & FS_FLAG_PROMOTED) != 0u &&
+        (length(np - q.p) >= FS_RENDER_POS_EPS_M ||
+         dot(nn, q.n) < FS_RENDER_NORMAL_COS ||
+         abs(rM - q.rM) >= FS_RENDER_RADIUS_EPS_M ||
+         abs(rm - q.rm) >= FS_RENDER_RADIUS_EPS_M ||
+         appearanceChanged));
+
     q.p = np; q.n = nn; q.angle = ang; q.rM = rM; q.rm = rm; q.sigmaN = newSigmaN; q.sigmaT = newSigmaT;
     q.flags = (flags & ~FS_EVIDENCE_COUNT_MASK) | cnt;
-    if (acc.colW > 0.0) q.appearance = fsBlendAppearance(q.appearance, acc.col / acc.colW, wPrior, 1.0);
+    q.appearance = newAppearance;
     surfels[h] = fsPack(q);
     fsSet_FsSurfelEvidence_varianceQ(ev, fsEncodeLog(var, FS_VAR_NORM_BASE));
     fsSet_FsSurfelEvidence_lastSeenFrame(ev, FS_TK(FS_T_TICK) & 0xFFFFu);
@@ -115,5 +133,18 @@ void main() {
     evidence[h] = ev;
     atomicAdd(gctr[FS_GCTR_SEGMENTS_MATCHED], 1u);
     atomicAdd(gctr[FS_GCTR_CONTRIBUTIONS], acc.n);
-    fsMarkDirtyCell(page, cell);
+
+    if (renderChanged) {
+        fsMarkDirtyCell(page, cell);
+        // A persistent triangle is stored in its minimum-SurfaceID owner's cell. This vertex may be a
+        // non-owner endpoint, so material vertex motion must also republish neighbouring owner cells.
+        for (uint k = 0u; k < uint(FS_SHEET_K); ++k) {
+            uint nb = sheet[fsSheetNodeWord(h, k)];
+            if (nb == FS_INDEX_NONE) continue;
+            uint nh = nb & 0x3FFFFFu, npg = nb >> 22;
+            uint nfl = fsGet_FsSurfel_evidenceFlags(surfels[nh]);
+            if ((nfl & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) != 0u) continue;
+            fsMarkDirtyCell(npg, fsCellOf(fsSurfelLocalPos(surfels[nh])));
+        }
+    }
 }

@@ -9,7 +9,6 @@
 #define FS_USE_SURFELS_RO
 #define FS_USE_INDEX_RO
 #define FS_USE_HASH
-#define FS_USE_FREESPACE_RO
 #define FS_USE_GCTR
 #define FS_USE_SHEET
 #include "fs_world_blocks.glsl"
@@ -36,7 +35,6 @@ void main() {
         vec3 pa = fsPageOrigin3(pages[page].key) + a.p;
         ivec3 gmin = ivec3(floor((pa - vec3(FS_SHEET_LINK_R_M)) / FS_CELL_EXTENT_M)), gmax = ivec3(floor((pa + vec3(FS_SHEET_LINK_R_M)) / FS_CELL_EXTENT_M));
         uint examined = 0u; bool over = false;
-        uint stampNow = 1u + (FS_TK(FS_T_TICK) % 255u), stampPrev = 1u + ((FS_TK(FS_T_TICK) + 254u) % 255u);
         for (int gz = gmin.z; gz <= gmax.z; ++gz) for (int gy = gmin.y; gy <= gmax.y; ++gy) for (int gx = gmin.x; gx <= gmax.x; ++gx) {
             uint slot, cell;
             if (!fsGlobalCell(pc.hashMask, ivec3(gx, gy, gz), page, anchorId, slot, cell)) continue;
@@ -60,12 +58,8 @@ void main() {
                     examined++;
                     FsPatch b = fsUnpack(sb);
                     float dist; if (!fsSheetEdge(a, pa, b, pb, dist)) continue;
-                    // free-space separator: the midpoint was seen through by this or the previous observation
-                    vec3 mid = 0.5 * (pa + pb); uint ms, mc;
-                    if (fsGlobalCell(pc.hashMask, ivec3(floor(mid / FS_CELL_EXTENT_M)), page, anchorId, ms, mc)) {
-                        uint byteIndex = pages[ms].freeSpaceBase + mc; uint st = (freeSpace[byteIndex >> 2u] >> ((byteIndex & 3u) * 8u)) & 0xFFu;
-                        if (st == stampNow || st == stampPrev) continue;
-                    }
+                    // Sheet connectivity is a persistent metric relation. A transient broad free-space cell traversal
+                    // must never erase it; actual disappearance retires the underlying surfel through evidence hysteresis.
                     uint packed = fsSheetPack(slot, hb);
                     if (nb == uint(FS_SHEET_K) && (dist > bestD[FS_SHEET_K - 1] || (dist == bestD[FS_SHEET_K - 1] && packed >= bestE[FS_SHEET_K - 1]))) continue;
                     uint pos = min(nb, uint(FS_SHEET_K) - 1u);

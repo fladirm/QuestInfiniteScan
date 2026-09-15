@@ -363,11 +363,12 @@ static void TestSurfaceComplex() {
     Patch moved = SheetApplyR(ps[centre], d);
     CHECK(moved.rM == ps[centre].rM && moved.rm == ps[centre].rm);                                    // canonical statistical support untouched
     CHECK(Dot(moved.n, v3(0, 0, 1)) >= Dot(ps[centre].n, v3(0, 0, 1)) - 1e-6f);
-    // mutual only: a site that proposes the centre but the centre (with 6 closer neighbours) does not propose back -> frontier, no edge
+    // mutual only: asymmetric kNN is a stable non-edge, NOT frontier work that can self-requeue forever
     std::vector<Patch> ps2 = ps; ps2.push_back(SheetPatch(v3(0.05f, 0.0f, 0.0f), v3(0, 0, 1), 0.004f, 0.004f));   // duplicate of (2,0) spot
     std::vector<SheetSite> s2 = Sites(ps2); std::vector<std::vector<uint32_t>> p2; for (auto& s : s2) p2.push_back(SheetProposals(s, s2));
     SheetDelta dFar = SheetFitR(s2.back(), p2.back(), s2, p2, std::vector<float>(s2.size(), 0.f));
-    CHECK(dFar.degree + dFar.frontier.size() == p2.back().size());
+    CHECK(dFar.frontier.empty());
+    CHECK(dFar.degree <= p2.back().size());
     // 90 deg corner never connects
     std::vector<Patch> corner{SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.004f, 0.004f), SheetPatch(v3(0.01f, 0, 0.01f), v3(1, 0, 0), 0.004f, 0.004f), SheetPatch(v3(0.01f, 0.02f, 0.01f), v3(1, 0, 0), 0.004f, 0.004f)};
     std::vector<SheetSite> sc = Sites(corner); CHECK(SheetProposals(sc[0], sc).empty());
@@ -567,13 +568,19 @@ static void TestCostModel() {
     const double f = c.fixedUs, pi = c.perItemUs;
     c.Add(3, 450); c.Add(0, 440);                                                             // empty depth frames: skipped, fit unchanged
     CHECK(c.skipped == 2 && c.fixedUs == f && c.perItemUs == pi);
-    // publication-like stage: fixed 900 us > 500 us target -> structural, the batch is one target of variable work (not halved to the floor)
+    // fixed work already exceeds the target: fail closed to the minimum batch, never add another target of variable work
     fs::CostModel p;
     for (uint32_t n : {256u, 1024u, 512u, 2048u}) p.Add(n, (int64_t)(900 + 0.1 * n));
     uint32_t b = p.Batch(500, 16, 65536, 1024);
-    CHECK(p.structural); CHECK_NEAR(b, 5000, 100);
-    // single batch size: attributed to the items (conservative), a smaller batch next makes the model identifiable
-    fs::CostModel s1; s1.Add(1024, 2048); CHECK(s1.fitted && s1.fixedUs == 0 && s1.perItemUs == 2.0 && s1.Batch(1000, 16, 65536, 4096) == 500);
+    CHECK(p.structural); CHECK(b == 16);
+
+    // Last measured overrun independently caps a noisy fit and cannot explode the next batch.
+    fs::CostModel q;
+    q.Add(512, 8000);
+    CHECK(q.Batch(2000, 32, 4096, 2048) <= 128);
+    // single batch size: attributed to the items (conservative); the measured overrun (2048 us > 1000 us) caps the next batch
+    // at lastItems * target / lastGpu * 0.85 = 425 (below the fit's 500)
+    fs::CostModel s1; s1.Add(1024, 2048); CHECK(s1.fitted && s1.fixedUs == 0 && s1.perItemUs == 2.0 && s1.Batch(1000, 16, 65536, 4096) == 425);
     fs::AgeWindow w; for (int i = 1; i <= 100; ++i) w.Add((float)i);
     CHECK_NEAR(w.Quantile(0.5f), 51, 1.01); CHECK_NEAR(w.Quantile(0.95f), 95, 1.01);
 }

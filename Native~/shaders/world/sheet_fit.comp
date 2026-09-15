@@ -38,7 +38,9 @@ void main() {
         if ((b.flags & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) != 0u) continue;
         bool mutual = false;
         for (uint j = 0u; j < uint(FS_SHEET_K); ++j) if (sheet[fsSheetNodeWord(nbH, j)] == e) { mutual = true; break; }
-        if (!mutual) { fsSheetMark(nbP, nbH); continue; }                         // frontier: the neighbour re-evaluates its graph
+        // k-NN is not intrinsically symmetric. A one-way proposal is simply not an edge; re-running the
+        // other endpoint cannot make it reciprocate and was a permanent topology self-queue.
+        if (!mutual) continue;
         vec3 pb = fsPageOrigin3(pages[nbP].key) + b.p;
         mut[nm] = nbE; mp[nm] = pb; md[nm] = length(pb - pa); nm++;
         if (nbP != page) cross++;
@@ -59,6 +61,29 @@ void main() {
     if (nm == 0u) { sheet[dw + 2u] = retireBit; sheet[dw + 3u] = e; return; }
     atomicAdd(gctr[FS_GCTR_SHEET_EDGES], nm);
     if (cross != 0u) atomicAdd(gctr[FS_GCTR_CROSS_PAGE_EDGES], cross);
+
+    // Canonical coarsening cannot depend on derived face topology. Determine a boundary directly from
+    // the mutual metric graph: an interior ring has no angular gap >= FS_FACE_MAX_GAP_RAD.
+    bool graphInterior = false;
+    if (nm >= uint(FS_CONTRACT_MIN_DEGREE)) {
+        vec3 gt1, gt2; fsTangentFrame(a.n, gt1, gt2);
+        float ga[FS_SHEET_K]; uint gn = 0u;
+        for (uint k = 0u; k < uint(FS_SHEET_K); ++k) {
+            if (k >= nm) break;
+            vec3 d = mp[k] - pa;
+            float ang = atan(dot(d, gt2), dot(d, gt1));
+            uint pos = gn;
+            while (pos > 0u && ga[pos - 1u] > ang) { ga[pos] = ga[pos - 1u]; pos--; }
+            ga[pos] = ang; gn++;
+        }
+        float maxGap = 0.0;
+        for (uint k = 0u; k < uint(FS_SHEET_K); ++k) {
+            if (k >= gn) break;
+            float next = k + 1u < gn ? ga[k + 1u] : ga[0] + 2.0 * FS_PI;
+            maxGap = max(maxGap, next - ga[k]);
+        }
+        graphInterior = maxGap < FS_FACE_MAX_GAP_RAD;
+    }
     // ---- local plane fit over {a} + mutual ring
     float wA = 1.0 / (a.sigmaN * a.sigmaN);
     vec3 cSum = pa * wA, nSum = a.n * wA; float wSum = wA, s2Sum = wA * a.sigmaN * a.sigmaN;
@@ -84,16 +109,15 @@ void main() {
     sheet[dw] = floatBitsToUint(offset);
     sheet[dw + 1u] = isFlat ? fsEncodeOct32(nFit) : 0u;
     sheet[dw + 2u] = (isFlat ? 1u : 0u) | retireBit | (min(nm, 15u) << 4);
-    // ---- E4.1C edge contraction decision
+    // ---- E4.1C edge contraction decision. Density control is canonical; derived face topology is not an authority.
     FsSurfelEvidence ea = evidence[h];
-    if (!isFlat || nm < uint(FS_CONTRACT_MIN_DEGREE) || fsGet_FsSurfelEvidence_positiveSupport(ea) < uint(FS_CONTRACT_MIN_STATIC) || fsLifeState(ea) != FS_LIFE_ACTIVE) return;
+    if (!isFlat || !graphInterior || fsGet_FsSurfelEvidence_positiveSupport(ea) < uint(FS_CONTRACT_MIN_STATIC) || fsLifeState(ea) != FS_LIFE_ACTIVE) return;
     // Graph/topology work can requeue the same handle repeatedly. Coarsening is geometry/evidence work, not a topology clock:
     // one distinct observation may drive this control vertex at most once.
     uint lastObs = ea.lastObservationId;
     if (lastObs == 0u || sheet[fsSheetNodeWord(h, uint(FS_SHEET_REG_OBS_WORD))] == lastObs) return;
-    // E6R: only an interior vertex of the face topology contracts (a boundary, an opening edge or DETAIL keep their control sites)
+    // DETAIL and graph boundaries keep their control sites; face topology is deliberately not consulted here.
     if ((a.flags & FS_FLAG_DETAIL) != 0u) return;
-    { uint tid = sheet[fsSheetNodeWord(h, 9u)]; if (tid == FS_INDEX_NONE || (topo[fsTopoVertexWord(tid, 1u)] & FS_TOPO_FLAG_INTERIOR) == 0u) return; }
     float sigFit = max(sqrt(s2Sum / wSum), FS_SIGMA_N_FLOOR_M);
     for (uint k = 0u; k < uint(FS_SHEET_K); ++k) {
         if (k >= nm) break;

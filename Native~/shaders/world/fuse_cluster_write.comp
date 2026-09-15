@@ -64,6 +64,8 @@ void main() {
         if (fsIndexInsert(page, cell, pt.p, h)) written++;
         else { FsSurfel dead = surfels[h]; fsSet_FsSurfel_evidenceFlags(dead, pt.flags | FS_FLAG_REMOVED); surfels[h] = dead; }
     }
-    if (written != 0u) { atomicAdd(gctr[FS_GCTR_NEW_SURFELS], written); fsMarkDirtyCell(page, cell); }
+    // New candidates are TRANSIENT and publish_leaves explicitly excludes them. Enqueuing a FRONT rebuild here
+    // generated publication work for geometry that cannot be rendered. Promotion in fuse_reduce marks the cell.
+    if (written != 0u) atomicAdd(gctr[FS_GCTR_NEW_SURFELS], written);
     if (ov != 0u) atomicAdd(gctr[FS_GCTR_SEG_OVERFLOW], 1u);
 }

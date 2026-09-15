@@ -1,9 +1,9 @@
 #version 450
-// F0b free-space evidence (contract §8.6; C09R §22): page-aware DDA from the eye to the measured point across
-// logical pages. Cells crossed before the hit receive the epoch stamp (1 + tick % 255, never 0). Writes are
-// idempotent (every writer of the epoch writes the same value), so the result is order-independent: one
-// deterministic evidence value per cell per tick. Bounded by FS_FREE_WALK_MAX steps and FS_FREE_MAX_RANGE_M.
-// E6R narrow phase: the stamped cell is only the broad phase. A surfel of an occupied crossed cell is contradicted only when the ray
+// F0b free-space evidence (contract §8.6; C09R §22): bounded page-aware ray walk from the eye to the measured point.
+// IMPORTANT: a traversed 12.5 cm cell is NOT negative geometry evidence. Only an actual ray/ellipse intersection
+// may contradict a surfel. The epoch evaluates a deterministic evenly-spaced subset of records so this stage has
+// bounded GPU cost on the shared Quest graphics family.
+// E6R narrow phase: a surfel of an occupied crossed cell is contradicted only when the ray
 // actually crosses its support ellipse in front of the measured point (beyond the clearance and both sigmas, not grazing); the weighted
 // hit goes to evidence.contradictionHits (atomic), the observation id to lastContradictionObs (idempotent), the ray sector to
 // contradictionViews (atomic or). Maintenance charges the debt once per observation. Neighbouring layers, thin walls and leaves in the
@@ -45,16 +45,19 @@ void fsStamp(uint slot, uint cell, uint stamp) {
 }
 void main() {
     if ((pc.flags & FS_FUSE_FLAG_FREE_SPACE) == 0u) return;
-    uint t = gl_GlobalInvocationID.x;
-    if (t >= FS_TK(FS_T_COUNT)) return;
+    const uint count = FS_TK(FS_T_COUNT);
+    const uint rays = min(count, uint(FS_FREE_RAYS_PER_EPOCH));
+    const uint lane = gl_GlobalInvocationID.x;
+    if (lane >= rays || count == 0u) return;
+    // Evenly spaced over the stride-slice stream; no first-N spatial bias.
+    const uint t = rays == count ? lane : min(count - 1u, (lane * count + rays / 2u) / rays);
     FsSurfaceMeasurement m = meas[t];
     vec3 p = vec3(m.px, m.py, m.pz);
     vec3 eye = (m.sourceFlags & 0x10000u) != 0u ? pc.eye1.xyz : pc.eye0.xyz;
     vec3 dir = p - eye; float len = length(dir);
     if (len < FS_FREE_STEP_M * 2.0 || len > FS_FREE_MAX_RANGE_M) return;
     dir /= len;
-    uint stamp = 1u + (FS_TK(FS_T_TICK) % 255u);
-    float tEnd = len - FS_FREE_END_CLEARANCE_M;                       // donor clearance rule: no evidence within 15 cm of the hit
+    float tEnd = len - FS_FREE_END_CLEARANCE_M;                       // no negative evidence near the measured hit
     uint hitCell = 0xFFFFFFFFu; int hitPageX = fsPageCoord(p.x), hitPageY = fsPageCoord(p.y), hitPageZ = fsPageCoord(p.z);
     { FsPageKey hk; hk.anchorId = pc.anchorId; hk.x = hitPageX; hk.y = hitPageY; hk.z = hitPageZ; hitCell = fsCellOf(p - fsPageOrigin3(hk)); }
     FsPageKey key; key.anchorId = pc.anchorId; key.x = 0x7FFFFFFF; key.y = 0; key.z = 0;
@@ -75,8 +78,8 @@ void main() {
         uint cell = fsCellOf(q - fsPageOrigin3(key));
         if (cell != lastCell) {
             lastCell = cell;
-            if (cell == hitCell && kx == hitPageX && ky == hitPageY && kz == hitPageZ) continue;   // the surface cell itself is never "seen through"
-            fsStamp(slot, cell, stamp); stamped++;
+            if (cell == hitCell && kx == hitPageX && ky == hitPageY && kz == hitPageZ) continue;
+            stamped++;     // legacy telemetry: walked unique resident cells; no cell stamp is written or trusted as geometry
             if (idx[fsIdxDirWord(slot, cell)] != 0u) {
                 // narrow phase over the cell's surfels
                 vec3 origin = fsPageOrigin3(key);

@@ -18,8 +18,11 @@ struct CostModel {
     double fixedUs = 0, perItemUs = 0;    // last fit
     bool fitted = false, structural = false, identifiable = false;
     uint32_t probeCalls = 0; uint64_t probes = 0;
+    uint32_t lastItems = 0;
+    int64_t lastGpuUs = 0;
 
     void Add(uint32_t items, int64_t gpuUs) {
+        if (items != 0 && gpuUs > 0) { lastItems = items; lastGpuUs = gpuUs; }
         if (items < minLearnItems || gpuUs <= 0) { skipped++; return; }
         const double a = samples == 0 ? 1.0 : alpha, n = (double)items, t = (double)gpuUs;
         w = (1 - a) * w + a; sn = (1 - a) * sn + a * n; st = (1 - a) * st + a * t; snn = (1 - a) * snn + a * n * n; snt = (1 - a) * snt + a * n * t;
@@ -38,15 +41,28 @@ struct CostModel {
         perItemUs = std::max(perItemUs, 1e-3);
         fitted = true;
     }
-    // Items for a target quantum. Unfitted: `initial`. Fixed >= target: structural -> spend one target of variable work.
+    // Items for a target quantum. A fixed/structural cost above target is NOT permission to add another
+    // target of variable work: the only safe action on a shared XR queue is the minimum bounded batch.
+    // The most recent measured job is an independent safety receipt and caps both shrink/growth.
     uint32_t Batch(double targetUs, uint32_t minItems, uint32_t maxItems, uint32_t initial) {
+        minItems = std::max<uint32_t>(1u, minItems);
+        maxItems = std::max(maxItems, minItems);
         if (!fitted) { structural = false; return std::min(std::max(initial, minItems), maxItems); }
+
         structural = fixedUs >= targetUs;
-        const double variable = structural ? targetUs : targetUs - fixedUs;
-        double n = variable / perItemUs;
-        // E6R probing: with one batch size only the split into fixed / per item is unknown (everything was charged to the items, so the
-        // batch can stick at the floor); every 4th call proposes twice the observed mean batch so the model becomes identifiable
-        if (!identifiable && w > 0 && (++probeCalls % 4u) == 0u) { n = std::max(n, 2.0 * sn / w); probes++; }
+        if (structural) return minItems;
+
+        double n = (targetUs - fixedUs) / perItemUs;
+        if (lastItems != 0 && lastGpuUs > 0 && targetUs > 0) {
+            if ((double)lastGpuUs > targetUs) {
+                // Scale from what the GPU actually did, with headroom. Never trust a noisy linear fit to grow after an overrun.
+                const double safe = (double)lastItems * targetUs / (double)lastGpuUs * 0.85;
+                n = std::min(n, std::max<double>((double)minItems, safe));
+            } else {
+                // Convergence is deliberately gradual; prevents oscillation such as 512 -> 4714 -> 512.
+                n = std::min(n, std::max<double>((double)minItems, (double)lastItems * 1.5));
+            }
+        }
         return (uint32_t)std::min<double>(std::max<double>(n, (double)minItems), (double)maxItems);
     }
 };

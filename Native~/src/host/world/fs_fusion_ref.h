@@ -508,18 +508,32 @@ inline std::vector<uint32_t> SheetProposals(const SheetSite& a, const std::vecto
 }
 struct SheetDelta { float offset = 0.f; V3 normal; bool flat = false; uint32_t degree = 0; float planeRms = 0.f; float overlap = 0.f, hole = 0.f; std::vector<uint32_t> frontier;
                     uint32_t contractTarget = UINT32_MAX; float contractE = 0.f; };   // E4.1C: survivor id when this node contracts
-// Fit pass over the MUTUAL ring (both ends propose each other); proposals of non-mutual neighbours become frontier marks.
-// Fit pass (twin: sheet_fit.comp).
+// Fit pass over the MUTUAL ring (both ends propose each other). A one-way kNN proposal is not a scheduling event:
+// the other endpoint may correctly have K closer neighbours forever.
 inline SheetDelta SheetFitR(const SheetSite& a, const std::vector<uint32_t>& aProps, const std::vector<SheetSite>& sites, const std::vector<std::vector<uint32_t>>& props, const std::vector<float>& /*unused*/) {
     SheetDelta r;
     std::vector<size_t> mut;
     for (uint32_t id : aProps) {
         if (id >= sites.size() || (sites[id].q.flags & (kFlagRemoved | kFlagTransient))) continue;
-        if (std::find(props[id].begin(), props[id].end(), a.id) != props[id].end()) mut.push_back(id); else r.frontier.push_back(id);
+        if (std::find(props[id].begin(), props[id].end(), a.id) != props[id].end()) mut.push_back(id);
     }
     r.degree = (uint32_t)mut.size();
     if (mut.empty()) return r;
     std::vector<float> dists; for (size_t id : mut) dists.push_back(Len(sites[id].world - a.world));
+
+    bool graphInterior = false;
+    if (mut.size() >= FS_CONTRACT_MIN_DEGREE) {
+        V3 gt1, gt2; Frame(a.q.n, gt1, gt2);
+        std::vector<float> ang; ang.reserve(mut.size());
+        for (size_t id : mut) { V3 d = sites[id].world - a.world; ang.push_back(atan2f(Dot(d, gt2), Dot(d, gt1))); }
+        std::sort(ang.begin(), ang.end());
+        float maxGap = 0.f;
+        for (size_t k = 0; k < ang.size(); ++k) {
+            float next = k + 1 < ang.size() ? ang[k + 1] : ang[0] + 2.f * 3.14159265358979323846f;
+            maxGap = std::max(maxGap, next - ang[k]);
+        }
+        graphInterior = maxGap < (float)FS_FACE_MAX_GAP_RAD;
+    }
     const float L2 = (float)(FS_SHEET_LINK_R_M * FS_SHEET_LINK_R_M);
     float wA = 1.f / (a.q.sigmaN * a.q.sigmaN);
     V3 cSum = a.world * wA, nSum = a.q.n * wA; float wSum = wA, s2Sum = wA * a.q.sigmaN * a.q.sigmaN;
@@ -530,8 +544,8 @@ inline SheetDelta SheetFitR(const SheetSite& a, const std::vector<uint32_t>& aPr
     r.planeRms = sqrtf(res2 / wSum);
     r.flat = r.planeRms <= (float)FS_SHEET_FLAT_K * sqrtf(s2Sum / wSum);
     if (r.flat) { r.offset = Dot(nFit, cFit - a.world); r.normal = nFit; }
-    // E4.1C contraction decision (twin: sheet_fit.comp): converged flat interior node of lowest priority in its mutual ring
-    if (!r.flat || r.degree < FS_CONTRACT_MIN_DEGREE || a.ev.positiveSupport < FS_CONTRACT_MIN_STATIC || (a.ev.lifecycle & 3u) != FS_LIFE_ACTIVE) return r;
+    // E4.1C contraction decision: canonical graph interior, never derived face-topology membership.
+    if (!r.flat || !graphInterior || a.ev.positiveSupport < FS_CONTRACT_MIN_STATIC || (a.ev.lifecycle & 3u) != FS_LIFE_ACTIVE) return r;
     const float sigFit = fmaxf(sqrtf(s2Sum / wSum), (float)FS_SIGMA_N_FLOOR_M);
     for (size_t id : mut) if (!Survives(sites[id].q, sites[id].ev, a.q, a.ev)) return r;
     float bestE = (float)FS_CONTRACT_BUDGET;

@@ -114,8 +114,11 @@
 #define FS_SHEET_COVER_MAX_M  0.05      // derived coverage radius bound (readout only)
 #define FS_SHEET_MOVE_MIN_M   0.002     // reduce marks a promoted surfel graph-dirty when its centre moved more than this ...
 #define FS_SHEET_TURN_MIN_COS 0.9994    // ... or its normal turned more than ~2 deg (converged in-plane updates cost no graph work)
-#define FS_SHEET_APPLY_POS_EPS_M 0.00025 // one q0.25mm canonical position quantum
-#define FS_SHEET_APPLY_NORMAL_COS 0.99996 // ~0.5 degree; below this the render/publish state is materially unchanged
+#define FS_SHEET_APPLY_POS_EPS_M 0.00025 // canonical regularisation precision
+#define FS_SHEET_APPLY_NORMAL_COS 0.99996
+#define FS_RENDER_POS_EPS_M       0.001   // FRONT does not republish sub-mm canonical convergence
+#define FS_RENDER_NORMAL_COS      0.99985 // ~1 degree
+#define FS_RENDER_RADIUS_EPS_M    0.001
 #define FS_SHEET_RING_CAP     262144    // graph-dirty ring (power of two; dedupe bit per handle)
 #define FS_SHEET_BATCH_MAX    4096      // graph-dirty surfels processed per publication (bounded work)
 // ---- C09R-E4.1C adaptive coarsen / refine (provisional numbers)
@@ -148,11 +151,17 @@
 #define FS_SIGMA_T_FLOOR_M    0.001
 #define FS_RADIUS_MIN_M       0.003
 #define FS_RADIUS_MAX_M       0.25
-#define FS_FREE_STEP_M        0.0625    // free-space DDA step (half a cell)
+#define FS_FREE_STEP_M        0.0625    // free-space narrow-phase walk step
 #define FS_FREE_WALK_MAX      128       // 8 m at half-cell steps; bounded by the measurement range
 #define FS_FREE_MAX_RANGE_M   6.0
 #define FS_FREE_PAGE_HOPS_MAX 4         // page transitions (hash lookups) per ray; a 6 m ray crosses <= 3 page boundaries
-#define FS_EPOCH_MEAS_MIN     512       // slicing floor (C09R-E5: 1-3 ms scanner quanta; stride slices of one depth frame)
+#define FS_FREE_RAYS_PER_EPOCH 128      // deterministic evenly-spaced evidence rays; cell stamps are NOT geometry authority
+
+// Device-closure hard quanta. CostModel may choose inside these bounds but can never expand a single
+// SCAN/PUBLISH/TOPOLOGY job into the 8-14 ms kernels measured on Quest 3S.
+#define FS_EPOCH_MEAS_MIN       256
+#define FS_EPOCH_MEAS_MAX       4096
+#define FS_EPOCH_MEAS_INITIAL   2048
 // ---- C09R-E5R deadline / deficit scheduler and cost-model floors ------------------------------------------------------------------
 #define FS_SCHED_FUSE_DEADLINE_MS    60    // E6R: newest usable depth observation waiting longer than this: fusion is overdue (15-20 fused observations/s)
 #define FS_SCHED_PUBLISH_DEADLINE_MS 75    // oldest pending dirty cell older than this: publication work is overdue (acceptance p95 < 100 ms)
@@ -163,9 +172,12 @@
 #define FS_SCHED_DEFICIT_CAP_US      20000 // an idle stage cannot bank more than this
 #define FS_SCHED_AGE_UNKNOWN_MS      1000  // enqueue serial outside the host serial-time window: treated as this old
 #define FS_SCHED_SERIAL_WINDOW       65536 // host ring work serial -> steady-clock ns (power of two)
-#define FS_PUB_DIRTY_MIN      16        // C09R-E5 publication chain floors: dirty cells per maintenance job,
-#define FS_PUB_LEAVES_MIN     16        //   dirty cells per leaves chunk (PUBLISH class quantum, sub-ms)
-#define FS_SHEET_BATCH_MIN    256       // C09R-E5 surface complex batch floor (own job, quantum gated)
+#define FS_PUB_DIRTY_MIN        8       // publication remains bounded even while draining a backlog
+#define FS_PUB_DIRTY_MAX        256
+#define FS_PUB_LEAVES_MIN       8
+#define FS_PUB_LEAVES_MAX       128
+#define FS_SHEET_BATCH_MIN      32      // measured sheet_graph dominates; small bounded batches protect XR
+#define FS_SHEET_JOB_MAX        96
 #define FS_EVIDENCE_COUNT_MAX 1023
 #define FS_FUSE_FLAG_FREE_SPACE 1u      // PushFuse.flags: eye origins valid
 
