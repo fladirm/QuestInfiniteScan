@@ -20,7 +20,11 @@ namespace Genesis.RoomScan.Tests
                 restored = MerkabaPersistence.ReadSnapshot(stream);
             byte[] second = Write(restored);
 
-            Assert.That(BitConverter.ToInt32(first, 4), Is.EqualTo(3));
+            Assert.That(BitConverter.ToInt32(first, 4), Is.EqualTo(4));
+            Assert.That(BitConverter.ToInt32(first, 16), Is.EqualTo(32));
+            Assert.That(restored.LegacyAnchorFrame, Is.False);
+            Assert.That(restored.AnchorFromGrid, Is.EqualTo(
+                source.AnchorFromGrid));
             Assert.That(second, Is.EqualTo(first));
             Assert.That(restored.AnchorUuid, Is.EqualTo(source.AnchorUuid));
             Assert.That(restored.IntegrationCount, Is.EqualTo(47));
@@ -165,41 +169,113 @@ namespace Genesis.RoomScan.Tests
                 "                        anchorManager.SpatialAnchorTransform)"));
             Assert.That(gate, Does.Not.Contain("using current world frame"));
             Assert.That(gate, Does.Contain(
-                "_grid.RelocateForLoadedAnchor(\n" +
-                "                    anchorManager.SpatialAnchorMatrix,"));
-            Assert.That(gate, Does.Contain("snapshot.AnchorAtSave"));
+                "_grid.SetAnchorFromGrid(snapshot.AnchorFromGrid);"));
+            Assert.That(gate, Does.Not.Contain("AnchorAtSave"));
         }
 
         [Test]
-        public void AnchoredResumeRelocatesTheGridFromSavedToLocalizedPose()
+        public void SavedGridRelationSurvivesTrackingOriginShiftBetweenBindAndSave()
         {
-            var owner = new GameObject("anchored-grid-fixture");
-            owner.transform.SetPositionAndRotation(new Vector3(1f, 2f, -3f),
-                Quaternion.Euler(0f, 17f, 0f));
-            Matrix4x4 sceneGrid = owner.transform.localToWorldMatrix;
-            MerkabaGrid grid = owner.AddComponent<MerkabaGrid>();
-            typeof(MerkabaGrid).GetMethod("Awake",
-                    System.Reflection.BindingFlags.Instance |
-                    System.Reflection.BindingFlags.NonPublic)
-                ?.Invoke(grid, null);
-            Matrix4x4 saved = Matrix4x4.TRS(new Vector3(4f, 0.5f, -2f),
-                Quaternion.Euler(0f, 31f, 0f), Vector3.one);
-            Matrix4x4 localized = Matrix4x4.TRS(
-                new Vector3(-6f, 1.25f, 8f),
-                Quaternion.Euler(0f, -23f, 0f), Vector3.one);
+            // Bind at one tracking frame, shift the whole tracking space (wake,
+            // recenter), save, then reopen in a third frame. The lattice must
+            // land at the same anchor-relative pose every time.
+            var root = new GameObject("room-space").AddComponent<RoomSpaceRoot>();
+            var anchor = new GameObject("anchor");
+            var gridObject = new GameObject("grid");
             try
             {
-                grid.RelocateForLoadedAnchor(localized, saved);
-                Matrix4x4 expected = localized * saved.inverse * sceneGrid;
-                Assert.That(Vector3.Distance(owner.transform.position,
-                    expected.GetColumn(3)), Is.LessThan(1e-5f));
-                Assert.That(Quaternion.Angle(owner.transform.rotation,
-                    expected.rotation), Is.LessThan(1e-4f));
+                typeof(RoomSpaceRoot).GetMethod("Awake",
+                        System.Reflection.BindingFlags.Instance |
+                        System.Reflection.BindingFlags.NonPublic)
+                    ?.Invoke(root, null);
+                gridObject.transform.SetParent(root.transform, false);
+                MerkabaGrid grid = gridObject.AddComponent<MerkabaGrid>();
+                anchor.transform.SetPositionAndRotation(new Vector3(4f, 0.5f, -2f),
+                    Quaternion.Euler(0f, 31f, 0f));
+                root.SetAnchorOverride(anchor.transform);
+                Matrix4x4 relation = Matrix4x4.TRS(new Vector3(0.3f, -0.2f, 1.1f),
+                    Quaternion.Euler(0f, -12f, 0f), Vector3.one);
+                grid.SetAnchorFromGrid(relation);
+
+                // Tracking origin shift: the anchor's world pose changes.
+                anchor.transform.SetPositionAndRotation(new Vector3(-6f, 1.25f, 8f),
+                    Quaternion.Euler(0f, -23f, 0f));
+                Matrix4x4 saved = MerkabaPersistence.AnchorFromGridForSave(
+                    anchor.transform.localToWorldMatrix, grid.GridToWorldMatrix);
+                AssertMatrix(saved, relation);
+
+                // A rebind to a fresh binding of the same room keeps the relation
+                // instead of baking the previous world pose into the lattice.
+                var rebound = new GameObject("anchor-rebound");
+                try
+                {
+                    rebound.transform.SetPositionAndRotation(
+                        new Vector3(10f, -3f, 2f), Quaternion.Euler(0f, 77f, 0f));
+                    root.SetAnchorOverride(rebound.transform);
+                    AssertMatrix(MerkabaPersistence.AnchorFromGridForSave(
+                        rebound.transform.localToWorldMatrix,
+                        grid.GridToWorldMatrix), relation);
+                    grid.SetAnchorFromGrid(saved);
+                    AssertMatrix(MerkabaPersistence.AnchorFromGridForSave(
+                        rebound.transform.localToWorldMatrix,
+                        grid.GridToWorldMatrix), relation);
+                }
+                finally
+                {
+                    root.SetAnchorOverride(null);
+                    UnityEngine.Object.DestroyImmediate(rebound);
+                }
             }
             finally
             {
-                UnityEngine.Object.DestroyImmediate(owner);
+                UnityEngine.Object.DestroyImmediate(gridObject);
+                UnityEngine.Object.DestroyImmediate(root.gameObject);
+                UnityEngine.Object.DestroyImmediate(anchor);
             }
+        }
+
+        [Test]
+        public void LegacyCheckpointReconstructsGridRelationOnceAndUpgrades()
+        {
+            MerkabaSessionSnapshot source = Fixture();
+            byte[] current = Write(source);
+            Matrix4x4 anchorAtSave = Matrix4x4.TRS(new Vector3(2f, 0f, -1f),
+                Quaternion.Euler(0f, 45f, 0f), Vector3.one);
+            byte[] legacy = (byte[])current.Clone();
+            BitConverter.GetBytes(3).CopyTo(legacy, 4);
+            for (int index = 0; index < 16; index++)
+                BitConverter.GetBytes(anchorAtSave[index]).CopyTo(legacy,
+                    36 + index * 4);
+
+            MerkabaSessionSnapshot restored;
+            using (var stream = new MemoryStream(legacy, false))
+                restored = MerkabaPersistence.ReadSnapshot(stream);
+            Assert.That(restored.LegacyAnchorFrame, Is.True);
+            AssertMatrix(restored.AnchorFromGrid, anchorAtSave.inverse);
+
+            byte[] upgraded = Write(restored);
+            Assert.That(BitConverter.ToInt32(upgraded, 4), Is.EqualTo(4));
+            using var upgradedStream = new MemoryStream(upgraded, false);
+            MerkabaSessionSnapshot reread =
+                MerkabaPersistence.ReadSnapshot(upgradedStream);
+            Assert.That(reread.LegacyAnchorFrame, Is.False);
+            AssertMatrix(reread.AnchorFromGrid, anchorAtSave.inverse);
+        }
+
+        [Test]
+        public void NonRigidSpatialFrameIsRejected()
+        {
+            MerkabaSessionSnapshot source = Fixture();
+            source.AnchorFromGrid = Matrix4x4.Scale(new Vector3(2f, 1f, 1f));
+            Assert.Throws<InvalidDataException>(() => Write(source));
+        }
+
+        private static void AssertMatrix(Matrix4x4 actual, Matrix4x4 expected)
+        {
+            Assert.That(Vector3.Distance(actual.GetColumn(3),
+                expected.GetColumn(3)), Is.LessThan(1e-4f));
+            Assert.That(Quaternion.Angle(actual.rotation, expected.rotation),
+                Is.LessThan(1e-2f));
         }
 
         [Test]
@@ -375,7 +451,7 @@ namespace Genesis.RoomScan.Tests
             var snapshot = new MerkabaSessionSnapshot
             {
                 AnchorUuid = Guid.Parse("91b649aa-bfcb-43c4-9818-79e5a1012c7b"),
-                AnchorAtSave = Matrix4x4.TRS(new Vector3(1, 2, 3),
+                AnchorFromGrid = Matrix4x4.TRS(new Vector3(1, 2, 3),
                     Quaternion.Euler(0, 30, 0), Vector3.one),
                 IntegrationCount = 47
             };

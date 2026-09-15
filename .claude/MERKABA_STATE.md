@@ -54,7 +54,7 @@ offline: MerkabaExportShell -> MerkabaExportMembrane -> MerkabaGlbWriter
   exactly the contract fields; eye/cone/soft-weight symbols only in negative tests.
   Preview, CPU admission, shader mutation and ERASE share one descriptor.
 - `[x]` **G** ERASE is explicit canonical reset through `EraseFineTiles`.
-- `[~]` **H** Anchor authority (2026-09-15: resume/load math gaps, see RISK-12/13). `RoomScanner` + `RoomAnchorManager` gate creation to
+- `[~]` **H** Anchor authority (2026-09-15: RISK-12/13 fixed in code, device pending). `RoomScanner` + `RoomAnchorManager` gate creation to
   NEW; export uses the session UUID and cannot create.
 - `[x]` **I** Named sessions. `MerkabaSessionCatalog` + `sessions/<uuid>/session.json`;
   NEW/OPEN/SAVE/SAVE AS/RENAME/DELETE on `RoomScanner`.

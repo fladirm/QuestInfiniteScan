@@ -1062,7 +1062,8 @@ namespace Genesis.RoomScan.UI
             ScanOperationState operation = scanner.CurrentOperation;
             RefreshOperation(operation);
             if (_start != null) _start.text = scanner.IsScanStarting
-                ? "STARTING…" : scanner.IsScanning ? "STOP SCAN" : "START SCAN";
+                ? "STARTING…" : scanner.IsScanning ? "STOP SCAN" :
+                scanner.AnchorRetryAvailable ? "RETRY ANCHOR" : "START SCAN";
             if (_save != null) _save.text = operation.Busy &&
                 operation.Kind == ScanOperationKind.Save ? "SAVING…" : "SAVE";
             if (_load != null) _load.text = operation.Busy &&

@@ -11,7 +11,15 @@ namespace Genesis.RoomScan
     internal sealed class MerkabaSessionSnapshot
     {
         internal Guid AnchorUuid;
-        internal Matrix4x4 AnchorAtSave = Matrix4x4.identity;
+        /// <summary>Grid frame in the session anchor frame.</summary>
+        internal Matrix4x4 AnchorFromGrid = Matrix4x4.identity;
+        /// <summary>
+        /// True for a version-3 checkpoint, which stored only the anchor pose
+        /// at save. Its grid relation is reconstructed once as the inverse of
+        /// that pose (exact when the grid sat at the tracking origin) and must
+        /// be rewritten in the current format.
+        /// </summary>
+        internal bool LegacyAnchorFrame;
         internal int IntegrationCount;
         internal readonly List<MerkabaTileSnapshot> Tiles = new();
     }
@@ -24,7 +32,13 @@ namespace Genesis.RoomScan
     {
         internal const uint CheckpointMagic = 0x384D4B4Du; // MKM8
         internal const uint OverlayMagic = 0x474C384Du;    // M8LG
-        internal const int FormatVersion = 3;
+        internal const int OverlayFormatVersion = 3;
+        internal const int CheckpointFormatVersion = 4;
+        internal const int LegacyCheckpointFormatVersion = 3;
+        // Pinned header field of the frozen binary format. It once named the
+        // retired 32^3 chunk and has no runtime meaning; it is written and
+        // validated as a literal so the on-disk layout never changes silently.
+        internal const int HeaderPinnedSpan = 32;
         internal const int TilePayloadBytes =
             MerkabaSpatial.KernelsPerTile * 16;
         internal const int TileRecordHeaderBytes = 28;
@@ -154,7 +168,7 @@ namespace Genesis.RoomScan
                 if (newFile)
                 {
                     writer.Write(OverlayMagic);
-                    writer.Write(FormatVersion);
+                    writer.Write(OverlayFormatVersion);
                 }
                 foreach (MerkabaTileSnapshot tile in tiles)
                 {
@@ -330,14 +344,14 @@ namespace Genesis.RoomScan
             (left.y < right.y || (left.y == right.y && left.z < right.z)));
 
         internal Task<MerkabaSessionSnapshot> ReadCanonicalSnapshotAsync(
-            Guid anchorUuid, Matrix4x4 anchorAtSave, int integrationCount,
+            Guid anchorUuid, Matrix4x4 anchorFromGrid, int integrationCount,
             IProgress<OperationWorkProgress> progress = null) =>
             Task.Run(() =>
             {
                 var snapshot = new MerkabaSessionSnapshot
                 {
                     AnchorUuid = anchorUuid,
-                    AnchorAtSave = anchorAtSave,
+                    AnchorFromGrid = anchorFromGrid,
                     IntegrationCount = Mathf.Max(0, integrationCount)
                 };
                 List<MerkabaTileAddress> addresses;
@@ -412,13 +426,16 @@ namespace Genesis.RoomScan
                 left.Address.CompareTo(right.Address));
             using var writer = new BinaryWriter(destination,
                 new UTF8Encoding(false), true);
+            if (!MerkabaGrid.IsRigid(snapshot.AnchorFromGrid))
+                throw new InvalidDataException(
+                    "M8 checkpoint AnchorFromGrid is not a rigid transform.");
             writer.Write(CheckpointMagic);
-            writer.Write(FormatVersion);
+            writer.Write(CheckpointFormatVersion);
             writer.Write(MerkabaConstants.SupportSize);
             writer.Write(MerkabaConstants.LatticeStep);
-            writer.Write(MerkabaConstants.ChunkSize);
+            writer.Write(HeaderPinnedSpan);
             writer.Write(snapshot.AnchorUuid.ToByteArray());
-            for (int i = 0; i < 16; i++) writer.Write(snapshot.AnchorAtSave[i]);
+            for (int i = 0; i < 16; i++) writer.Write(snapshot.AnchorFromGrid[i]);
             writer.Write(snapshot.IntegrationCount);
             writer.Write(snapshot.Tiles.Count);
             long totalBytes = checked(CheckpointHeaderBytes +
@@ -548,7 +565,7 @@ namespace Genesis.RoomScan
                 FileShare.ReadWrite, 1024 * 1024, FileOptions.SequentialScan);
             using var reader = new BinaryReader(stream, Encoding.UTF8, true);
             if (reader.ReadUInt32() != OverlayMagic ||
-                reader.ReadInt32() != FormatVersion)
+                reader.ReadInt32() != OverlayFormatVersion)
                 throw new InvalidDataException("Unsupported M8 overlay log.");
             reportBytes?.Invoke(stream.Position);
             int item = 0;
@@ -582,12 +599,14 @@ namespace Genesis.RoomScan
         private static void ReadCheckpointHeader(BinaryReader reader,
             out MerkabaSessionSnapshot snapshot, out int tileCount)
         {
-            if (reader.ReadUInt32() != CheckpointMagic ||
-                reader.ReadInt32() != FormatVersion)
+            if (reader.ReadUInt32() != CheckpointMagic)
+                throw new InvalidDataException("Unsupported M8 checkpoint format.");
+            int version = reader.ReadInt32();
+            if (!IsSupportedCheckpointVersion(version))
                 throw new InvalidDataException("Unsupported M8 checkpoint format.");
             if (reader.ReadSingle() != MerkabaConstants.SupportSize ||
                 reader.ReadSingle() != MerkabaConstants.LatticeStep ||
-                reader.ReadInt32() != MerkabaConstants.ChunkSize)
+                reader.ReadInt32() != HeaderPinnedSpan)
                 throw new InvalidDataException("M8 geometry constants do not match.");
             snapshot = new MerkabaSessionSnapshot
             {
@@ -595,7 +614,12 @@ namespace Genesis.RoomScan
             };
             Matrix4x4 matrix = default;
             for (int index = 0; index < 16; index++) matrix[index] = reader.ReadSingle();
-            snapshot.AnchorAtSave = matrix;
+            snapshot.LegacyAnchorFrame = version == LegacyCheckpointFormatVersion;
+            snapshot.AnchorFromGrid = snapshot.LegacyAnchorFrame
+                ? matrix.inverse : matrix;
+            if (!MerkabaGrid.IsRigid(snapshot.AnchorFromGrid))
+                throw new InvalidDataException(
+                    "M8 checkpoint spatial frame is not a rigid transform.");
             snapshot.IntegrationCount = reader.ReadInt32();
             tileCount = reader.ReadInt32();
             if (snapshot.IntegrationCount < 0 || tileCount < 0 ||
@@ -603,6 +627,10 @@ namespace Genesis.RoomScan
                 MerkabaSpatial.TilesPerChunk)
                 throw new InvalidDataException("M8 checkpoint counts are invalid.");
         }
+
+        internal static bool IsSupportedCheckpointVersion(int version) =>
+            version == CheckpointFormatVersion ||
+            version == LegacyCheckpointFormatVersion;
 
         private static void WriteAddress(BinaryWriter writer,
             MerkabaTileAddress address)

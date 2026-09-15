@@ -1,16 +1,78 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Meta.XR.MRUtilityKit;
 using UnityEngine;
+using UnityEngine.XR;
 
 namespace Genesis.RoomScan
 {
     /// <summary>
-    /// Room anchor manager. Uses MRUK for runtime world-locking and provides
-    /// <see cref="OVRSpatialAnchor"/>-based persistence for reliable cross-session relocation.
-    /// Computes per-artifact relocation matrices via <c>R = A_now * Inv(A_create)</c>.
+    /// One coordinate authority generation. It advances on every discontinuity
+    /// of the session room frame (anchor replaced, anchor untracked, pose jump,
+    /// tracking-origin change, application pause) and is ready only after the
+    /// bound anchor has been continuously tracked and stable. Canonical
+    /// observations are admitted only inside one ready generation.
+    /// </summary>
+    internal sealed class CoordinateAuthorityGate
+    {
+        internal const int RequiredStableFrames = 5;
+        internal const float PoseJumpMeters = 0.01f;
+        internal const float PoseJumpDegrees = 0.5f;
+
+        private object _anchorIdentity;
+        private bool _hasPose;
+        private Vector3 _position;
+        private Quaternion _rotation;
+
+        internal uint Generation { get; private set; } = 1u;
+        internal int StableFrames { get; private set; }
+        internal bool IsReady => StableFrames >= RequiredStableFrames;
+
+        internal void Invalidate()
+        {
+            unchecked
+            {
+                Generation++;
+                if (Generation == 0u) Generation = 1u;
+            }
+            StableFrames = 0;
+            _hasPose = false;
+        }
+
+        internal void Sample(bool anchorUsable, object anchorIdentity,
+            Vector3 position, Quaternion rotation)
+        {
+            if (!anchorUsable)
+            {
+                if (_hasPose || StableFrames > 0 || _anchorIdentity != null)
+                    Invalidate();
+                _anchorIdentity = null;
+                return;
+            }
+            if (!ReferenceEquals(anchorIdentity, _anchorIdentity))
+            {
+                _anchorIdentity = anchorIdentity;
+                Invalidate();
+            }
+            else if (_hasPose &&
+                     (Vector3.Distance(position, _position) > PoseJumpMeters ||
+                      Quaternion.Angle(rotation, _rotation) > PoseJumpDegrees))
+                Invalidate();
+            _position = position;
+            _rotation = rotation;
+            _hasPose = true;
+            if (StableFrames < RequiredStableFrames) StableFrames++;
+        }
+    }
+
+    /// <summary>
+    /// Room anchor manager. Owns the one persisted session
+    /// <see cref="OVRSpatialAnchor"/> and its coordinate authority generation.
+    /// Persistent content stores its pose relative to that anchor
+    /// (<c>AnchorFromX</c>); there is no world-space relocation matrix.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class RoomAnchorManager : MonoBehaviour
@@ -32,10 +94,98 @@ namespace Genesis.RoomScan
         private Task<bool> _ensureSessionAnchorTask;
         private Guid _ensureSessionAnchorUuid;
         private bool _ensureSessionAnchorMayCreate;
+        private readonly CoordinateAuthorityGate _authority = new();
+        private readonly Dictionary<Guid, OVRSpatialAnchor> _artifactAnchors =
+            new();
+        private readonly List<XRInputSubsystem> _inputSubsystems = new();
+        private XRInputSubsystem _originSubsystem;
+
+        internal const float AnchorReadyTimeoutSeconds = 10f;
+
+        /// <summary>Current room-frame authority generation.</summary>
+        internal uint CoordinateAuthorityGeneration => _authority.Generation;
 
         private void Awake()
         {
             Instance = this;
+        }
+
+        private void OnEnable()
+        {
+            OVRManager.TrackingOriginChangePending +=
+                OnTrackingOriginChangePending;
+        }
+
+        private void OnDisable()
+        {
+            OVRManager.TrackingOriginChangePending -=
+                OnTrackingOriginChangePending;
+            if (_originSubsystem != null)
+                _originSubsystem.trackingOriginUpdated -=
+                    OnTrackingOriginUpdated;
+            _originSubsystem = null;
+            _authority.Invalidate();
+        }
+
+        private void OnApplicationPause(bool paused)
+        {
+            _authority.Invalidate();
+        }
+
+        private void LateUpdate()
+        {
+            SubscribeTrackingOriginUpdates();
+            OVRSpatialAnchor anchor = _activeSpatialAnchor;
+            bool usable = anchor != null && anchor.Localized &&
+                anchor.IsTracked && RoomSpaceRoot.Instance != null &&
+                RoomSpaceRoot.Instance.CurrentAnchor == anchor.transform;
+            _authority.Sample(usable, usable ? anchor : null,
+                usable ? anchor.transform.position : Vector3.zero,
+                usable ? anchor.transform.rotation : Quaternion.identity);
+        }
+
+        /// <summary>
+        /// True only while the exact session anchor is localized, tracked,
+        /// bound to RoomSpaceRoot and stable inside one authority generation.
+        /// </summary>
+        internal bool IsCoordinateAuthorityReady(Guid requiredUuid,
+            out uint generation)
+        {
+            generation = _authority.Generation;
+            return requiredUuid != Guid.Empty && _activeSpatialAnchor != null &&
+                _activeSpatialAnchor.Uuid == requiredUuid && _authority.IsReady;
+        }
+
+        private void SubscribeTrackingOriginUpdates()
+        {
+            if (_originSubsystem != null && _originSubsystem.running) return;
+            if (_originSubsystem != null)
+                _originSubsystem.trackingOriginUpdated -=
+                    OnTrackingOriginUpdated;
+            _originSubsystem = null;
+            SubsystemManager.GetSubsystems(_inputSubsystems);
+            foreach (XRInputSubsystem subsystem in _inputSubsystems)
+            {
+                if (!subsystem.running) continue;
+                _originSubsystem = subsystem;
+                subsystem.trackingOriginUpdated += OnTrackingOriginUpdated;
+                break;
+            }
+        }
+
+        private void OnTrackingOriginChangePending(
+            OVRManager.TrackingOrigin origin, OVRPose? poseInPreviousSpace)
+        {
+            Logger.Warning($"Tracking origin change pending ({origin}); " +
+                "closing canonical observation admission.");
+            _authority.Invalidate();
+        }
+
+        private void OnTrackingOriginUpdated(XRInputSubsystem subsystem)
+        {
+            Logger.Warning("XR tracking origin updated; closing canonical " +
+                "observation admission.");
+            _authority.Invalidate();
         }
 
         private IEnumerator Start()
@@ -117,55 +267,13 @@ namespace Genesis.RoomScan
         }
 
         // ─────────────────────────────────────────────────────────────
-        //  MRUK fallback API (unchanged)
-        // ─────────────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Floor MRUK anchor → world matrix. Used as fallback when spatial anchor
-        /// localization fails. Main thread only.
-        /// </summary>
-        public Matrix4x4 GetRoomLocalToWorldForPersistence()
-        {
-            return _anchorTransform != null ? _anchorTransform.localToWorldMatrix : Matrix4x4.identity;
-        }
-
-        /// <summary>
-        /// One-shot relocation: <c>R = A_now * Inv(A_save)</c>.
-        /// </summary>
-        public static Matrix4x4 ComputeRelocationMatrix(Matrix4x4 anchorNow, Matrix4x4 anchorAtSave)
-        {
-            Matrix4x4 reloc = anchorNow * anchorAtSave.inverse;
-            Logger.Info($"ComputeRelocation: R = A_now * Inv(A_save)\n" +
-                      $"  A_save col3(pos): {anchorAtSave.GetColumn(3)}\n" +
-                      $"  A_now  col3(pos): {anchorNow.GetColumn(3)}\n" +
-                      $"  R      col3(pos): {reloc.GetColumn(3)}");
-            return reloc;
-        }
-
-        /// <summary>
-        /// Overload for backward compat — uses the current MRUK anchor as A_now.
-        /// </summary>
-        public Matrix4x4 ComputeRelocationMatrix(Matrix4x4 anchorAtSave)
-        {
-            Matrix4x4 aNow = _anchorTransform != null ? _anchorTransform.localToWorldMatrix : Matrix4x4.identity;
-            return ComputeRelocationMatrix(aNow, anchorAtSave);
-        }
-
-        // ─────────────────────────────────────────────────────────────
         //  OVRSpatialAnchor API
         // ─────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Current spatial anchor localization matrix. Valid after
-        /// <see cref="EnsureSessionAnchorAsync"/>.
+        /// Current world pose of the session anchor. Persistent relations are
+        /// stored as <c>SpatialAnchorMatrix.inverse * XToWorld</c>.
         /// Returns identity if no spatial anchor is active.
-        ///
-        /// <para><b>Persisting data baked in world space.</b> Store this
-        /// alongside the data at the moment you bake it, and on load multiply
-        /// by <c>ComputeRelocationMatrix(SpatialAnchorMatrix, stored)</c> to
-        /// bring it into the current session's world frame. Canonical Merkaba
-        /// coordinates are stored relative to <see cref="RoomSpaceRoot"/>, so
-        /// they ordinarily need no resampling or relocation.</para>
         /// </summary>
         public Matrix4x4 SpatialAnchorMatrix =>
             _activeSpatialAnchor != null
@@ -221,7 +329,7 @@ namespace Genesis.RoomScan
         /// or creates one only for an explicit NEW-session request.
         /// </summary>
         internal async Task<bool> EnsureSessionAnchorAsync(Guid requiredUuid,
-            bool allowCreate)
+            bool allowCreate, CancellationToken cancellation = default)
         {
             if (requiredUuid == Guid.Empty && !allowCreate)
             {
@@ -233,11 +341,23 @@ namespace Genesis.RoomScan
             if (requiredUuid != Guid.Empty && _activeSpatialAnchor != null &&
                 _activeSpatialAnchor.Uuid == requiredUuid)
             {
-                if (_activeSpatialAnchor.Localized &&
-                    _activeSpatialAnchor.IsTracked)
-                    return RoomSpaceRoot.Instance != null &&
-                        await RoomSpaceRoot.WaitForAnchorBindAsync(
-                            _activeSpatialAnchor.transform);
+                // The SDK refuses to load a UUID that is already bound. The
+                // bound instance relocalizes by itself after sleep or a
+                // tracking-origin change, so the only correct action is to
+                // wait for its exact coordinate authority.
+                if (await WaitForCoordinateAuthorityAsync(requiredUuid,
+                        AnchorReadyTimeoutSeconds, cancellation))
+                    return true;
+                if (cancellation.IsCancellationRequested ||
+                    _activeSpatialAnchor == null ||
+                    _activeSpatialAnchor.Uuid != requiredUuid ||
+                    _activeSpatialAnchor.Localized)
+                    return false;
+                Logger.Warning($"Bound session anchor {requiredUuid:D} lost " +
+                    "its locatable component; rebinding the same UUID.");
+                DetachChildrenForReparent(_activeSpatialAnchor.transform);
+                DestroyImmediate(_activeSpatialAnchor.gameObject);
+                _activeSpatialAnchor = null;
             }
 
             Task<bool> pending = _ensureSessionAnchorTask;
@@ -300,7 +420,29 @@ namespace Genesis.RoomScan
             }
             return _activeSpatialAnchor != null &&
                 await RoomSpaceRoot.WaitForAnchorBindAsync(
-                    _activeSpatialAnchor.transform);
+                    _activeSpatialAnchor.transform) &&
+                await WaitForCoordinateAuthorityAsync(_activeSpatialAnchor.Uuid,
+                    AnchorReadyTimeoutSeconds, default);
+        }
+
+        /// <summary>
+        /// Waits in rendered frames (a sleeping headset renders none) until the
+        /// exact anchor owns a ready coordinate authority generation.
+        /// </summary>
+        internal async Task<bool> WaitForCoordinateAuthorityAsync(
+            Guid requiredUuid, float timeoutSeconds,
+            CancellationToken cancellation)
+        {
+            float waited = 0f;
+            while (!cancellation.IsCancellationRequested && this != null)
+            {
+                if (IsCoordinateAuthorityReady(requiredUuid, out _)) return true;
+                if (waited >= timeoutSeconds) break;
+                await Task.Yield();
+                waited += Mathf.Min(Time.unscaledDeltaTime, 0.1f);
+            }
+            return this != null && !cancellation.IsCancellationRequested &&
+                IsCoordinateAuthorityReady(requiredUuid, out _);
         }
 
         /// <summary>
@@ -387,6 +529,24 @@ namespace Genesis.RoomScan
         /// </summary>
         private async Task<Matrix4x4?> LoadSpatialAnchorAsync(Guid uuid)
         {
+            if (_artifactAnchors.TryGetValue(uuid, out OVRSpatialAnchor shared) &&
+                shared != null)
+            {
+                // An artifact view already bound this UUID. Promote that one
+                // binding; the SDK would skip a second load of the same UUID.
+                _artifactAnchors.Remove(uuid);
+                if (_activeSpatialAnchor != null &&
+                    _activeSpatialAnchor != shared)
+                {
+                    DetachChildrenForReparent(_activeSpatialAnchor.transform);
+                    Destroy(_activeSpatialAnchor.gameObject);
+                }
+                _activeSpatialAnchor = shared;
+                Logger.Info($"Promoted artifact binding of anchor {uuid:D} " +
+                    "to the session anchor.");
+                return shared.transform.localToWorldMatrix;
+            }
+            _artifactAnchors.Remove(uuid);
             Logger.Info($"Loading spatial anchor {uuid}...");
 
             _unboundAnchors.Clear();
@@ -480,6 +640,14 @@ namespace Genesis.RoomScan
                 }
                 return (_activeSpatialAnchor.transform, false);
             }
+            if (_artifactAnchors.TryGetValue(uuid, out OVRSpatialAnchor existing))
+            {
+                if (existing != null &&
+                    await WaitForSpatialAnchorReadyAsync(existing, 10f))
+                    return (existing.transform, true);
+                if (existing == null) _artifactAnchors.Remove(uuid);
+                else return null;
+            }
 
             var unboundAnchors =
                 new List<OVRSpatialAnchor.UnboundAnchor>();
@@ -523,9 +691,29 @@ namespace Genesis.RoomScan
                 return null;
             }
             await StabilizeAnchorTransform(anchor.transform);
+            _artifactAnchors[uuid] = anchor;
             Logger.Info($"Artifact spatial anchor localized without " +
                 $"changing scan authority: {uuid}.");
             return (anchor.transform, true);
+        }
+
+        /// <summary>
+        /// Releases an artifact-owned binding immediately so the UUID can be
+        /// bound again in the same frame. A binding already promoted to the
+        /// session anchor is never destroyed.
+        /// </summary>
+        internal void ReleaseArtifactAnchor(Transform anchorTransform)
+        {
+            if (anchorTransform == null) return;
+            OVRSpatialAnchor anchor =
+                anchorTransform.GetComponent<OVRSpatialAnchor>();
+            if (anchor == null || anchor == _activeSpatialAnchor) return;
+            if (!_artifactAnchors.TryGetValue(anchor.Uuid,
+                    out OVRSpatialAnchor registered) || registered != anchor)
+                return;
+            _artifactAnchors.Remove(anchor.Uuid);
+            DetachChildrenForReparent(anchor.transform);
+            DestroyImmediate(anchor.gameObject);
         }
 
         /// <summary>

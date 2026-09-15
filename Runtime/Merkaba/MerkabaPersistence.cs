@@ -165,13 +165,18 @@ namespace Genesis.RoomScan
                 if (snapshot.AnchorUuid != session.AnchorId)
                     throw new InvalidDataException(
                         "Session metadata and M8 checkpoint anchor UUID differ.");
-                _grid.RelocateForLoadedAnchor(
-                    anchorManager.SpatialAnchorMatrix, snapshot.AnchorAtSave);
+                _grid.SetAnchorFromGrid(snapshot.AnchorFromGrid);
                 await _grid.LoadStoredSnapshotAsync(snapshot, progress);
                 _integrator?.RestoreIntegrationCount(snapshot.IntegrationCount);
                 _activeSession = session;
-                IsDirty = false;
-                SetStatus($"Loaded {snapshot.Tiles.Count} M8 tiles");
+                // A legacy checkpoint's grid relation was reconstructed once;
+                // the next SAVE must persist it exactly so it never
+                // re-derives from a pose that is not stored.
+                IsDirty = snapshot.LegacyAnchorFrame;
+                SetStatus(snapshot.LegacyAnchorFrame
+                    ? $"Loaded {snapshot.Tiles.Count} M8 tiles · save to " +
+                      "upgrade spatial frame"
+                    : $"Loaded {snapshot.Tiles.Count} M8 tiles");
                 return true;
             }
             catch (Exception exception)
@@ -215,6 +220,8 @@ namespace Genesis.RoomScan
             {
                 await _grid.SwitchStorageRootAsync(
                     _catalog.SessionDirectory(session.Id), true, true);
+                // A new empty world is authored at the room origin (H2).
+                _grid.SetAnchorFromGrid(Matrix4x4.identity);
             }
             catch
             {
@@ -388,12 +395,20 @@ namespace Genesis.RoomScan
                     "Active session room anchor could not be localized.");
             MerkabaSessionSnapshot snapshot = await _grid
                 .CaptureStoredSnapshotAsync(ActiveAnchorUuid,
-                    anchor.SpatialAnchorMatrix,
+                    AnchorFromGridForSave(anchor.SpatialAnchorMatrix,
+                        _grid.GridToWorldMatrix),
                     _integrator != null ? _integrator.IntegrationCount : 0,
                     progress);
             await _grid.PublishCheckpointAsync(snapshot, progress);
             return snapshot;
         }
+
+        /// <summary>
+        /// The persisted spatial relation: grid frame in the live anchor
+        /// frame. The same algebra binds exported packages.
+        /// </summary>
+        internal static Matrix4x4 AnchorFromGridForSave(Matrix4x4 anchorToWorld,
+            Matrix4x4 gridToWorld) => anchorToWorld.inverse * gridToWorld;
 
         internal static void CopyFileDurable(string source, string destination)
         {

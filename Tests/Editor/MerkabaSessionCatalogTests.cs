@@ -83,7 +83,7 @@ namespace Genesis.RoomScan.Tests
                 var snapshot = new MerkabaSessionSnapshot
                 {
                     AnchorUuid = anchor,
-                    AnchorAtSave = Matrix4x4.identity,
+                    AnchorFromGrid = Matrix4x4.identity,
                     IntegrationCount = 3
                 };
                 snapshot.Tiles.Add(Tile(new int3(0, 0, 0), 1));
@@ -118,14 +118,14 @@ namespace Genesis.RoomScan.Tests
                 var snapshotA = new MerkabaSessionSnapshot
                 {
                     AnchorUuid = anchor,
-                    AnchorAtSave = Matrix4x4.identity,
+                    AnchorFromGrid = Matrix4x4.identity,
                     IntegrationCount = 7
                 };
                 snapshotA.Tiles.Add(Tile(new int3(-2, 1, 3), 11));
                 var snapshotB = new MerkabaSessionSnapshot
                 {
                     AnchorUuid = b.AnchorId,
-                    AnchorAtSave = Matrix4x4.identity,
+                    AnchorFromGrid = Matrix4x4.identity,
                     IntegrationCount = 9
                 };
                 snapshotB.Tiles.Add(Tile(new int3(8, -1, 0), 23));

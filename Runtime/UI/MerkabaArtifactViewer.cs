@@ -1404,7 +1404,7 @@ namespace Genesis.RoomScan.UI
                 {
                     if (localized.HasValue && localized.Value.owned &&
                         localized.Value.transform != null)
-                        Destroy(localized.Value.transform.gameObject);
+                        manager.ReleaseArtifactAnchor(localized.Value.transform);
                     return;
                 }
                 if (!localized.HasValue || localized.Value.transform == null)
@@ -1419,7 +1419,7 @@ namespace Genesis.RoomScan.UI
                         out Quaternion rotation, out Vector3 scale))
                 {
                     if (localized.Value.owned)
-                        Destroy(localized.Value.transform.gameObject);
+                        manager.ReleaseArtifactAnchor(localized.Value.transform);
                     Status = "ALIGN 1:1 failed: invalid package transform";
                     return;
                 }
@@ -1445,7 +1445,7 @@ namespace Genesis.RoomScan.UI
             {
                 if (localized.HasValue && localized.Value.owned &&
                     localized.Value.transform != null)
-                    Destroy(localized.Value.transform.gameObject);
+                    manager.ReleaseArtifactAnchor(localized.Value.transform);
                 Logger.Error("GLB View ALIGN 1:1 failed: " + exception);
                 Status = "ALIGN 1:1 failed: " + exception.Message;
             }
@@ -1487,7 +1487,8 @@ namespace Genesis.RoomScan.UI
         private void ReleaseArtifactAnchor()
         {
             if (_ownsArtifactAnchor && _artifactAnchor != null)
-                Destroy(_artifactAnchor.gameObject);
+                RoomAnchorManager.Instance?.ReleaseArtifactAnchor(
+                    _artifactAnchor);
             _artifactAnchor = null;
             _ownsArtifactAnchor = false;
         }

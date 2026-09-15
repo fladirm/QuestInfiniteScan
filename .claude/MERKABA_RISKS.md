@@ -49,7 +49,12 @@ resolve the corner from the union of its four columns with a MAIN-independent ti
 (sheet identity + lexicographic), never from MAIN's own height, signature or layer
 window. Do not paper over it with a tolerance.
 
-## RISK-3 — legacy 32-chunk constants still live in the frozen persistence header [OPEN]
+## RISK-3 — legacy 32-chunk constants still live in the frozen persistence header [FIXED IN CODE 2026-09-15]
+
+Chunk helpers deleted from `MerkabaConstants`; the header field is the explicit pinned
+literal `MerkabaSsdStore.HeaderPinnedSpan = 32`. Checkpoint format is now v4 (overlay
+log stays v3).
+
 
 `MerkabaConstants.ChunkSize/KernelsPerChunk/Neighbours/Flatten/Unflatten` are leftovers
 of the superseded 32^3 design. `ChunkSize` is still written into and validated from the
@@ -121,14 +126,29 @@ exporter reads a 26-tile ring (2.3-3.4x context), runs Shell+Membrane+Dinic part
 all of it, then OwnChunk discards the rest. TryInferClosure re-runs TryBuildPatch for up
 to 26 neighbours without memo. Partition sink = window boundary -> seam-dependent result.
 
-## RISK-12 — grid relocation on load uses Awake pose, not saved grid pose [OPEN, CONFIRMED]
+## RISK-12 — grid relocation on load uses Awake pose, not saved grid pose [FIXED IN CODE, DEVICE ACCEPTANCE PENDING]
+
+Fix: checkpoint v4 persists `AnchorFromGrid = inv(A_save) * G_save`; `MerkabaGrid.SetAnchorFromGrid`
+is the one authority and is re-applied on every `RoomSpaceRoot.Bound`. NEW = identity.
+v3 checkpoints load once with `inv(AnchorAtSave)` and are marked dirty to upgrade.
+Behavioural tests: `SavedGridRelationSurvivesTrackingOriginShiftBetweenBindAndSave`,
+`LegacyCheckpointReconstructsGridRelationOnceAndUpgrades`.
+
 `MerkabaGrid.RelocateForLoadedAnchor`: `anchorNow * anchorAtSave.inverse * _sceneGridToWorld`
 where `_sceneGridToWorld` is captured once in Awake. Correct is
 `anchorNow * inv(anchorSave) * gridSave` (exporter already stores
 `SpatialAnchorMatrix.inverse * GridToWorldMatrix`). Any tracking-origin shift between bind
 and SAVE mis-places reopened scans; compounds across cycles. Test asserts the wrong formula.
 
-## RISK-13 — resume does not wait for an already-bound but untracked anchor [OPEN, CONFIRMED]
+## RISK-13 — resume does not wait for an already-bound but untracked anchor [FIXED IN CODE, DEVICE ACCEPTANCE PENDING]
+
+Fix: `CoordinateAuthorityGate` (generation + 5 stable tracked frames; invalidated by pause,
+tracking-origin change, untracked, pose jump >1 cm/0.5 deg, rebinding). Bound UUIDs are
+waited on, never reloaded; artifact bindings are promoted/released via the manager.
+Observations capture GridToWorld + generation at prepare and abort on change. Resume
+waits are frame-based and cancelled by pause; intent survives interrupted resume; depth
+is restored even on anchor failure; START shows RETRY ANCHOR.
+
 `RoomAnchorManager.EnsureSessionAnchorAsync` shortcut requires `Localized && IsTracked`;
 otherwise it reloads a UUID already bound (SDK skips -> false). After wake head tracking
 returns before anchor relocalizes -> "Room anchor not localized". 

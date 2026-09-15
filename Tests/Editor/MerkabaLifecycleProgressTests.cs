@@ -4,6 +4,7 @@ using System.IO;
 using Genesis.RoomScan;
 using NUnit.Framework;
 using Unity.Mathematics;
+using UnityEngine;
 
 namespace Genesis.RoomScan.Tests
 {
@@ -19,7 +20,8 @@ namespace Genesis.RoomScan.Tests
             string transition = Slice(scanner,
                 "private async Task ApplyApplicationPauseAsync",
                 "private void BeginDisableTeardown()");
-            Assert.That(pause, Does.Contain("_resumeAfterPause = IsScanning || IsScanStarting"));
+            Assert.That(pause, Does.Contain("_resumeAfterPause |= scanning;"));
+            Assert.That(pause, Does.Contain("_resumeCancellation?.Cancel();"));
             Assert.That(transition, Does.Contain(
                 "if (!await QuiesceScanningAsync()) return;"));
             Assert.That(transition, Does.Contain(
@@ -67,6 +69,92 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void CoordinateAuthorityOpensOnlyAfterStableTrackedAnchor()
+        {
+            var gate = new CoordinateAuthorityGate();
+            object anchor = new object();
+            Vector3 position = new(1f, 0f, 2f);
+            Quaternion rotation = Quaternion.Euler(0f, 30f, 0f);
+            uint initial = gate.Generation;
+            for (int frame = 1; frame < CoordinateAuthorityGate.RequiredStableFrames;
+                 frame++)
+            {
+                gate.Sample(true, anchor, position, rotation);
+                Assert.That(gate.IsReady, Is.False, $"frame {frame}");
+            }
+            gate.Sample(true, anchor, position, rotation);
+            Assert.That(gate.IsReady, Is.True);
+            uint ready = gate.Generation;
+            Assert.That(ready, Is.Not.EqualTo(initial));
+
+            // Sub-threshold drift correction keeps the generation.
+            gate.Sample(true, anchor, position + new Vector3(0.002f, 0f, 0f),
+                rotation);
+            Assert.That(gate.Generation, Is.EqualTo(ready));
+            Assert.That(gate.IsReady, Is.True);
+
+            // Losing tracking closes admission and advances the generation.
+            gate.Sample(false, null, default, Quaternion.identity);
+            Assert.That(gate.IsReady, Is.False);
+            Assert.That(gate.Generation, Is.Not.EqualTo(ready));
+
+            // A relocalized pose jump after wake is a new generation that
+            // needs its own stable window.
+            uint lost = gate.Generation;
+            for (int frame = 0; frame < CoordinateAuthorityGate.RequiredStableFrames;
+                 frame++)
+                gate.Sample(true, anchor, position, rotation);
+            Assert.That(gate.IsReady, Is.True);
+            uint relocalized = gate.Generation;
+            Assert.That(relocalized, Is.Not.EqualTo(lost));
+            gate.Sample(true, anchor, position + new Vector3(0f, 0f, 0.05f),
+                rotation);
+            Assert.That(gate.IsReady, Is.False);
+            Assert.That(gate.Generation, Is.Not.EqualTo(relocalized));
+
+            // A tracking-origin change invalidates explicitly.
+            for (int frame = 0; frame < CoordinateAuthorityGate.RequiredStableFrames;
+                 frame++)
+                gate.Sample(true, anchor, position, rotation);
+            uint beforeRecenter = gate.Generation;
+            gate.Invalidate();
+            Assert.That(gate.IsReady, Is.False);
+            Assert.That(gate.Generation, Is.Not.EqualTo(beforeRecenter));
+
+            // A different anchor binding is never the same authority.
+            for (int frame = 0; frame < CoordinateAuthorityGate.RequiredStableFrames;
+                 frame++)
+                gate.Sample(true, anchor, position, rotation);
+            uint first = gate.Generation;
+            gate.Sample(true, new object(), position, rotation);
+            Assert.That(gate.IsReady, Is.False);
+            Assert.That(gate.Generation, Is.Not.EqualTo(first));
+        }
+
+        [Test]
+        public void ObservationsOwnTheirRoomFrameAndAbortOnAuthorityChange()
+        {
+            string integrator = Source("Runtime/Merkaba/MerkabaIntegrator.cs");
+            Assert.That(integrator, Does.Contain(
+                "private bool ObservationMustAbort() => ObservationTimedOut() ||"));
+            Assert.That(integrator, Does.Contain(
+                "values.Matrix(\"_MerkabaGridToWorld\", gridToWorld);"));
+            Assert.That(integrator, Does.Contain(
+                "Matrix4x4 gridToWorld = _observationGridToWorld;"));
+            string manager = Source("Runtime/Core/RoomAnchorManager.cs");
+            string ensure = Slice(manager,
+                "internal async Task<bool> EnsureSessionAnchorAsync(",
+                "private async Task<bool> EnsureSessionAnchorCoreAsync(");
+            Assert.That(ensure.IndexOf("WaitForCoordinateAuthorityAsync(",
+                    StringComparison.Ordinal),
+                Is.LessThan(ensure.IndexOf("EnsureSessionAnchorCoreAsync(",
+                    StringComparison.Ordinal)));
+            Assert.That(manager, Does.Contain(
+                "OVRManager.TrackingOriginChangePending +="));
+            Assert.That(manager, Does.Contain("trackingOriginUpdated +="));
+        }
+
+        [Test]
         public void OnlyNewSessionMayCreateTheRoomAnchor()
         {
             string scanner = Source("Runtime/Core/RoomScanner.cs");
@@ -79,7 +167,10 @@ namespace Genesis.RoomScan.Tests
             Assert.That(ensure, Does.Not.Contain("IsRoomLoaded"));
             Assert.That(ensure, Does.Contain(
                 "Create or open a scan session before starting."));
-            Assert.That(ensure, Does.Contain("Room anchor not localized"));
+            Assert.That(ensure, Does.Contain(
+                "throw new InvalidOperationException(AnchorNotLocalizedError);"));
+            Assert.That(scanner, Does.Contain(
+                "AnchorNotLocalizedError = \"Room anchor not localized\""));
 
             string create = Slice(scanner,
                 "public async Task NewClearAsync()",
@@ -110,19 +201,28 @@ namespace Genesis.RoomScan.Tests
             string scanner = Source("Runtime/Core/RoomScanner.cs");
             string transition = Slice(scanner,
                 "private async Task ApplyApplicationPauseAsync",
+                "private async Task<bool> LocalizeResumeAnchorAsync(");
+            string localize = Slice(scanner,
+                "private async Task<bool> LocalizeResumeAnchorAsync(",
                 "private void BeginDisableTeardown()");
-            int anchor = transition.IndexOf(
-                "EnsureSessionAnchorAsync(\n" +
-                "                            _resumeAnchorUuid, false)",
+            int anchor = transition.IndexOf("LocalizeResumeAnchorAsync(",
                 StringComparison.Ordinal);
             int depth = transition.IndexOf(
                 "RestoreEnvironmentDepthAfterApplicationResumeAsync()",
                 StringComparison.Ordinal);
+            int start = transition.IndexOf("await StartScanningAsync();",
+                StringComparison.Ordinal);
             Assert.That(anchor, Is.GreaterThanOrEqualTo(0));
             Assert.That(depth, Is.GreaterThan(anchor));
-            Assert.That(transition, Does.Contain(
-                "LastScanStartError = \"Room anchor not localized\""));
-            Assert.That(transition, Does.Not.Contain(
+            Assert.That(start, Is.GreaterThan(depth));
+            Assert.That(transition, Does.Contain("!anchorReady"));
+            Assert.That(localize, Does.Contain(
+                "_resumeAnchorUuid, false, cancellation)"));
+            Assert.That(localize, Does.Contain(
+                "_persistence.ActiveSessionId != _resumeSessionId"));
+            Assert.That(scanner, Does.Contain(
+                "LastScanStartError = AnchorNotLocalizedError;"));
+            Assert.That(transition + localize, Does.Not.Contain(
                 "EnsureSessionAnchorAsync(Guid.Empty"));
         }
 

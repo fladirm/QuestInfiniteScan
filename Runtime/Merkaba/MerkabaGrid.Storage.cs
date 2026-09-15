@@ -689,12 +689,12 @@ namespace Genesis.RoomScan
         }
 
         internal async Task<MerkabaSessionSnapshot> CaptureStoredSnapshotAsync(
-            Guid anchorUuid, Matrix4x4 anchorAtSave, int integrationCount,
+            Guid anchorUuid, Matrix4x4 anchorFromGrid, int integrationCount,
             IProgress<OperationWorkProgress> progress = null)
         {
             EnsureStorage();
             return await _ssdStore.ReadCanonicalSnapshotAsync(anchorUuid,
-                anchorAtSave, integrationCount, progress);
+                anchorFromGrid, integrationCount, progress);
         }
 
         internal MerkabaTileAddress[] CaptureStoredTileIndex()

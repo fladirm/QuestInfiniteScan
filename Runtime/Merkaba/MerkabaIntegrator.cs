@@ -68,6 +68,13 @@ namespace Genesis.RoomScan
             _nativeFineEraseJob;
         private bool _nativeFineEraseGpuComplete;
         private bool _nativeFineEraseCompletionRequested;
+        // One immutable observation owns the room frame it was captured in.
+        // Retries never re-read a moved grid; a changed coordinate authority
+        // aborts the observation without canonical mutation.
+        private Matrix4x4 _observationGridToWorld = Matrix4x4.identity;
+        private uint _observationAuthorityGeneration;
+        private Matrix4x4 _fineEraseGridToWorld = Matrix4x4.identity;
+        private uint _fineEraseAuthorityGeneration;
 
         private const int CameraEyeCount = 2;
         private const int CameraObservationSlots = 2;
@@ -505,6 +512,8 @@ namespace Genesis.RoomScan
                 _fineEraseAttemptInFlight || !Initialize())
                 return false;
             _fineEraseDescriptor = descriptor;
+            _fineEraseGridToWorld = _grid.GridToWorldMatrix;
+            _fineEraseAuthorityGeneration = CurrentAuthorityGeneration();
             _fineErasePrepared = true;
             _fineEraseWaitingForDependency = false;
             _fineEraseAttemptToken = 0u;
@@ -571,6 +580,19 @@ namespace Genesis.RoomScan
                 _observationPrepared || _attemptInFlight ||
                 _grid == null || _grid.GpuSubmissionSuspended ||
                 !Initialize()) return false;
+            if (_fineEraseAuthorityGeneration != CurrentAuthorityGeneration())
+            {
+                // ERASE is idempotent canonical reset: work already applied
+                // stays exact, and the remainder of a descriptor authored in
+                // a superseded room frame is dropped, never re-projected.
+                Logger.Warning("Merkaba FINE erase dropped after a room " +
+                    "coordinate authority change.");
+                _fineErasePrepared = false;
+                _fineEraseWaitingForDependency = false;
+                _fineEraseAttemptToken = 0u;
+                _fineEraseDescriptor = default;
+                return false;
+            }
             if (_fineEraseWaitingForDependency &&
                 _grid.ResidencyEpoch == _fineEraseResidencyEpoch)
                 return false;
@@ -617,7 +639,7 @@ namespace Genesis.RoomScan
         {
             if (MerkabaNativeVulkanExecutor.HasJobInFlight)
                 return false;
-            Matrix4x4 worldToGrid = _grid.GridToWorldMatrix.inverse;
+            Matrix4x4 worldToGrid = _fineEraseGridToWorld.inverse;
             float3 gridCenter = (float3)worldToGrid.MultiplyPoint3x4(
                 _fineEraseDescriptor.BoundsCenter) /
                 MerkabaConstants.LatticeStep;
@@ -633,8 +655,7 @@ namespace Genesis.RoomScan
                 MerkabaNativeVulkanExecutor.ResourceCount];
             _grid.FillNativeExecutorWorldResources(resources);
             var uniforms = new MerkabaNativeUniformTable();
-            uniforms.Matrix("_MerkabaGridToWorld",
-                _grid.GridToWorldMatrix);
+            uniforms.Matrix("_MerkabaGridToWorld", _fineEraseGridToWorld);
             uniforms.Matrix("_MerkabaWorldToGrid", worldToGrid);
             uniforms.Vector3("_M8FineCursorPosition",
                 _fineEraseDescriptor.CursorPosition);
@@ -747,6 +768,7 @@ namespace Genesis.RoomScan
                         ReleaseOwnedObservation();
                         return false;
                     }
+                    CaptureObservationFrame();
                     _observationToken =
                         _grid.RecordResetObservationGpuCounters(command);
                     _observationPreparedAt =
@@ -849,6 +871,7 @@ namespace Genesis.RoomScan
                     ReleaseOwnedObservation();
                     return false;
                 }
+                CaptureObservationFrame();
                 _observationToken = _grid.AllocateNativeObservationToken();
                 _observationPreparedAt = Time.realtimeSinceStartupAsDouble;
                 _observationDepthVersion =
@@ -976,9 +999,9 @@ namespace Genesis.RoomScan
             values.UInt("_M8ObservationToken", _observationToken);
             values.UInt("_M8AttemptToken", _attemptToken);
             values.Int("_M8AbortObservation",
-                ObservationTimedOut() ? 1 : 0);
+                ObservationMustAbort() ? 1 : 0);
 
-            Matrix4x4 gridToWorld = _grid.GridToWorldMatrix;
+            Matrix4x4 gridToWorld = _observationGridToWorld;
             Matrix4x4 worldToGrid = gridToWorld.inverse;
             values.Matrix("_MerkabaGridToWorld", gridToWorld);
             values.Matrix("_MerkabaWorldToGrid", worldToGrid);
@@ -1052,10 +1075,26 @@ namespace Genesis.RoomScan
         private bool CanRetryPreparedObservation()
         {
             if (!_observationPrepared || _attemptInFlight) return false;
-            if (ObservationTimedOut()) return true;
+            if (ObservationMustAbort()) return true;
             return _waitingForDependency &&
                    _grid.ResidencyEpoch != _attemptResidencyEpoch;
         }
+
+        private void CaptureObservationFrame()
+        {
+            _observationGridToWorld = _grid.GridToWorldMatrix;
+            _observationAuthorityGeneration = CurrentAuthorityGeneration();
+        }
+
+        private static uint CurrentAuthorityGeneration()
+        {
+            RoomAnchorManager manager = RoomAnchorManager.Instance;
+            return manager != null ? manager.CoordinateAuthorityGeneration : 0u;
+        }
+
+        private bool ObservationMustAbort() => ObservationTimedOut() ||
+            (_observationPrepared &&
+             _observationAuthorityGeneration != CurrentAuthorityGeneration());
 
         private bool ObservationTimedOut() =>
             _observationPreparedAt > 0.0 &&
@@ -1143,13 +1182,13 @@ namespace Genesis.RoomScan
             compute.SetVector(DepthCapture.TexSizeID,
                 new Vector2(_depthCapture.DepthTex.width,
                     _depthCapture.DepthTex.height));
-            compute.SetMatrix(GridToWorldId, _grid.GridToWorldMatrix);
-            compute.SetMatrix(WorldToGridId, _grid.GridToWorldMatrix.inverse);
+            compute.SetMatrix(GridToWorldId, _observationGridToWorld);
+            compute.SetMatrix(WorldToGridId, _observationGridToWorld.inverse);
             compute.SetFloat(MaxDistanceId, maxUpdateDistance);
             compute.SetFloat(MutationOuterRadiusId,
                 MerkabaConstants.MutationOuterRadius);
             MerkabaMutationCoverage.WriteGridPlanes(_depthCapture.View,
-                _depthCapture.Proj, _grid.GridToWorldMatrix,
+                _depthCapture.Proj, _observationGridToWorld,
                 _scanCoveragePlanes, _heldFineBrush.IsRefine
                     ? 1f : MerkabaConstants.MutationOuterRadius);
             compute.SetVectorArray("_M8ScanCoveragePlanes",
@@ -1184,7 +1223,7 @@ namespace Genesis.RoomScan
         private void ConfigureAttempt()
         {
             compute.SetInt(AbortObservationId,
-                ObservationTimedOut() ? 1 : 0);
+                ObservationMustAbort() ? 1 : 0);
         }
 
         private void BindDepth(int kernel)
@@ -1228,7 +1267,7 @@ namespace Genesis.RoomScan
             Vector3 leftOrigin = _depthCapture.ViewInv[0].GetColumn(3);
             Vector3 rightOrigin = _depthCapture.ViewInv[1].GetColumn(3);
             Vector3 observationOrigin = (leftOrigin + rightOrigin) * 0.5f;
-            Matrix4x4 worldToGrid = _grid.GridToWorldMatrix.inverse;
+            Matrix4x4 worldToGrid = _observationGridToWorld.inverse;
             float3 gridCamera = (float3)worldToGrid.MultiplyPoint3x4(
                 observationOrigin) / MerkabaConstants.LatticeStep;
             int3 globalKernel = (int3)math.floor(gridCamera);
@@ -1250,9 +1289,9 @@ namespace Genesis.RoomScan
             FineBrushDescriptor descriptor)
         {
             command.SetComputeMatrixParam(compute, GridToWorldId,
-                _grid.GridToWorldMatrix);
+                _fineEraseGridToWorld);
             command.SetComputeMatrixParam(compute, WorldToGridId,
-                _grid.GridToWorldMatrix.inverse);
+                _fineEraseGridToWorld.inverse);
             command.SetComputeVectorParam(compute, FineCursorPositionId,
                 descriptor.CursorPosition);
             command.SetComputeVectorParam(compute, FineBrushAxisId,
@@ -1266,7 +1305,7 @@ namespace Genesis.RoomScan
         private void DispatchFineEraseQuery(CommandBuffer command,
             FineBrushDescriptor descriptor)
         {
-            Matrix4x4 worldToGrid = _grid.GridToWorldMatrix.inverse;
+            Matrix4x4 worldToGrid = _fineEraseGridToWorld.inverse;
             float3 gridCenter = (float3)worldToGrid.MultiplyPoint3x4(
                 descriptor.BoundsCenter) / MerkabaConstants.LatticeStep;
             int3 centerBlock = MerkabaSpatial.Encode(

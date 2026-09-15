@@ -243,7 +243,8 @@ namespace Genesis.RoomScan
                 FileOptions.SequentialScan);
             using var reader = new BinaryReader(stream, Encoding.UTF8, true);
             if (reader.ReadUInt32() != MerkabaSsdStore.CheckpointMagic ||
-                reader.ReadInt32() != MerkabaSsdStore.FormatVersion)
+                !MerkabaSsdStore.IsSupportedCheckpointVersion(
+                    reader.ReadInt32()))
                 throw new InvalidDataException(
                     "Session checkpoint has an unsupported format.");
             stream.Position = 20;

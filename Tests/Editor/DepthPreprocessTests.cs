@@ -573,7 +573,9 @@ namespace Genesis.RoomScan.Tests
                 "private bool HasTrackedHeadPose()");
             string tracking = Slice(scanner,
                 "private bool HasTrackedHeadPose()", "private void OnEnable()");
-            int gate = update.IndexOf("if (!HasTrackedHeadPose())",
+            Assert.That(update, Does.Contain("!HasCoordinateAuthority()"));
+            int gate = update.IndexOf(
+                "if (!HasTrackedHeadPose() || !HasCoordinateAuthority())",
                 StringComparison.Ordinal);
             int submit = update.LastIndexOf("TrySubmitObservationAttempt()",
                 StringComparison.Ordinal);

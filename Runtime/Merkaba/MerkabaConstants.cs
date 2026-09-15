@@ -10,8 +10,6 @@ namespace Genesis.RoomScan
         public const float LatticeStep = 0.025f;
         public const float HalfSupport = 0.025f;
 
-        public const int ChunkSize = 32;
-        public const int KernelsPerChunk = ChunkSize * ChunkSize * ChunkSize;
         public const int NeighbourCount = 26;
 
         public const int MinimumEvidence = -32768;
@@ -60,36 +58,6 @@ namespace Genesis.RoomScan
             if (divisor <= 0) throw new ArgumentOutOfRangeException(nameof(divisor));
             int remainder = value % divisor;
             return remainder < 0 ? remainder + divisor : remainder;
-        }
-
-        public static int3 ChunkCoord(int3 global) => new(
-            FloorDiv(global.x, ChunkSize),
-            FloorDiv(global.y, ChunkSize),
-            FloorDiv(global.z, ChunkSize));
-
-        public static int3 LocalCoord(int3 global) => new(
-            FloorMod(global.x, ChunkSize),
-            FloorMod(global.y, ChunkSize),
-            FloorMod(global.z, ChunkSize));
-
-        public static int3 ChunkOrigin(int3 chunk) => chunk * ChunkSize;
-
-        public static int Flatten(int3 local)
-        {
-            if (math.any(local < 0) || math.any(local >= ChunkSize))
-                throw new ArgumentOutOfRangeException(nameof(local));
-            return local.x + ChunkSize * (local.y + ChunkSize * local.z);
-        }
-
-        public static int3 Unflatten(int index)
-        {
-            if ((uint)index >= KernelsPerChunk)
-                throw new ArgumentOutOfRangeException(nameof(index));
-            int x = index % ChunkSize;
-            int yz = index / ChunkSize;
-            int y = yz % ChunkSize;
-            int z = yz / ChunkSize;
-            return new int3(x, y, z);
         }
 
         public static float3 WorldCenter(int3 global) => (float3)global * LatticeStep;

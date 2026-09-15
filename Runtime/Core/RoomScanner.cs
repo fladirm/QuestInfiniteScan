@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Genesis.RoomScan.UI;
 using UnityEngine;
@@ -55,7 +56,12 @@ namespace Genesis.RoomScan
         private uint _lifecycleGeneration;
         private bool _applicationPaused;
         private bool _resumeAfterPause;
+        private Guid _resumeSessionId;
         private Guid _resumeAnchorUuid;
+        private CancellationTokenSource _resumeCancellation;
+        private uint _admittedAuthorityGeneration;
+        private bool _authorityBlocked;
+        private float _lastAuthorityWarningTime;
         private bool _disableRequested;
         private bool _destroyed;
         private long _acceptedRgbdObservations;
@@ -87,6 +93,12 @@ namespace Genesis.RoomScan
         public bool IsScanStarting => ScanLifecycle == ScanLifecycleState.Starting;
         public ScanLifecycleState ScanLifecycle { get; private set; }
         public string LastScanStartError { get; private set; }
+        internal const string AnchorNotLocalizedError = "Room anchor not localized";
+        /// <summary>A resume after sleep failed on anchor localization and
+        /// START retries exactly that session anchor.</summary>
+        public bool AnchorRetryAvailable =>
+            LastScanStartError == AnchorNotLocalizedError &&
+            _persistence != null && _persistence.ActiveAnchorUuid != Guid.Empty;
         public int ActiveChunkCount => _grid != null ? _grid.ActiveChunkCount : 0;
         public int OccupiedKernelCount => _grid != null ? _grid.OccupiedKernelCount : 0;
         public int PublishedPrimitiveCount =>
@@ -268,7 +280,7 @@ namespace Genesis.RoomScan
                     _integrator.TrySubmitObservationAttempt();
                 return;
             }
-            if (!HasTrackedHeadPose())
+            if (!HasTrackedHeadPose() || !HasCoordinateAuthority())
             {
                 if (_depthCapture.HasUnprocessedFrame)
                 {
@@ -363,15 +375,63 @@ namespace Genesis.RoomScan
             return true;
         }
 
+        /// <summary>
+        /// Canonical admission requires the exact session anchor to own a
+        /// ready coordinate authority. A new generation discards every sensor
+        /// frame captured before it.
+        /// </summary>
+        private bool HasCoordinateAuthority()
+        {
+            _anchorManager ??= RoomAnchorManager.Instance;
+            Guid required = _persistence != null
+                ? _persistence.ActiveAnchorUuid : Guid.Empty;
+            if (_anchorManager == null || !_anchorManager.IsCoordinateAuthorityReady(
+                    required, out uint generation))
+            {
+                float now = Time.unscaledTime;
+                if (!_authorityBlocked || now - _lastAuthorityWarningTime >= 1f)
+                {
+                    _lastAuthorityWarningTime = now;
+                    Logger.Warning("Merkaba observation paused: session room " +
+                        "anchor is not tracked and stable");
+                }
+                _authorityBlocked = true;
+                return false;
+            }
+            if (generation != _admittedAuthorityGeneration)
+            {
+                _admittedAuthorityGeneration = generation;
+                _integrator?.TrySwitchObservationAuthority();
+                if (_depthCapture.HasUnprocessedFrame)
+                {
+                    _expiredDepthFrames++;
+                    _depthCapture.DiscardReadyDepthFrame();
+                }
+                _authorityBlocked = false;
+                Logger.Info("Merkaba observation admitted in room authority " +
+                    $"generation {generation}");
+                return false;
+            }
+            _authorityBlocked = false;
+            return true;
+        }
+
         private void OnEnable() => _disableRequested = false;
 
         private void OnApplicationPause(bool paused)
         {
             if (paused && !_applicationPaused)
             {
-                _resumeAfterPause = IsScanning || IsScanStarting;
-                _resumeAnchorUuid = _resumeAfterPause && _persistence != null
-                    ? _persistence.ActiveAnchorUuid : Guid.Empty;
+                // Resume intent survives a pause that interrupts an unfinished
+                // resume; it is cleared only by an explicit user transition.
+                bool scanning = IsScanning || IsScanStarting;
+                if (scanning && !_resumeAfterPause && _persistence != null)
+                {
+                    _resumeSessionId = _persistence.ActiveSessionId;
+                    _resumeAnchorUuid = _persistence.ActiveAnchorUuid;
+                }
+                _resumeAfterPause |= scanning;
+                _resumeCancellation?.Cancel();
             }
             _applicationPaused = paused;
             Logger.Info($"Application pause={paused} resumeScan=" +
@@ -383,7 +443,7 @@ namespace Genesis.RoomScan
         private void OnDisable()
         {
             _disableRequested = true;
-            _resumeAfterPause = false;
+            ClearResumeIntent();
             BeginDisableTeardown();
         }
 
@@ -475,7 +535,16 @@ namespace Genesis.RoomScan
 
         public void StopScanning()
         {
+            ClearResumeIntent();
             _ = QuiesceScanningAsync();
+        }
+
+        private void ClearResumeIntent()
+        {
+            _resumeAfterPause = false;
+            _resumeSessionId = Guid.Empty;
+            _resumeAnchorUuid = Guid.Empty;
+            _resumeCancellation?.Cancel();
         }
 
         public void ToggleScanning()
@@ -523,6 +592,7 @@ namespace Genesis.RoomScan
             bool success = false;
             try
             {
+                ClearResumeIntent();
                 if (!await QuiesceScanningAsync()) return false;
                 if (!CloseOpenDesignForSessionSwitch()) return false;
                 ReportOperation(ScanOperationKind.Load,
@@ -548,6 +618,7 @@ namespace Genesis.RoomScan
             bool success = false;
             try
             {
+                ClearResumeIntent();
                 if (!await QuiesceScanningAsync()) return false;
                 if (!CloseOpenDesignForSessionSwitch()) return false;
                 ReportOperation(ScanOperationKind.Load,
@@ -601,6 +672,7 @@ namespace Genesis.RoomScan
         {
             if (IsBusy || sessionId == Guid.Empty) return false;
             bool wasActive = sessionId == ActiveSessionId;
+            if (wasActive) ClearResumeIntent();
             if (!await QuiesceScanningAsync()) return false;
             if (wasActive && !CloseOpenDesignForSessionSwitch()) return false;
             bool deleted = _persistence != null &&
@@ -618,6 +690,7 @@ namespace Genesis.RoomScan
             _newSessionPending = true;
             try
             {
+                ClearResumeIntent();
                 if (!await QuiesceScanningAsync()) return;
                 if (!CloseOpenDesignForSessionSwitch()) return;
                 _anchorManager ??= RoomAnchorManager.Instance ??
@@ -736,8 +809,7 @@ namespace Genesis.RoomScan
                     "Create or open a scan session before starting.");
             if (!await _anchorManager.EnsureSessionAnchorAsync(requiredUuid,
                     false) || _anchorManager.SpatialAnchorUuid != requiredUuid)
-                throw new InvalidOperationException(
-                    "Room anchor not localized");
+                throw new InvalidOperationException(AnchorNotLocalizedError);
         }
 
         private void UpdateFineAuthorityBoundary()
@@ -1117,51 +1189,30 @@ namespace Genesis.RoomScan
                 if (_applicationPaused || _disableRequested || _destroyed ||
                     !isActiveAndEnabled)
                     return;
+                _resumeCancellation?.Dispose();
+                _resumeCancellation = new CancellationTokenSource();
+                CancellationToken cancellation = _resumeCancellation.Token;
+                bool anchorReady = true;
                 if (_resumeAfterPause)
-                {
-                    if (!await WaitForTrackedHeadPoseAsync())
-                    {
-                        _resumeAfterPause = false;
-                        LastScanStartError = "Room anchor not localized";
-                        Logger.Error("Application resume did not recover Quest " +
-                            "head tracking before anchor localization.");
-                        return;
-                    }
-                    if (_resumeAnchorUuid == Guid.Empty ||
-                        _persistence == null ||
-                        _persistence.ActiveAnchorUuid != _resumeAnchorUuid)
-                    {
-                        _resumeAfterPause = false;
-                        LastScanStartError = "Room anchor not localized";
-                        Logger.Error("Application resume has no exact active " +
-                            "session anchor to localize.");
-                        return;
-                    }
-                    _anchorManager ??= RoomAnchorManager.Instance ??
-                        FindAnyObjectByType<RoomAnchorManager>(
-                            FindObjectsInactive.Include);
-                    if (_anchorManager == null || !_anchorManager.enabled ||
-                        !await _anchorManager.EnsureSessionAnchorAsync(
-                            _resumeAnchorUuid, false) ||
-                        _anchorManager.SpatialAnchorUuid != _resumeAnchorUuid)
-                    {
-                        _resumeAfterPause = false;
-                        LastScanStartError = "Room anchor not localized";
-                        Logger.Error("Application resume could not localize " +
-                            $"session anchor {_resumeAnchorUuid:D}.");
-                        return;
-                    }
-                }
+                    anchorReady = await LocalizeResumeAnchorAsync(cancellation);
+                if (cancellation.IsCancellationRequested || _applicationPaused)
+                    return;
+                // Passthrough occlusion is restored even when the room anchor
+                // did not localize; only canonical scanning stays stopped.
                 if (_depthCapture != null &&
                     !await _depthCapture
                         .RestoreEnvironmentDepthAfterApplicationResumeAsync())
                 {
+                    if (_resumeAfterPause)
+                        LastScanStartError = "Environment Depth did not resume";
                     Logger.Error("Application resume did not restore a fresh " +
                         "Environment Depth stream.");
                     return;
                 }
-                if (!_resumeAfterPause) return;
-                _resumeAfterPause = false;
+                if (!_resumeAfterPause || !anchorReady ||
+                    cancellation.IsCancellationRequested || _applicationPaused)
+                    return;
+                ClearResumeIntent();
                 await StartScanningAsync();
             }
             catch (Exception exception)
@@ -1170,17 +1221,60 @@ namespace Genesis.RoomScan
             }
         }
 
-        private async Task<bool> WaitForTrackedHeadPoseAsync(
-            float timeoutSeconds = 10f)
+        private async Task<bool> LocalizeResumeAnchorAsync(
+            CancellationToken cancellation)
         {
-            float deadline = Time.realtimeSinceStartup +
-                Mathf.Max(0.1f, timeoutSeconds);
+            if (!await WaitForTrackedHeadPoseAsync(cancellation))
+            {
+                if (!cancellation.IsCancellationRequested)
+                    FailResume("Application resume did not recover Quest " +
+                        "head tracking before anchor localization.");
+                return false;
+            }
+            if (_resumeAnchorUuid == Guid.Empty || _persistence == null ||
+                _persistence.ActiveSessionId != _resumeSessionId ||
+                _persistence.ActiveAnchorUuid != _resumeAnchorUuid)
+            {
+                FailResume("Application resume has no exact active session " +
+                    "anchor to localize.");
+                return false;
+            }
+            _anchorManager ??= RoomAnchorManager.Instance ??
+                FindAnyObjectByType<RoomAnchorManager>(
+                    FindObjectsInactive.Include);
+            if (_anchorManager == null || !_anchorManager.enabled ||
+                !await _anchorManager.EnsureSessionAnchorAsync(
+                    _resumeAnchorUuid, false, cancellation) ||
+                _anchorManager.SpatialAnchorUuid != _resumeAnchorUuid)
+            {
+                if (!cancellation.IsCancellationRequested)
+                    FailResume("Application resume could not localize " +
+                        $"session anchor {_resumeAnchorUuid:D}.");
+                return false;
+            }
+            return true;
+        }
+
+        private void FailResume(string message)
+        {
+            // The scan stays stopped in its own coordinate system. START
+            // retries the same session anchor; nothing creates another.
+            _resumeAfterPause = false;
+            LastScanStartError = AnchorNotLocalizedError;
+            Logger.Error(message);
+        }
+
+        private async Task<bool> WaitForTrackedHeadPoseAsync(
+            CancellationToken cancellation, float timeoutSeconds = 10f)
+        {
+            float waited = 0f;
             while (!_applicationPaused && !_disableRequested && !_destroyed &&
-                   isActiveAndEnabled)
+                   isActiveAndEnabled && !cancellation.IsCancellationRequested)
             {
                 if (HasTrackedHeadPose()) return true;
-                if (Time.realtimeSinceStartup >= deadline) return false;
+                if (waited >= timeoutSeconds) return false;
                 await Task.Yield();
+                waited += Mathf.Min(Time.unscaledDeltaTime, 0.1f);
             }
             return false;
         }
