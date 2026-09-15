@@ -203,19 +203,32 @@ struct FsIndirectDrawArgs {
 #define FS_ABI_FSINDIRECTDRAWARGS_BYTES 16
 
 struct FsSurfelEvidence {
-    uint staticEvidence_motionEvidence;
+    uint positiveSupport_contradictionDebt;
     uint varianceQ_lastSeenFrame;
     uint lastObservationId;
-};  // 12 B
-#define FS_ABI_FSSURFELEVIDENCE_BYTES 12
-uint fsGet_FsSurfelEvidence_staticEvidence(FsSurfelEvidence s) { return bitfieldExtract(s.staticEvidence_motionEvidence, 0, 16); }
-void fsSet_FsSurfelEvidence_staticEvidence(inout FsSurfelEvidence s, uint v) { s.staticEvidence_motionEvidence = bitfieldInsert(s.staticEvidence_motionEvidence, uint(v), 0, 16); }
-uint fsGet_FsSurfelEvidence_motionEvidence(FsSurfelEvidence s) { return bitfieldExtract(s.staticEvidence_motionEvidence, 16, 16); }
-void fsSet_FsSurfelEvidence_motionEvidence(inout FsSurfelEvidence s, uint v) { s.staticEvidence_motionEvidence = bitfieldInsert(s.staticEvidence_motionEvidence, uint(v), 16, 16); }
+    uint lastContradictionObs;
+    uint contradictionHits;
+    uint lastDebtObs;
+    uint viewDiversity_contradictionViews;
+    uint lifecycle_suspectSince;
+};  // 32 B
+#define FS_ABI_FSSURFELEVIDENCE_BYTES 32
+uint fsGet_FsSurfelEvidence_positiveSupport(FsSurfelEvidence s) { return bitfieldExtract(s.positiveSupport_contradictionDebt, 0, 16); }
+void fsSet_FsSurfelEvidence_positiveSupport(inout FsSurfelEvidence s, uint v) { s.positiveSupport_contradictionDebt = bitfieldInsert(s.positiveSupport_contradictionDebt, uint(v), 0, 16); }
+uint fsGet_FsSurfelEvidence_contradictionDebt(FsSurfelEvidence s) { return bitfieldExtract(s.positiveSupport_contradictionDebt, 16, 16); }
+void fsSet_FsSurfelEvidence_contradictionDebt(inout FsSurfelEvidence s, uint v) { s.positiveSupport_contradictionDebt = bitfieldInsert(s.positiveSupport_contradictionDebt, uint(v), 16, 16); }
 uint fsGet_FsSurfelEvidence_varianceQ(FsSurfelEvidence s) { return bitfieldExtract(s.varianceQ_lastSeenFrame, 0, 16); }
 void fsSet_FsSurfelEvidence_varianceQ(inout FsSurfelEvidence s, uint v) { s.varianceQ_lastSeenFrame = bitfieldInsert(s.varianceQ_lastSeenFrame, uint(v), 0, 16); }
 uint fsGet_FsSurfelEvidence_lastSeenFrame(FsSurfelEvidence s) { return bitfieldExtract(s.varianceQ_lastSeenFrame, 16, 16); }
 void fsSet_FsSurfelEvidence_lastSeenFrame(inout FsSurfelEvidence s, uint v) { s.varianceQ_lastSeenFrame = bitfieldInsert(s.varianceQ_lastSeenFrame, uint(v), 16, 16); }
+uint fsGet_FsSurfelEvidence_viewDiversity(FsSurfelEvidence s) { return bitfieldExtract(s.viewDiversity_contradictionViews, 0, 16); }
+void fsSet_FsSurfelEvidence_viewDiversity(inout FsSurfelEvidence s, uint v) { s.viewDiversity_contradictionViews = bitfieldInsert(s.viewDiversity_contradictionViews, uint(v), 0, 16); }
+uint fsGet_FsSurfelEvidence_contradictionViews(FsSurfelEvidence s) { return bitfieldExtract(s.viewDiversity_contradictionViews, 16, 16); }
+void fsSet_FsSurfelEvidence_contradictionViews(inout FsSurfelEvidence s, uint v) { s.viewDiversity_contradictionViews = bitfieldInsert(s.viewDiversity_contradictionViews, uint(v), 16, 16); }
+uint fsGet_FsSurfelEvidence_lifecycle(FsSurfelEvidence s) { return bitfieldExtract(s.lifecycle_suspectSince, 0, 16); }
+void fsSet_FsSurfelEvidence_lifecycle(inout FsSurfelEvidence s, uint v) { s.lifecycle_suspectSince = bitfieldInsert(s.lifecycle_suspectSince, uint(v), 0, 16); }
+uint fsGet_FsSurfelEvidence_suspectSince(FsSurfelEvidence s) { return bitfieldExtract(s.lifecycle_suspectSince, 16, 16); }
+void fsSet_FsSurfelEvidence_suspectSince(inout FsSurfelEvidence s, uint v) { s.lifecycle_suspectSince = bitfieldInsert(s.lifecycle_suspectSince, uint(v), 16, 16); }
 
 struct FsClusterNode {
     float bmin[3];

@@ -87,9 +87,52 @@ uint fsBlendAppearance(uint old, vec3 meanCol, float wPrior, float wMeas) {
     if ((old & FS_APPEARANCE_MEASURED) == 0u) return fsAppearanceWord(meanCol, 1u);
     return fsAppearanceWord(mix(fsColorOf(old), meanCol, wMeas / (wPrior + wMeas)), fsAppearanceObs(old) + 1u);
 }
-// Merge priority: higher static evidence, then lower sigma, then lower SurfaceID survives.
+// ---- E6R evidence hysteresis (twin: fs::world::EvidencePositive / EvidenceCharge / LifeTransition in fs_fusion_ref.h) ------------------
+FsSurfelEvidence fsEvidenceNew(uint tick16, uint varQ, uint obs) {
+    FsSurfelEvidence e;
+    e.positiveSupport_contradictionDebt = 1u; e.varianceQ_lastSeenFrame = (tick16 << 16) | varQ; e.lastObservationId = obs;
+    e.lastContradictionObs = 0u; e.contradictionHits = 0u; e.lastDebtObs = 0u; e.viewDiversity_contradictionViews = 0u; e.lifecycle_suspectSince = 0u;
+    return e;
+}
+uint fsLifeState(FsSurfelEvidence e) { return fsGet_FsSurfelEvidence_lifecycle(e) & 3u; }
+void fsLifeSet(inout FsSurfelEvidence e, uint st) { fsSet_FsSurfelEvidence_lifecycle(e, (fsGet_FsSurfelEvidence_lifecycle(e) & 0xFF00u) | st); }
+uint fsResidualStreak(FsSurfelEvidence e) { return fsGet_FsSurfelEvidence_lifecycle(e) >> 8; }
+void fsResidualStreakSet(inout FsSurfelEvidence e, uint v) { fsSet_FsSurfelEvidence_lifecycle(e, (fsGet_FsSurfelEvidence_lifecycle(e) & 0x00FFu) | (min(v, 255u) << 8)); }
+// 16 view sectors: 8 azimuth sectors in the surfel tangent frame x {steep, grazing} elevation
+uint fsViewSectorBit(vec3 n, vec3 toEye) {
+    float l = length(toEye); if (l < 1e-6) return 0u;
+    vec3 v = toEye / l, t1, t2; fsTangentFrame(n, t1, t2);
+    float az = atan(dot(v, t2), dot(v, t1));
+    uint sector = uint(floor((az + FS_PI) / (2.0 * FS_PI) * 8.0)) % 8u;
+    uint elev = abs(dot(v, n)) < 0.7071 ? 1u : 0u;
+    return 1u << (sector + 8u * elev);
+}
+// positive distinct observation: support, heal debt, view diversity, recovery. Returns bit 0 healed, bit 1 recovered.
+uint fsEvidencePositive(inout FsSurfelEvidence e, uint viewBit) {
+    uint r = 0u;
+    fsSet_FsSurfelEvidence_positiveSupport(e, min(fsGet_FsSurfelEvidence_positiveSupport(e) + 1u, 65535u));
+    uint debt = fsGet_FsSurfelEvidence_contradictionDebt(e);
+    if (debt > 0u) { debt = debt > uint(FS_DEBT_HEAL) ? debt - uint(FS_DEBT_HEAL) : 0u; fsSet_FsSurfelEvidence_contradictionDebt(e, debt); r |= 1u; }
+    fsSet_FsSurfelEvidence_viewDiversity(e, fsGet_FsSurfelEvidence_viewDiversity(e) | viewBit);
+    uint st = fsLifeState(e);
+    if (st == FS_LIFE_SUSPECT && debt < uint(FS_DEBT_SUSPECT) / 2u) { fsLifeSet(e, FS_LIFE_ACTIVE); fsSet_FsSurfelEvidence_contradictionViews(e, 0u); r |= 2u; }
+    else if (st == FS_LIFE_RETIRING && debt < uint(FS_DEBT_RETIRE) / 2u) { fsLifeSet(e, FS_LIFE_SUSPECT); r |= 2u; }
+    return r;
+}
+// maintenance: charge the accumulated contradicting rays once per observation. Returns true when debt was charged.
+bool fsEvidenceCharge(inout FsSurfelEvidence e) {
+    uint hits = e.contradictionHits;
+    if (hits == 0u) return false;
+    e.contradictionHits = 0u;
+    uint obs = e.lastContradictionObs;
+    if (obs == e.lastDebtObs && obs != 0u) return false;          // this observation was already charged (a later slice of the same frame)
+    e.lastDebtObs = obs;
+    fsSet_FsSurfelEvidence_contradictionDebt(e, min(fsGet_FsSurfelEvidence_contradictionDebt(e) + min(hits, uint(FS_DEBT_MAX_PER_OBS)), 65535u));
+    return true;
+}
+// Merge priority: higher positive support, then lower sigma, then lower SurfaceID survives.
 bool fsSurvives(FsPatch a, FsSurfelEvidence ea, FsPatch b, FsSurfelEvidence eb) {
-    uint sa = fsGet_FsSurfelEvidence_staticEvidence(ea), sb = fsGet_FsSurfelEvidence_staticEvidence(eb);
+    uint sa = fsGet_FsSurfelEvidence_positiveSupport(ea), sb = fsGet_FsSurfelEvidence_positiveSupport(eb);
     if (sa != sb) return sa > sb;
     if (a.sigmaN != b.sigmaN) return a.sigmaN < b.sigmaN;
     return a.surfaceId < b.surfaceId;

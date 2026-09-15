@@ -63,7 +63,7 @@ struct KernelSpec { const char* name; const uint32_t* spirv; size_t words; uint3
 static const KernelSpec kWorldKernels[K_COUNT] = {
     {"fuse_ingest",          FS_KS(kFuseIngestSpirv),         sizeof(PushIngest),    {B_MEAS, B_GCTR, B_MEAS_RING, B_MEAS_CTR}, 4},
     {"fuse_associate",       FS_KS(kFuseAssociateSpirv),      sizeof(PushAssoc),     {B_MEAS, B_HASH, B_PAGES, B_SURFELS, B_INDEX, B_GCTR, B_ASSOC_A, B_FREESPACE}, 8},
-    {"fuse_freespace",       FS_KS(kFuseFreespaceSpirv),      sizeof(PushFreeSpace), {B_MEAS, B_HASH, B_PAGES, B_GCTR, B_FREESPACE, B_INDEX, B_DIRTY}, 7},
+    {"fuse_freespace",       FS_KS(kFuseFreespaceSpirv),      sizeof(PushFreeSpace), {B_MEAS, B_HASH, B_PAGES, B_GCTR, B_FREESPACE, B_INDEX, B_DIRTY, B_SURFELS, B_EVIDENCE}, 9},
     {"sort_histogram",       FS_KS(kSortHistogramSpirv),      sizeof(PushShift),     {B_GCTR, B_ASSOC_A, B_SORT}, 3},
     {"sort_scan",            FS_KS(kSortScanSpirv),           0,                     {B_GCTR, B_SORT}, 2},
     {"sort_scatter",         FS_KS(kSortScatterSpirv),        sizeof(PushShift),     {B_GCTR, B_ASSOC_A, B_ASSOC_B, B_SORT}, 4},
@@ -73,7 +73,7 @@ static const KernelSpec kWorldKernels[K_COUNT] = {
     {"fuse_prefix_carry",    FS_KS(kFusePrefixCarrySpirv),    sizeof(PushBlocks),                    {B_GCTR, B_SORT}, 2},
     {"fuse_cluster_write",   FS_KS(kFuseClusterWriteSpirv),   0,                     {B_MEAS, B_PAGES, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_ASSOC_A, B_SORT, B_POOLS, B_DIRTY, B_RETIRE}, 11},
     {"dirty_take",           FS_KS(kDirtyTakeSpirv),          sizeof(PushTake),      {B_GCTR, B_DIRTY}, 2},
-    {"fuse_maint_apply",     FS_KS(kFuseMaintApplySpirv),     0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_FREESPACE, B_POOLS, B_DIRTY, B_RETIRE}, 9},
+    {"fuse_maint_apply",     FS_KS(kFuseMaintApplySpirv),     0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_SHEET, B_POOLS, B_DIRTY, B_RETIRE}, 9},
     {"publish_leaves",       FS_KS(kPublishLeavesSpirv),      sizeof(PushRange),                    {B_SURFELS, B_INDEX, B_GCTR, B_POOLS, B_DIRTY, B_RENDER, B_RBLOCKS, B_RDIR, B_RETIRE, B_SHEET}, 10},
     {"publish_level",        FS_KS(kPublishLevelSpirv),       sizeof(PushLevel),     {B_PAGES, B_GCTR, B_POOLS, B_DIRTY, B_RENDER, B_RDIR, B_RETIRE, B_PENDING}, 8},
     {"render_publish_roots", FS_KS(kRenderPublishRootsSpirv), sizeof(PushPublish),   {B_PAGES, B_PENDING}, 2},
@@ -84,7 +84,7 @@ static const KernelSpec kWorldKernels[K_COUNT] = {
     {"sheet_begin",          FS_KS(kSheetBeginSpirv),         sizeof(PushBatch),                    {B_GCTR}, 1},
     {"sheet_graph",          FS_KS(kSheetGraphSpirv),         sizeof(PushHash),      {B_PAGES, B_SURFELS, B_INDEX, B_HASH, B_FREESPACE, B_GCTR, B_SHEET}, 7},
     {"sheet_fit",            FS_KS(kSheetFitSpirv),           0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_GCTR, B_SHEET}, 5},
-    {"sheet_apply",          FS_KS(kSheetApplySpirv),         0,                     {B_PAGES, B_SURFELS, B_GCTR, B_SHEET, B_DIRTY}, 5},
+    {"sheet_apply",          FS_KS(kSheetApplySpirv),         0,                     {B_PAGES, B_SURFELS, B_GCTR, B_SHEET, B_DIRTY, B_EVIDENCE}, 6},
     {"sheet_contract",       FS_KS(kSheetContractSpirv),      0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_GCTR, B_SHEET, B_DIRTY}, 6},
     {"sheet_refine",         FS_KS(kSheetRefineSpirv),        sizeof(PushHash),      {B_PAGES, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_POOLS, B_DIRTY, B_RETIRE, B_SHEET, B_HASH}, 10},
 };

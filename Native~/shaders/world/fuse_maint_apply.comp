@@ -1,13 +1,13 @@
 #version 450
-// F4b per dirty cell (single owner): ghost removal from free-space contradictions, deterministic merges,
+// F4b per dirty cell (single owner): E6R evidence lifecycle (hysteretic debt, SUSPECT / RETIRING / REMOVED), deterministic merges,
 // leaf compaction. (C09R-E4.1C: the major-axis split is replaced by site insertion at the worst residual, sheet_refine.)
 #extension GL_GOOGLE_include_directive : require
-#define FS_USE_PAGES
+#define FS_USE_PAGES_RO
 #define FS_USE_SURFELS
 #define FS_USE_EVIDENCE
 #define FS_USE_INDEX
 #define FS_USE_GCTR
-#define FS_USE_FREESPACE_RO
+#define FS_USE_SHEET
 #define FS_USE_POOLS
 #define FS_USE_DIRTY
 #define FS_USE_RETIRE
@@ -22,30 +22,39 @@ void main() {
     uint entry = dirty[FS_DIRTY_LIST(0) + i];
     uint page = entry >> 15, cell = entry & 0x7FFFu;
     uint tick = FS_TK(FS_T_TICK), tick16 = tick & 0xFFFFu, stamp = 1u + (tick % 255u);
-    uint byteIndex = pages[page].freeSpaceBase + cell;
-    bool seenThrough = ((freeSpace[byteIndex >> 2u] >> ((byteIndex & 3u) * 8u)) & 0xFFu) == stamp;
     uint leaves[FS_MAINT_LEAVES_MAX]; uint nl = fsCollectLeaves(page, cell, leaves);
     uint ghosts = 0u, merges = 0u;
     for (uint l = 0u; l < uint(FS_MAINT_LEAVES_MAX); ++l) {
         if (l >= nl) break;
         uint leaf = leaves[l];
         uint cnt = min(idx[fsIdxLeafWord(leaf, 0u)], uint(FS_INDEX_LEAF_CAP));
-        // ---- ghosts (§8.6): seen through this tick without being observed
+        // ---- E6R evidence lifecycle: candidates expire (TTL) or die after one debt unit; promoted surfels charge the free-space narrow-phase
+        //      contradictions once per observation, become SUSPECT (still topology members), and are REMOVED only from RETIRING (set by the
+        //      topology pass after view diversity, persistence and neighbourhood consistency) when the debt keeps growing without positives.
         for (uint k = 0u; k < uint(FS_INDEX_LEAF_CAP); ++k) {
             if (k >= cnt) break;
             uint h = idx[fsIdxLeafWord(leaf, 2u + k)];
             FsSurfel s = surfels[h]; uint flags = fsGet_FsSurfel_evidenceFlags(s);
             if ((flags & FS_FLAG_REMOVED) != 0u) continue;
             FsSurfelEvidence ev = evidence[h];
-            // E3: an unpromoted candidate in this re-observed cell that no measurement supported for FS_TRANSIENT_TTL ticks expires
-            if ((flags & FS_FLAG_PROMOTED) == 0u && ((tick16 - fsGet_FsSurfelEvidence_lastSeenFrame(ev)) & 0xFFFFu) > uint(FS_TRANSIENT_TTL)) {
+            bool promoted = (flags & FS_FLAG_PROMOTED) != 0u;
+            if (!promoted && ((tick16 - fsGet_FsSurfelEvidence_lastSeenFrame(ev)) & 0xFFFFu) > uint(FS_TRANSIENT_TTL)) {
                 fsSet_FsSurfel_evidenceFlags(s, flags | FS_FLAG_REMOVED); surfels[h] = s; ghosts++; continue;   // unpromoted: no FRONT change
             }
-            if (!seenThrough || fsGet_FsSurfelEvidence_lastSeenFrame(ev) == tick16) continue;
-            uint motion = min(fsGet_FsSurfelEvidence_motionEvidence(ev) + 1u, 65535u);
-            fsSet_FsSurfelEvidence_motionEvidence(ev, motion);
-            uint limit = uint(FS_GHOST_MOTION_MIN) + fsGet_FsSurfelEvidence_staticEvidence(ev) / uint(FS_GHOST_STATIC_K);
-            if (motion >= limit) { fsSet_FsSurfel_evidenceFlags(s, flags | FS_FLAG_REMOVED); surfels[h] = s; ghosts++; if ((flags & FS_FLAG_PROMOTED) != 0u) atomicAdd(gctr[FS_GCTR_PROMOTED_REMOVED], 1u); }
+            if (!fsEvidenceCharge(ev)) { evidence[h] = ev; continue; }
+            atomicAdd(gctr[FS_GCTR_CONTRADICTIONS], 1u);
+            uint debt = fsGet_FsSurfelEvidence_contradictionDebt(ev), st = fsLifeState(ev);
+            if (!promoted) {
+                if (debt >= uint(FS_DEBT_TRANSIENT)) { fsSet_FsSurfel_evidenceFlags(s, flags | FS_FLAG_REMOVED); surfels[h] = s; ghosts++; }
+            } else if (st == FS_LIFE_ACTIVE && debt >= uint(FS_DEBT_SUSPECT)) {
+                fsLifeSet(ev, FS_LIFE_SUSPECT); fsSet_FsSurfelEvidence_suspectSince(ev, tick16);
+                atomicAdd(gctr[FS_GCTR_SURFEL_SUSPECT], 1u); fsSheetMark(page, h);
+            } else if (st == FS_LIFE_SUSPECT && debt >= uint(FS_DEBT_RETIRE)) {
+                fsSheetMark(page, h);                                            // the topology pass decides RETIRING (neighbourhood)
+            } else if (st == FS_LIFE_RETIRING && debt >= uint(FS_DEBT_REMOVE)) {
+                fsSet_FsSurfel_evidenceFlags(s, flags | FS_FLAG_REMOVED); surfels[h] = s; ghosts++;
+                atomicAdd(gctr[FS_GCTR_PROMOTED_REMOVED], 1u); atomicAdd(gctr[FS_GCTR_SURFEL_RETIRED], 1u); fsSheetMark(page, h);
+            }
             evidence[h] = ev;
         }
         // ---- merges (§8.4): pairs inside the leaf, survivor by deterministic priority
@@ -70,7 +79,9 @@ void main() {
                 uint mergedCell = fsCellOf(r.p);
                 if (mergedCell != cell && !fsPushRelocation(hs, page, fsCellOf(ps.p), mergedCell, surfels[hs])) r.p = ps.p;   // list full: keep the survivor centre
                 surfels[hs] = fsPack(r);
-                fsSet_FsSurfelEvidence_staticEvidence(es, min(fsGet_FsSurfelEvidence_staticEvidence(es) + fsGet_FsSurfelEvidence_staticEvidence(ed), 65535u));
+                fsSet_FsSurfelEvidence_positiveSupport(es, min(fsGet_FsSurfelEvidence_positiveSupport(es) + fsGet_FsSurfelEvidence_positiveSupport(ed), 65535u));
+                fsSet_FsSurfelEvidence_contradictionDebt(es, min(fsGet_FsSurfelEvidence_contradictionDebt(es), fsGet_FsSurfelEvidence_contradictionDebt(ed)));   // E6R: absorbed support never inherits the worse debt
+                fsSet_FsSurfelEvidence_viewDiversity(es, fsGet_FsSurfelEvidence_viewDiversity(es) | fsGet_FsSurfelEvidence_viewDiversity(ed));
                 evidence[hs] = es;
                 FsSurfel dead = surfels[hd]; fsSet_FsSurfel_evidenceFlags(dead, fsGet_FsSurfel_evidenceFlags(dead) | FS_FLAG_REMOVED); surfels[hd] = dead;
                 merges++; atomicAdd(gctr[FS_GCTR_PROMOTED_REMOVED], 1u);   // fsMergeable: both promoted

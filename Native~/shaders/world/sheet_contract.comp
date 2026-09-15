@@ -36,7 +36,9 @@ void main() {
         if (newCell != oldCell && !fsPushRelocation(shh, sp, oldCell, newCell, oldS)) continue;   // list full: the contraction waits
         surfels[shh] = fsPack(r);
         FsSurfelEvidence es = evidence[shh], ed = evidence[lh];
-        fsSet_FsSurfelEvidence_staticEvidence(es, min(fsGet_FsSurfelEvidence_staticEvidence(es) + fsGet_FsSurfelEvidence_staticEvidence(ed), 65535u));
+        fsSet_FsSurfelEvidence_positiveSupport(es, min(fsGet_FsSurfelEvidence_positiveSupport(es) + fsGet_FsSurfelEvidence_positiveSupport(ed), 65535u));
+        fsSet_FsSurfelEvidence_contradictionDebt(es, min(fsGet_FsSurfelEvidence_contradictionDebt(es), fsGet_FsSurfelEvidence_contradictionDebt(ed)));   // E6R: absorbed support never inherits the worse debt
+        fsSet_FsSurfelEvidence_viewDiversity(es, fsGet_FsSurfelEvidence_viewDiversity(es) | fsGet_FsSurfelEvidence_viewDiversity(ed));
         evidence[shh] = es;
         FsSurfel ls = surfels[lh]; fsSet_FsSurfel_evidenceFlags(ls, fsGet_FsSurfel_evidenceFlags(ls) | FS_FLAG_REMOVED); surfels[lh] = ls;
         fsMarkDirtyCell(lp, fsCellOf(fsUnpack(ls).p));

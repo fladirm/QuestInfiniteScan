@@ -46,7 +46,19 @@ void main() {
         component = min(component, sheet[fsSheetNodeWord(nbH, 7u)] != 0u ? min(sheet[fsSheetNodeWord(nbH, 7u)], nbE) : nbE);
     }
     atomicAdd(gctr[FS_GCTR_SHEET_NODES], 1u);
-    if (nm == 0u) { sheet[dw + 2u] = 0u; sheet[dw + 3u] = e; return; }
+    // ---- E6R retirement decision (bit 1 of delta word 2): a SUSPECT surfel with retire-level debt, contradictions from at least
+    //      FS_RETIRE_MIN_VIEWS view sectors, persistent for FS_SUSPECT_MIN_TICKS, and a neighbourhood that agrees (no neighbours, or at
+    //      least FS_RETIRE_NEIGHBOUR_FRACTION of them SUSPECT / RETIRING). One noisy miss on a healthy wall never retires anything.
+    uint retireBit = 0u;
+    { FsSurfelEvidence er = evidence[h];
+      if (fsLifeState(er) == FS_LIFE_SUSPECT && fsGet_FsSurfelEvidence_contradictionDebt(er) >= uint(FS_DEBT_RETIRE)
+          && bitCount(fsGet_FsSurfelEvidence_contradictionViews(er)) >= int(FS_RETIRE_MIN_VIEWS)
+          && ((FS_TK(FS_T_TICK) - fsGet_FsSurfelEvidence_suspectSince(er)) & 0xFFFFu) >= uint(FS_SUSPECT_MIN_TICKS)) {
+          uint bad = 0u;
+          for (uint k = 0u; k < uint(FS_SHEET_K); ++k) { if (k >= nm) break; if (fsLifeState(evidence[mut[k] & 0x3FFFFFu]) != FS_LIFE_ACTIVE) bad++; }
+          if (nm == 0u || float(bad) >= FS_RETIRE_NEIGHBOUR_FRACTION * float(nm)) retireBit = 2u;
+      } }
+    if (nm == 0u) { sheet[dw + 2u] = retireBit; sheet[dw + 3u] = e; return; }
     atomicAdd(gctr[FS_GCTR_SHEET_EDGES], nm);
     if (cross != 0u) atomicAdd(gctr[FS_GCTR_CROSS_PAGE_EDGES], cross);
     // ---- E4.2R derived micro-surface cell: the site's Voronoi cell restricted to its sheet (dual of the local triangulation over the
@@ -121,11 +133,11 @@ void main() {
     float offset = isFlat ? dot(nFit, cFit - pa) : 0.0;
     sheet[dw] = floatBitsToUint(offset);
     sheet[dw + 1u] = isFlat ? fsEncodeOct32(nFit) : 0u;
-    sheet[dw + 2u] = (isFlat ? 1u : 0u) | (min(nm, 15u) << 4);
+    sheet[dw + 2u] = (isFlat ? 1u : 0u) | retireBit | (min(nm, 15u) << 4);
     sheet[dw + 3u] = component;
     // ---- E4.1C edge contraction decision
     FsSurfelEvidence ea = evidence[h];
-    if (!isFlat || nm < uint(FS_CONTRACT_MIN_DEGREE) || fsGet_FsSurfelEvidence_staticEvidence(ea) < uint(FS_CONTRACT_MIN_STATIC)) return;
+    if (!isFlat || nm < uint(FS_CONTRACT_MIN_DEGREE) || fsGet_FsSurfelEvidence_positiveSupport(ea) < uint(FS_CONTRACT_MIN_STATIC) || fsLifeState(ea) != FS_LIFE_ACTIVE) return;
     float sigFit = max(sqrt(s2Sum / wSum), FS_SIGMA_N_FLOOR_M);
     for (uint k = 0u; k < uint(FS_SHEET_K); ++k) {
         if (k >= nm) break;
@@ -137,7 +149,7 @@ void main() {
         if (k >= nm) break;
         uint nbH = mut[k] & 0x3FFFFFu;
         FsPatch b = fsUnpack(surfels[nbH]);
-        if (md[k] > FS_CONTRACT_DIST_MAX_M || fsGet_FsSurfelEvidence_staticEvidence(evidence[nbH]) < uint(FS_CONTRACT_MIN_STATIC)) continue;
+        if (md[k] > FS_CONTRACT_DIST_MAX_M || fsGet_FsSurfelEvidence_positiveSupport(evidence[nbH]) < uint(FS_CONTRACT_MIN_STATIC) || fsLifeState(evidence[nbH]) != FS_LIFE_ACTIVE) continue;
         float E = abs(dot(nFit, mp[k] - cFit)) / sigFit + FS_CONTRACT_W_CURV * rms / sigFit + FS_CONTRACT_W_NORMAL * (1.0 - dot(b.n, nFit))
                 + FS_CONTRACT_W_BOUNDARY * float(uint(FS_SHEET_K) - nm);
         if ((a.appearance & b.appearance & FS_APPEARANCE_MEASURED) != 0u) E += FS_CONTRACT_W_COLOR * length(fsColorOf(a.appearance) - fsColorOf(b.appearance));

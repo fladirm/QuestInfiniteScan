@@ -159,13 +159,23 @@ enum FsCounter {
 };
 
 // ---- Evidence sidecar (contract §8.6, C13): canonical, persisted, parallel to the surfel arena ------
+// E6R hysteretic evidence: building is quicker than destruction. A positive observation raises support and HEALS contradiction debt;
+// free-space contradictions (narrow phase against the surfel support) accumulate weighted debt once per observation; the lifecycle
+// ACTIVE -> SUSPECT -> RETIRING -> REMOVED needs debt, view diversity, persistence and a spatially consistent neighbourhood.
 typedef struct FsSurfelEvidence {
-    uint16_t staticEvidence;      // DISTINCT consistent observations (one depth / camera frame = at most one), saturating (C09R-E4)
-    uint16_t motionEvidence;      // distinct free-space contradictions (one per epoch), saturating
+    uint16_t positiveSupport;     // DISTINCT consistent observations (one depth / camera frame = at most one), saturating
+    uint16_t contradictionDebt;   // weighted contradiction debt in 1/8 units (FS_DEBT_*), healed by positive observations
     uint16_t varianceQ;           // log-encoded residual variance normalised by the measurement sigma^2 (FS_VAR_NORM_BASE)
-    uint16_t lastSeenFrame;       // low 16 bits of the scan tick index of the last update
-    uint32_t lastObservationId;   // FsSurfaceMeasurement.observationId of the last update (0 = never): one observation updates once
-} FsSurfelEvidence;               // 12 B
+    uint16_t lastSeenFrame;       // low 16 bits of the scan tick index of the last positive update
+    uint32_t lastObservationId;   // observationId of the last positive update (0 = never): one observation updates once
+    uint32_t lastContradictionObs;// observationId of the latest contradicting ray (free-space narrow phase, idempotent write)
+    uint32_t contradictionHits;   // atomic accumulator of weighted contradicting rays since the last maintenance (1/8 units)
+    uint32_t lastDebtObs;         // observationId whose contradictions were last charged to the debt (one charge per observation)
+    uint16_t viewDiversity;       // 16 view sectors (8 azimuth x 2 elevation) with positive observations
+    uint16_t contradictionViews;  // view sectors of contradicting rays
+    uint16_t lifecycle;           // bits 0..1 state (FS_LIFE_*), bits 8..15 residual streak (persistent unexplained residual)
+    uint16_t suspectSince;        // low 16 bits of the tick the surfel became SUSPECT
+} FsSurfelEvidence;               // 32 B
 
 // ---- Derived render tree (contract §13.4, C09R): persistent COW octree of immutable render leaf blocks.
 // Nodes and blocks live in global pools; unchanged subtrees are shared between generations. A leaf node

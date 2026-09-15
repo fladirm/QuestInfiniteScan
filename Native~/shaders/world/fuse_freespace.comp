@@ -3,6 +3,11 @@
 // logical pages. Cells crossed before the hit receive the epoch stamp (1 + tick % 255, never 0). Writes are
 // idempotent (every writer of the epoch writes the same value), so the result is order-independent: one
 // deterministic evidence value per cell per tick. Bounded by FS_FREE_WALK_MAX steps and FS_FREE_MAX_RANGE_M.
+// E6R narrow phase: the stamped cell is only the broad phase. A surfel of an occupied crossed cell is contradicted only when the ray
+// actually crosses its support ellipse in front of the measured point (beyond the clearance and both sigmas, not grazing); the weighted
+// hit goes to evidence.contradictionHits (atomic), the observation id to lastContradictionObs (idempotent), the ray sector to
+// contradictionViews (atomic or). Maintenance charges the debt once per observation. Neighbouring layers, thin walls and leaves in the
+// same 12.5 cm cell are no longer contradicted by a ray that passes beside them.
 #extension GL_GOOGLE_include_directive : require
 #define FS_USE_MEAS
 #define FS_USE_HASH
@@ -11,7 +16,11 @@
 #define FS_USE_FREESPACE
 #define FS_USE_INDEX_RO
 #define FS_USE_DIRTY
+#define FS_USE_SURFELS_RO
+#define FS_USE_EVIDENCE
 #include "fs_world_blocks.glsl"
+#include "fs_fusion.glsl"
+#include "fs_maint.glsl"
 layout(local_size_x = FS_WG_SMALL) in;
 layout(push_constant) uniform Push { uint hashMask; int anchorId; uint flags; uint pad; vec4 eye0; vec4 eye1; } pc;
 
@@ -68,7 +77,37 @@ void main() {
             lastCell = cell;
             if (cell == hitCell && kx == hitPageX && ky == hitPageY && kz == hitPageZ) continue;   // the surface cell itself is never "seen through"
             fsStamp(slot, cell, stamp); stamped++;
-            if (idx[fsIdxDirWord(slot, cell)] != 0u) fsMarkDirtyCell(slot, cell);   // C09R-E4: an occupied cell seen through gets maintained (ghost rule)
+            if (idx[fsIdxDirWord(slot, cell)] != 0u) {
+                // narrow phase over the cell's surfels
+                vec3 origin = fsPageOrigin3(key);
+                uint leaves[FS_MAINT_LEAVES_MAX]; uint nl = fsCollectLeaves(slot, cell, leaves); uint hitsHere = 0u;
+                for (uint l = 0u; l < uint(FS_MAINT_LEAVES_MAX); ++l) {
+                    if (l >= nl) break;
+                    uint cnt = min(idx[fsIdxLeafWord(leaves[l], 0u)], uint(FS_INDEX_LEAF_CAP));
+                    for (uint k = 0u; k < uint(FS_INDEX_LEAF_CAP); ++k) {
+                        if (k >= cnt) break;
+                        uint h = idx[fsIdxLeafWord(leaves[l], 2u + k)];
+                        FsPatch b = fsUnpack(surfels[h]);
+                        if ((b.flags & FS_FLAG_REMOVED) != 0u) continue;
+                        float dn = dot(b.n, dir);
+                        if (abs(dn) < FS_FREE_GRAZE_COS) continue;
+                        vec3 c = origin + b.p;
+                        float th = dot(b.n, c - eye) / dn;
+                        float guard = max(FS_FREE_END_CLEARANCE_M, 3.0 * sqrt(b.sigmaN * b.sigmaN + m.sigmaN * m.sigmaN));
+                        if (th <= FS_FREE_STEP_M || th >= len - guard) continue;
+                        vec3 hp = eye + dir * th - c;
+                        vec3 tM, tm; fsPatchFrame(b, tM, tm);
+                        float u = dot(hp, tM) / max(b.rM, 1e-4), v = dot(hp, tm) / max(b.rm, 1e-4);
+                        if (u * u + v * v > 1.0) continue;
+                        uint w = (m.sourceFlags & 3u) != 0u ? uint(FS_DEBT_W_PRECISE) : uint(FS_DEBT_W_PRIOR);
+                        atomicAdd(evidence[h].contradictionHits, w);
+                        evidence[h].lastContradictionObs = m.observationId;
+                        atomicOr(evidence[h].viewDiversity_contradictionViews, fsViewSectorBit(b.n, -dir) << 16);
+                        hitsHere++;
+                    }
+                }
+                if (hitsHere != 0u) { fsMarkDirtyCell(slot, cell); atomicAdd(gctr[FS_GCTR_FREE_NARROW_HITS], hitsHere); }
+            }
         }
     }
     if (stamped != 0u) atomicAdd(gctr[FS_GCTR_FREE_STAMPS], stamped);

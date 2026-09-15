@@ -76,8 +76,7 @@ void main() {
         pt.surfaceId = FS_TK(FS_T_ID_BASE) + FS_TK(FS_T_NEW_TOTAL) + births;
         pt.appearance = fsPreviewColorFromNormal(sn);
         surfels[h] = fsPack(pt);
-        FsSurfelEvidence ev; ev.staticEvidence_motionEvidence = 1u; ev.varianceQ_lastSeenFrame = (tick16 << 16) | fsEncodeLog(1.0, FS_VAR_NORM_BASE);
-        ev.lastObservationId = evidence[parent].lastObservationId;
+        FsSurfelEvidence ev = fsEvidenceNew(tick16, fsEncodeLog(1.0, FS_VAR_NORM_BASE), evidence[parent].lastObservationId);
         evidence[h] = ev;
         births++;                                                        // the id is consumed even when the index refuses the site
         if (fsIndexInsert(page, cell, pt.p, h)) fsMarkDirtyCell(page, cell);

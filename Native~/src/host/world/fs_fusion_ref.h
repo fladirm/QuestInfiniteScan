@@ -155,6 +155,59 @@ inline void AccumAdd(Accum& a, const Patch& q, V3 t1, V3 t2, V3 pm, V3 nm, float
     a.srcAnd &= srcFlags; a.obs = obs;
     if (colorWord & FS_MEAS_COLOR_VALID) { a.col = a.col + ColorOf(colorWord); a.colW += 1.f; }
 }
+// ---- E6R evidence hysteresis (twins: fsEvidencePositive / fsEvidenceCharge / maintenance + topology transitions) ----------------------
+inline uint32_t EvidencePositive(FsSurfelEvidence& e, uint16_t viewBit) {
+    uint32_t r = 0;
+    e.positiveSupport = (uint16_t)std::min<uint32_t>(e.positiveSupport + 1u, 65535u);
+    if (e.contradictionDebt > 0) { e.contradictionDebt = (uint16_t)(e.contradictionDebt > FS_DEBT_HEAL ? e.contradictionDebt - FS_DEBT_HEAL : 0); r |= 1u; }
+    e.viewDiversity |= viewBit;
+    const uint32_t st = e.lifecycle & 3u;
+    if (st == FS_LIFE_SUSPECT && e.contradictionDebt < FS_DEBT_SUSPECT / 2) { e.lifecycle = (uint16_t)((e.lifecycle & 0xFF00u) | FS_LIFE_ACTIVE); e.contradictionViews = 0; r |= 2u; }
+    else if (st == FS_LIFE_RETIRING && e.contradictionDebt < FS_DEBT_RETIRE / 2) { e.lifecycle = (uint16_t)((e.lifecycle & 0xFF00u) | FS_LIFE_SUSPECT); r |= 2u; }
+    return r;
+}
+// free-space narrow phase (one ray): weighted hit, observation id, ray sector
+inline void EvidenceRay(FsSurfelEvidence& e, bool precise, uint32_t obs, uint16_t viewBit) { e.contradictionHits += precise ? FS_DEBT_W_PRECISE : FS_DEBT_W_PRIOR; e.lastContradictionObs = obs; e.contradictionViews |= viewBit; }
+inline bool EvidenceCharge(FsSurfelEvidence& e) {
+    const uint32_t hits = e.contradictionHits;
+    if (!hits) return false;
+    e.contradictionHits = 0;
+    if (e.lastContradictionObs == e.lastDebtObs && e.lastContradictionObs != 0) return false;
+    e.lastDebtObs = e.lastContradictionObs;
+    e.contradictionDebt = (uint16_t)std::min<uint32_t>(e.contradictionDebt + std::min<uint32_t>(hits, FS_DEBT_MAX_PER_OBS), 65535u);
+    return true;
+}
+// free-space narrow phase (twin: fuse_freespace.comp): does the ray eye -> measured point (length len) cross the support ellipse of
+// patch b (world centre c) in front of the measurement, beyond the clearance and both sigmas, not grazing?
+inline bool RayContradictsSupport(const Patch& b, V3 c, V3 eye, V3 dir, float len, float sigmaMeas) {
+    const float dn = Dot(b.n, dir);
+    if (fabsf(dn) < (float)FS_FREE_GRAZE_COS) return false;
+    const float th = Dot(b.n, c - eye) / dn;
+    const float guard = fmaxf((float)FS_FREE_END_CLEARANCE_M, 3.f * sqrtf(b.sigmaN * b.sigmaN + sigmaMeas * sigmaMeas));
+    if (th <= (float)FS_FREE_STEP_M || th >= len - guard) return false;
+    V3 hp = eye + dir * th - c, f1, f2; Frame(b.n, f1, f2);
+    const V3 tM = f1 * cosf(b.angle) + f2 * sinf(b.angle), tm = Cross(b.n, tM);
+    const float u = Dot(hp, tM) / fmaxf(b.rM, 1e-4f), v = Dot(hp, tm) / fmaxf(b.rm, 1e-4f);
+    return u * u + v * v <= 1.f;
+}
+enum LifeOutcome : uint32_t { LIFE_NONE = 0, LIFE_SUSPECT, LIFE_REMOVED, LIFE_RETIRE_PENDING };
+// maintenance transition of a promoted surfel after a charge (twin: fuse_maint_apply.comp)
+inline LifeOutcome MaintTransition(FsSurfelEvidence& e, uint16_t tick16) {
+    const uint32_t st = e.lifecycle & 3u, debt = e.contradictionDebt;
+    if (st == FS_LIFE_ACTIVE && debt >= FS_DEBT_SUSPECT) { e.lifecycle = (uint16_t)((e.lifecycle & 0xFF00u) | FS_LIFE_SUSPECT); e.suspectSince = tick16; return LIFE_SUSPECT; }
+    if (st == FS_LIFE_SUSPECT && debt >= FS_DEBT_RETIRE) return LIFE_RETIRE_PENDING;
+    if (st == FS_LIFE_RETIRING && debt >= FS_DEBT_REMOVE) return LIFE_REMOVED;
+    return LIFE_NONE;
+}
+// topology retirement decision (twin: sheet_fit.comp): neighbour states of the mutual ring
+inline bool TopologyRetire(const FsSurfelEvidence& e, uint16_t tick16, const std::vector<uint32_t>& neighbourStates) {
+    if ((e.lifecycle & 3u) != FS_LIFE_SUSPECT || e.contradictionDebt < FS_DEBT_RETIRE) return false;
+    if ((uint32_t)__builtin_popcount(e.contradictionViews) < FS_RETIRE_MIN_VIEWS) return false;
+    if ((uint16_t)(tick16 - e.suspectSince) < FS_SUSPECT_MIN_TICKS) return false;
+    uint32_t bad = 0; for (uint32_t s : neighbourStates) if (s != FS_LIFE_ACTIVE) bad++;
+    return neighbourStates.empty() || (float)bad >= (float)FS_RETIRE_NEIGHBOUR_FRACTION * (float)neighbourStates.size();
+}
+
 struct ReduceResult { FsSurfel surfel; FsSurfelEvidence evidence; uint32_t folded = 0; bool overflow = false; bool changed = false; bool duplicate = false; bool relocated = false; uint32_t newCell = 0;
                       bool refine = false; V3 siteP, siteN; float siteFp = 0.f, siteSigma = 0.f; };   // E4.1C refinement request (twin: fuse_reduce.comp)
 // One matched segment = one surfel; `seg` in sorted order, all from ONE observation (one epoch ingests one frame).
@@ -199,7 +252,8 @@ inline ReduceResult ReduceSegment(const FsSurfel& s, const FsSurfelEvidence& evI
     float var = DecodeLog(ev.varianceQ, varBase);
     float meanD2 = (acc.d2 / nEff) / fmaxf(acc.s2 / nEff, 1e-12f);
     var += (meanD2 - var) / (float)(cnt + 1);
-    uint32_t stat = std::min<uint32_t>(ev.staticEvidence + 1u, 65535u);
+    EvidencePositive(ev, 0u);
+    uint32_t stat = ev.positiveSupport;
     uint32_t flags = q.flags;
     cnt = std::min<uint32_t>(cnt + 1, FS_EVIDENCE_COUNT_MAX);
     if ((flags & kFlagTransient) && stat >= FS_PROMOTE_STATIC) flags = (flags & ~(uint32_t)kFlagTransient) | kFlagPromoted;
@@ -207,7 +261,7 @@ inline ReduceResult ReduceSegment(const FsSurfel& s, const FsSurfelEvidence& evI
     q.flags = (flags & ~(uint32_t)kEvidenceCountMask) | cnt;
     if (acc.colW > 0.f) q.appearance = BlendAppearance(q.appearance, acc.col * (1.f / acc.colW), wPrior, 1.f);
     r.surfel = Pack(q);
-    ev.staticEvidence = (uint16_t)stat; ev.varianceQ = EncodeLog(var, varBase); ev.lastSeenFrame = (uint16_t)(tick & 0xFFFFu); ev.lastObservationId = acc.obs;
+    ev.varianceQ = EncodeLog(var, varBase); ev.lastSeenFrame = (uint16_t)(tick & 0xFFFFu); ev.lastObservationId = acc.obs;
     r.evidence = ev; r.folded = acc.n; r.changed = true;
     return r;
 }
@@ -416,7 +470,7 @@ private:
 // ---- F4 maintenance rules (twin: fs_maint.glsl / fs_fusion.glsl) -------------------------------------------
 // Merge priority: higher static evidence, then lower sigma, then lower SurfaceID survives.
 inline bool Survives(const Patch& a, const FsSurfelEvidence& ea, const Patch& b, const FsSurfelEvidence& eb) {
-    if (ea.staticEvidence != eb.staticEvidence) return ea.staticEvidence > eb.staticEvidence;
+    if (ea.positiveSupport != eb.positiveSupport) return ea.positiveSupport > eb.positiveSupport;
     if (a.sigmaN != b.sigmaN) return a.sigmaN < b.sigmaN;
     return a.surfaceId < b.surfaceId;
 }
@@ -502,13 +556,13 @@ inline SheetDelta SheetFitR(const SheetSite& a, const std::vector<uint32_t>& aPr
     r.flat = r.planeRms <= (float)FS_SHEET_FLAT_K * sqrtf(s2Sum / wSum);
     if (r.flat) { r.offset = Dot(nFit, cFit - a.world); r.normal = nFit; }
     // E4.1C contraction decision (twin: sheet_fit.comp): converged flat interior node of lowest priority in its mutual ring
-    if (!r.flat || r.degree < FS_CONTRACT_MIN_DEGREE || a.ev.staticEvidence < FS_CONTRACT_MIN_STATIC) return r;
+    if (!r.flat || r.degree < FS_CONTRACT_MIN_DEGREE || a.ev.positiveSupport < FS_CONTRACT_MIN_STATIC || (a.ev.lifecycle & 3u) != FS_LIFE_ACTIVE) return r;
     const float sigFit = fmaxf(sqrtf(s2Sum / wSum), (float)FS_SIGMA_N_FLOOR_M);
     for (size_t id : mut) if (!Survives(sites[id].q, sites[id].ev, a.q, a.ev)) return r;
     float bestE = (float)FS_CONTRACT_BUDGET;
     for (size_t k = 0; k < mut.size(); ++k) {
         const SheetSite& b = sites[mut[k]];
-        if (dists[k] > (float)FS_CONTRACT_DIST_MAX_M || b.ev.staticEvidence < FS_CONTRACT_MIN_STATIC) continue;
+        if (dists[k] > (float)FS_CONTRACT_DIST_MAX_M || b.ev.positiveSupport < FS_CONTRACT_MIN_STATIC || (b.ev.lifecycle & 3u) != FS_LIFE_ACTIVE) continue;
         float E = fabsf(Dot(nFit, b.world - cFit)) / sigFit + (float)FS_CONTRACT_W_CURV * r.planeRms / sigFit + (float)FS_CONTRACT_W_NORMAL * (1.f - Dot(b.q.n, nFit))
                 + (float)FS_CONTRACT_W_BOUNDARY * (float)(FS_SHEET_K - r.degree);
         if (a.q.appearance & b.q.appearance & FS_APPEARANCE_MEASURED) E += (float)FS_CONTRACT_W_COLOR * Len(ColorOf(a.q.appearance) - ColorOf(b.q.appearance));

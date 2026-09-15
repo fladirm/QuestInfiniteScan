@@ -56,8 +56,7 @@ void main() {
         pt.flags = 1u | FS_FLAG_TRANSIENT | FS_FLAG_SIDED_A;
         pt.surfaceId = idBase + c; pt.appearance = q.colW > 0.0 ? fsAppearanceWord(q.col / q.colW, 1u) : fsPreviewColorFromNormal(nn);
         surfels[h] = fsPack(pt);
-        FsSurfelEvidence ev; ev.staticEvidence_motionEvidence = 1u; ev.varianceQ_lastSeenFrame = (tick16 << 16) | fsEncodeLog(max(varNorm, 1e-3), FS_VAR_NORM_BASE);
-        ev.lastObservationId = obs;
+        FsSurfelEvidence ev = fsEvidenceNew(tick16, fsEncodeLog(max(varNorm, 1e-3), FS_VAR_NORM_BASE), obs);
         evidence[h] = ev;
         // the owner cell holds the entry (the mean lies in it up to the seed spread); a mean in a neighbour cell is relocated
         uint meanCell = fsCellOf(pt.p);

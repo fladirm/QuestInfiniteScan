@@ -49,6 +49,23 @@
 #define FS_PRED_ROW0_TOP      1         // C09R-E2: the previous rendered depth (Unity RT, GPU projection) stores row 0 at the TOP: prediction and
                                         // HZB scatter flip v; receipt: FS-MEAS consistent vs consistentAlt (the other convention)
 #define FS_MOTION_BAND_M      0.05      // outside the sigma gate but within this band: motion evidence
+// ---- E6R evidence hysteresis (1/8 debt units; provisional numbers, device-calibrated later) ------------------------------------------
+#define FS_LIFE_ACTIVE        0u
+#define FS_LIFE_SUSPECT       1u
+#define FS_LIFE_RETIRING      2u
+#define FS_DEBT_W_PRECISE     8         // a contradicting stereo / temporal ray: one unit
+#define FS_DEBT_W_PRIOR       4         // a contradicting Env Depth prior / planar ray: half a unit
+#define FS_DEBT_MAX_PER_OBS   16        // at most two units charged per observation, however many rays
+#define FS_DEBT_HEAL          16        // a positive observation removes two units of debt
+#define FS_DEBT_TRANSIENT     8         // an unpromoted candidate dies after one unit (building stays quick, noise dies quick)
+#define FS_DEBT_SUSPECT       24        // promoted: ACTIVE -> SUSPECT at three units
+#define FS_DEBT_RETIRE        64        // SUSPECT -> RETIRING at eight units, >= FS_RETIRE_MIN_VIEWS contradiction sectors, persistence, neighbours
+#define FS_DEBT_REMOVE        96        // RETIRING -> REMOVED at twelve units without a positive observation
+#define FS_SUSPECT_MIN_TICKS  30        // SUSPECT must persist this many scan ticks before RETIRING
+#define FS_RETIRE_MIN_VIEWS   2
+#define FS_RETIRE_NEIGHBOUR_FRACTION 0.5  // spatial consistency: at least this share of the graph neighbours are SUSPECT / RETIRING
+#define FS_REFINE_STREAK      2         // refinement: unexplained residual in this many consecutive observations
+#define FS_FREE_GRAZE_COS     0.15      // narrow phase: rays more grazing than this never contradict a support
 #define FS_PROMOTE_STATIC     3         // DISTINCT consistent observations (frames, not pixels) before a transient candidate becomes canonical
 #define FS_HUBER_K            1.345     // C09R-E4 robust update: contribution weight min(1, k * gate_sigma / |plane residual|)
 #define FS_ASSOC_PLANE_MAX_M  0.08      // C09R-E4 topological bound of the plane gate: a broad depth-prior sigma never joins sheets farther apart (provisional)
@@ -88,8 +105,6 @@
 #define FS_REFINE_BIRTHS_MAX    256     // site insertions per epoch (bounded sequential pass)
 #define FS_SHEET_NODE_WORDS   10        // per handle: nbr[6] (page << 22 | handle), meta (degree << 24), component, cell ratios (8 x 4 bit), cell rMax (float bits)
 #define FS_RELOC_MAX          1024      // C09R-E4 relocation records per epoch (centre crossed its index cell); beyond: the position update waits (counted)
-#define FS_GHOST_MOTION_MIN   3         // free-space contradictions before a candidate / weak surfel is removed
-#define FS_GHOST_STATIC_K     2         // + staticEvidence / K contradictions for supported surfels
 #define FS_VAR_NORM_BASE      0.001     // log base of the normalised residual variance (varianceQ): 0.001 .. ~6e4 (E3b; run 00:12: 111 k splits against the fused sigma)
 #define FS_MERGE_MIN_DOT      0.98      // coplanar within ~11 deg ...
 #define FS_MERGE_OVERLAP_K    0.75      // ... centres closer than k * (rA + rB), plane distance inside the gate
@@ -202,7 +217,14 @@
 #define FS_GCTR_PROMOTIONS         44     // C09R-E5R surfels promoted (FRONT/BACK ratio receipt: promoted live = promotions - promotedRemoved)
 #define FS_GCTR_PROMOTED_REMOVED   45     // promoted surfels removed (ghost, merge, contraction, erase)
 #define FS_GCTR_DIRTY_RING_DROP    46     // C09R-E5R dirty-cell ring full: the mark was refused (must stay 0)
-#define FS_GCTR_COUNT              47
+#define FS_GCTR_POSITIVE_EVIDENCE  47     // E6R positive observations applied
+#define FS_GCTR_CONTRADICTIONS     48     // debt charges (one per surfel per observation)
+#define FS_GCTR_CONTRA_HEALED      49     // positive observations that reduced debt
+#define FS_GCTR_SURFEL_SUSPECT     50     // ACTIVE -> SUSPECT
+#define FS_GCTR_SURFEL_RECOVERED   51     // SUSPECT / RETIRING -> healthier state by positives
+#define FS_GCTR_SURFEL_RETIRED     52     // promoted RETIRING -> REMOVED
+#define FS_GCTR_FREE_NARROW_HITS   53     // free-space rays that crossed a surfel support (narrow phase)
+#define FS_GCTR_COUNT              54
 
 // ---- fusion scratch layout (u32 words in the `tick` buffer; per epoch) -------------------------------------
 #define FS_T_COUNT           0          // measurements in the epoch (GPU-written from the ring counters)
@@ -222,6 +244,8 @@
 #define FS_T_SHEET_RING_BASE 15
 #define FS_T_DIRTY_HEAD      78         // C09R-E5R persistent dirty-cell ring: consumer head (CPU, publication maintenance take)
 #define FS_T_WORK_SERIAL     80         // E6R scheduler clock: serial of the world job being recorded (any class); rings store it, the host maps serial -> steady ns
+#define FS_T_EYE0            81         // E6R: 3 words float bits, anchor-local eye origins of the fuse epoch (view sectors)
+#define FS_T_EYE1            84
 #define FS_T_DIRTY_TAIL      79         //   producer tail (atomic, fsMarkDirtyCell)
 #define FS_T_REFINE_BIRTHS   77         // E4.1C refinement births of the epoch (deterministic ids after the candidates)
 #define FS_T_RELOC_COUNT     9          // relocation records (written by fuse_reduce / fuse_maint_apply, consumed and zeroed by world_relocate)

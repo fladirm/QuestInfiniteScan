@@ -6,6 +6,7 @@
 #extension GL_GOOGLE_include_directive : require
 #define FS_USE_PAGES_RO
 #define FS_USE_SURFELS
+#define FS_USE_EVIDENCE
 #define FS_USE_GCTR
 #define FS_USE_SHEET
 #define FS_USE_DIRTY
@@ -21,6 +22,7 @@ void main() {
     atomicAnd(sheet[FS_TK(FS_T_SHEET_MASK_BASE) + (h >> 5u)], ~(1u << (h & 31u)));
     uint dw = fsSheetDeltaWord(i, 0u);
     uint flags = sheet[dw + 2u];
+    if ((flags & 2u) != 0u) { FsSurfelEvidence er = evidence[h]; if (fsLifeState(er) == FS_LIFE_SUSPECT) { fsLifeSet(er, FS_LIFE_RETIRING); evidence[h] = er; } }
     sheet[fsSheetNodeWord(h, 6u)] = ((flags >> 4) & 15u) << 24;
     sheet[fsSheetNodeWord(h, 7u)] = sheet[dw + 3u];
     // E4.2R micro-surface cell: a changed cell republishes the owner cell of the site

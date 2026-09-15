@@ -236,7 +236,7 @@ static void TestFusionDeterminism() {
     FsPageKey key{0, 0, 0, 0}; V3 origin = PageOrigin3(key);
     SurfelSample smp{{0.31f, 0.52f, 0.73f}, {0, 0, 1}, 0.01f, 0.002f, 0.004f, 7};
     FsSurfel s = MakeSurfel(smp, key); s.evidenceFlags = (uint16_t)(2 | kFlagTransient);   // transient candidate, 2 observations
-    FsSurfelEvidence ev{}; ev.staticEvidence = 2; ev.varianceQ = EncodeLog(1.f, (float)FS_VAR_NORM_BASE); ev.lastObservationId = 99;
+    FsSurfelEvidence ev{}; ev.positiveSupport = 2; ev.varianceQ = EncodeLog(1.f, (float)FS_VAR_NORM_BASE); ev.lastObservationId = 99;
     std::mt19937 rng(11); std::normal_distribution<float> nz(0.f, 0.001f), nt(0.f, 0.004f);
     std::vector<FsSurfaceMeasurement> seq;                                                            // 40 pixels of ONE depth frame (observation 100)
     for (int i = 0; i < 40; ++i) seq.push_back(Meas(v3(0.31f + nt(rng), 0.52f + nt(rng), 0.73f + 0.0015f + nz(rng)), Norm(v3(0.02f * nz(rng) * 100.f, 0.f, 1.f)), 0.002f, 0.004f, 0.006f, 100u));
@@ -249,15 +249,15 @@ static void TestFusionDeterminism() {
     CHECK(q1.sigmaN > 0.7f * q0.sigmaN);                                                              // ... by ONE measurement, not by 40 correlated pixels (E4)
     CHECK((q1.flags & kEvidenceCountMask) == 3);                                                      // one observation of support
     CHECK((q1.flags & kFlagPromoted) && !(q1.flags & kFlagTransient));                                // 2 + 1 distinct observations >= FS_PROMOTE_STATIC
-    CHECK(r1.evidence.staticEvidence == 3 && r1.evidence.lastSeenFrame == 5 && r1.evidence.lastObservationId == 100u);
+    CHECK(r1.evidence.positiveSupport == 3 && r1.evidence.lastSeenFrame == 5 && r1.evidence.lastObservationId == 100u);
     CHECK(q1.p.z > q0.p.z && q1.p.z < q0.p.z + 0.0016f);                                              // moved toward the measured plane
     // the same observation again (a later slice of the frame) is not new evidence
     ReduceResult rDup = ReduceSegment(r1.surfel, r1.evidence, seq, origin, 6);
-    CHECK(rDup.duplicate && !rDup.changed && rDup.evidence.staticEvidence == 3);
+    CHECK(rDup.duplicate && !rDup.changed && rDup.evidence.positiveSupport == 3);
     // one frame of 40 pixels never promotes a fresh candidate: support 1 -> 2 only
-    FsSurfel fresh = s; fresh.evidenceFlags = (uint16_t)(1 | kFlagTransient); FsSurfelEvidence evF = ev; evF.staticEvidence = 1;
+    FsSurfel fresh = s; fresh.evidenceFlags = (uint16_t)(1 | kFlagTransient); FsSurfelEvidence evF = ev; evF.positiveSupport = 1;
     ReduceResult rF = ReduceSegment(fresh, evF, seq, origin, 5);
-    CHECK((Unpack(rF.surfel).flags & kFlagTransient) && rF.evidence.staticEvidence == 2);
+    CHECK((Unpack(rF.surfel).flags & kFlagTransient) && rF.evidence.positiveSupport == 2);
     // permutation of the same set: identical associations (all match the same surfel) and equal within fp order
     std::vector<FsSurfaceMeasurement> perm = seq; std::shuffle(perm.begin(), perm.end(), rng);
     ReduceResult r3 = ReduceSegment(s, ev, perm, origin, 5);
@@ -286,7 +286,7 @@ static void TestFusionDeterminism() {
     std::vector<FsSurfaceMeasurement> prior = seq; for (auto& m : prior) m.sourceFlags = 4u;
     FsSurfel acc = s; FsSurfelEvidence evA = ev;
     for (uint32_t o = 0; o < 50; ++o) { for (auto& m : prior) m.observationId = 200u + o; ReduceResult rr = ReduceSegment(acc, evA, prior, origin, 10 + o); acc = rr.surfel; evA = rr.evidence; }
-    CHECK(Unpack(acc).sigmaN >= (float)FS_DEPTH_PRIOR_SIGMA_FLOOR_M * 0.999f); CHECK(evA.staticEvidence == 52);
+    CHECK(Unpack(acc).sigmaN >= (float)FS_DEPTH_PRIOR_SIGMA_FLOOR_M * 0.999f); CHECK(evA.positiveSupport == 52);
     // stable sort twin: keys grouped, ties in measurement order, radix == std::stable_sort
     std::vector<FsAssociation> recs; std::uniform_int_distribution<uint32_t> kd(0, 5);
     for (uint32_t i = 0; i < 5000; ++i) { FsAssociation a{}; a.meas = i; uint32_t k = kd(rng); a.key = k == 5 ? UnmatchedKey(3, i & 32767u) : (k * 977u); recs.push_back(a); }
@@ -448,11 +448,11 @@ static void TestDenseBucket() {
 static void TestDeterministicMerge() {
     Patch a; a.p = v3(0.1f, 0.1f, 0.1f); a.n = v3(0, 0, 1); a.rM = a.rm = 0.01f; a.sigmaN = 0.002f; a.sigmaT = 0.004f; a.flags = kFlagPromoted | 5; a.surfaceId = 10;
     Patch b = a; b.p = v3(0.105f, 0.1f, 0.1005f); b.surfaceId = 20;
-    FsSurfelEvidence ea{}, eb{}; ea.staticEvidence = 5; eb.staticEvidence = 5;
+    FsSurfelEvidence ea{}, eb{}; ea.positiveSupport = 5; eb.positiveSupport = 5;
     CHECK(Mergeable(a, b) && Mergeable(b, a));
     CHECK(Survives(a, ea, b, eb) && !Survives(b, eb, a, ea));                             // tie on evidence + sigma: lower SurfaceID survives
-    eb.staticEvidence = 9; CHECK(Survives(b, eb, a, ea));                                   // more static evidence wins
-    eb.staticEvidence = 5; b.sigmaN = 0.001f; CHECK(Survives(b, eb, a, ea));                // then lower sigma
+    eb.positiveSupport = 9; CHECK(Survives(b, eb, a, ea));                                   // more static evidence wins
+    eb.positiveSupport = 5; b.sigmaN = 0.001f; CHECK(Survives(b, eb, a, ea));                // then lower sigma
     b.sigmaN = 0.002f;
     Patch c = b; c.p = v3(0.1f, 0.1f, 0.13f); CHECK(!Mergeable(a, c));                        // 3 cm off the plane: another sheet
     Patch d = b; d.n = Norm(v3(0.3f, 0, 1)); CHECK(!Mergeable(a, d));                        // 17 deg: not coplanar
@@ -482,7 +482,7 @@ static void TestCoarsenRefine() {
     std::vector<Patch> ps;
     for (int y = -3; y <= 3; ++y) for (int x = -3; x <= 3; ++x) ps.push_back(SheetPatch(v3(0.025f * x, 0.025f * y, 0.f), v3(0, 0, 1), 0.01f, 0.002f));
     std::vector<SheetSite> sites = Sites(ps);
-    for (auto& s : sites) { s.ev.staticEvidence = 10; s.q.surfaceId = s.id; }
+    for (auto& s : sites) { s.ev.positiveSupport = 10; s.q.surfaceId = s.id; }
     const uint32_t centre = 24; sites[centre].q.surfaceId = 1000;
     std::vector<std::vector<uint32_t>> props; for (auto& s : sites) props.push_back(SheetProposals(s, sites));
     std::vector<SheetCell> cover(sites.size());
@@ -496,10 +496,10 @@ static void TestCoarsenRefine() {
     for (size_t i = 0; i < target.size(); ++i) if (target[i] != UINT32_MAX) { losers++; CHECK(target[target[i]] == UINT32_MAX); }
     CHECK(losers >= 1);
     // not converged -> no contraction
-    SheetSite young = sites[centre]; young.ev.staticEvidence = FS_CONTRACT_MIN_STATIC - 1;
+    SheetSite young = sites[centre]; young.ev.positiveSupport = FS_CONTRACT_MIN_STATIC - 1;
     CHECK(SheetFitR(young, props[centre], sites, props, cover).contractTarget == UINT32_MAX);
     // not the lowest priority of its ring -> it stays (it may be a survivor)
-    SheetSite strong = sites[centre]; strong.q.surfaceId = 0; strong.ev.staticEvidence = 50;
+    SheetSite strong = sites[centre]; strong.q.surfaceId = 0; strong.ev.positiveSupport = 50;
     CHECK(SheetFitR(strong, props[centre], sites, props, cover).contractTarget == UINT32_MAX);
     // appearance edge: black centre on a white wall -> penalty above the budget, detail kept
     std::vector<SheetSite> col = sites;
@@ -508,13 +508,13 @@ static void TestCoarsenRefine() {
     CHECK(SheetFitR(col[centre], props[centre], col, props, cover).contractTarget == UINT32_MAX);
     // boundary: a corner node of the grid (degree < FS_CONTRACT_MIN_DEGREE or penalised) keeps its detail when the ring is short
     std::vector<Patch> strip{SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.01f, 0.002f), SheetPatch(v3(0.025f, 0, 0), v3(0, 0, 1), 0.01f, 0.002f), SheetPatch(v3(0.05f, 0, 0), v3(0, 0, 1), 0.01f, 0.002f)};
-    std::vector<SheetSite> st = Sites(strip); for (auto& s : st) { s.ev.staticEvidence = 10; s.q.surfaceId = s.id; } st[1].q.surfaceId = 99;
+    std::vector<SheetSite> st = Sites(strip); for (auto& s : st) { s.ev.positiveSupport = 10; s.q.surfaceId = s.id; } st[1].q.surfaceId = 99;
     std::vector<std::vector<uint32_t>> pst; for (auto& s : st) pst.push_back(SheetProposals(s, st));
     CHECK(SheetFitR(st[1], pst[1], st, pst, std::vector<SheetCell>(3)).contractTarget == UINT32_MAX);
     // curved ring (5 cm sphere) never contracts
     std::vector<Patch> sph{SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.004f, 0.0005f)};
     for (int k = 0; k < 8; ++k) { float ang = 6.2831853f * (float)k / 8.f; V3 p = v3(0.02f * cosf(ang), 0.02f * sinf(ang), 0.f); p.z = 0.05f - sqrtf(0.05f * 0.05f - Dot(p, p)); sph.push_back(SheetPatch(p, v3(-p.x, -p.y, 0.05f - p.z), 0.004f, 0.0005f)); }
-    std::vector<SheetSite> ss = Sites(sph); for (auto& s : ss) { s.ev.staticEvidence = 10; s.q.surfaceId = s.id; } ss[0].q.surfaceId = 99;
+    std::vector<SheetSite> ss = Sites(sph); for (auto& s : ss) { s.ev.positiveSupport = 10; s.q.surfaceId = s.id; } ss[0].q.surfaceId = 99;
     std::vector<std::vector<uint32_t>> psph; for (auto& s : ss) psph.push_back(SheetProposals(s, ss));
     CHECK(SheetFitR(ss[0], psph[0], ss, psph, std::vector<SheetCell>(ss.size())).contractTarget == UINT32_MAX);
 
@@ -522,7 +522,7 @@ static void TestCoarsenRefine() {
     FsPageKey key{0, 0, 0, 0}; V3 origin = PageOrigin3(key);
     SurfelSample smp{{0.31f, 0.52f, 0.73f}, {0, 0, 1}, 0.03f, 0.002f, 0.004f, 7};
     FsSurfel s = MakeSurfel(smp, key); s.evidenceFlags = (uint16_t)(kFlagPromoted | 8);
-    FsSurfelEvidence ev{}; ev.staticEvidence = 8; ev.varianceQ = EncodeLog(1.f, (float)FS_VAR_NORM_BASE); ev.lastObservationId = 3;
+    FsSurfelEvidence ev{}; ev.positiveSupport = 8; ev.varianceQ = EncodeLog(1.f, (float)FS_VAR_NORM_BASE); ev.lastObservationId = 3;
     V3 c = LocalPos(s);
     std::vector<FsSurfaceMeasurement> seg;
     for (int i = 0; i < 12; ++i) seg.push_back(Meas(origin + c + v3(0.002f * (float)(i % 4), 0.002f * (float)(i / 4), 0.f), v3(0, 0, 1), 0.002f, 0.004f, 0.004f, 4));
@@ -621,6 +621,54 @@ static void TestSchedulerNoStarvation() {
     const float ages3[3] = {1000, 1000, 0}; CHECK(fs::PickStage(run, ages3, deadline, def2) == 0);   // fuse 16.7x late beats publish 13.3x
 }
 
+static void TestEvidenceHysteresis() {
+    // J. 3 positives promote; isolated weak contradictions do not remove; a positive revisit heals; slow multi-view persistent removal
+    FsSurfelEvidence e{}; e.positiveSupport = 1;
+    EvidencePositive(e, 1); EvidencePositive(e, 2); CHECK(e.positiveSupport >= FS_PROMOTE_STATIC);
+    uint16_t tick = 100; uint32_t obs = 1000;
+    // one noisy Env Depth ray per observation, 4 observations: debt 2 units < suspect
+    for (int k = 0; k < 4; ++k) { EvidenceRay(e, false, ++obs, 1); CHECK(EvidenceCharge(e)); CHECK(MaintTransition(e, ++tick) == LIFE_NONE); }
+    CHECK((e.lifecycle & 3u) == FS_LIFE_ACTIVE && e.contradictionDebt == 16);
+    // many rays of the SAME observation (several fuse slices): charged once, capped
+    for (int k = 0; k < 50; ++k) EvidenceRay(e, true, obs, 1);
+    CHECK(!EvidenceCharge(e) && e.contradictionDebt == 16);
+    // precise contradictions from one sector -> SUSPECT, but never RETIRING without view diversity, persistence and neighbours
+    for (int k = 0; k < 2; ++k) { EvidenceRay(e, true, ++obs, 1); EvidenceRay(e, true, obs, 1); EvidenceCharge(e); MaintTransition(e, ++tick); }
+    CHECK((e.lifecycle & 3u) == FS_LIFE_SUSPECT);
+    // positive revisit heals debt back and recovers
+    EvidencePositive(e, 4); EvidencePositive(e, 4); CHECK((e.lifecycle & 3u) == FS_LIFE_SUSPECT);   // two positives heal but not yet enough
+    EvidencePositive(e, 8);
+    CHECK((e.lifecycle & 3u) == FS_LIFE_ACTIVE && e.contradictionDebt < FS_DEBT_SUSPECT / 2);
+    // sustained contradictions: debt grows to retire level
+    for (int k = 0; k < 8; ++k) { EvidenceRay(e, true, ++obs, (uint16_t)(1u << (k % 3))); EvidenceRay(e, true, obs, 1); EvidenceCharge(e); MaintTransition(e, ++tick); }
+    CHECK((e.lifecycle & 3u) == FS_LIFE_SUSPECT && e.contradictionDebt >= FS_DEBT_RETIRE);
+    // healthy neighbourhood (a single contradicted spot on a wall): no retirement
+    std::vector<uint32_t> healthy(6, FS_LIFE_ACTIVE); healthy[0] = FS_LIFE_SUSPECT;
+    CHECK(!TopologyRetire(e, (uint16_t)(tick + FS_SUSPECT_MIN_TICKS), healthy));
+    CHECK(!TopologyRetire(e, (uint16_t)(tick + 1), std::vector<uint32_t>(6, FS_LIFE_SUSPECT)));          // not persistent yet
+    CHECK(TopologyRetire(e, (uint16_t)(e.suspectSince + FS_SUSPECT_MIN_TICKS), std::vector<uint32_t>(6, FS_LIFE_SUSPECT)));   // consistent contradicted band
+    e.lifecycle = (uint16_t)((e.lifecycle & 0xFF00u) | FS_LIFE_RETIRING);
+    LifeOutcome out = LIFE_NONE;
+    for (int k = 0; k < 20 && out != LIFE_REMOVED; ++k) { out = MaintTransition(e, ++tick); if (out != LIFE_REMOVED) { EvidenceRay(e, true, ++obs, 1); EvidenceCharge(e); } }
+    CHECK(out == LIFE_REMOVED && e.contradictionDebt >= FS_DEBT_REMOVE);
+    // a positive observation of a RETIRING surfel pulls it back (the object was not gone)
+    FsSurfelEvidence r{}; r.positiveSupport = 9; r.contradictionDebt = FS_DEBT_RETIRE / 2 + 8; r.lifecycle = FS_LIFE_RETIRING;
+    CHECK((EvidencePositive(r, 1) & 2u) != 0u && (r.lifecycle & 3u) == FS_LIFE_SUSPECT);
+    // narrow phase: a ray to a wall 2 m away contradicts a surfel it crosses at 1 m, not one 5 cm beside the ray in the same 12.5 cm cell,
+    // not the back side of a thin wall behind the hit, not a leaf the ray passes at grazing incidence
+    { Patch q; q.n = v3(0, 0, -1); q.rM = q.rm = 0.01f; q.sigmaN = 0.002f; q.angle = 0; const V3 eye = v3(0, 0, 0), dir = v3(0, 0, 1);
+      CHECK(RayContradictsSupport(q, v3(0.0f, 0.0f, 1.0f), eye, dir, 2.0f, 0.01f));
+      CHECK(!RayContradictsSupport(q, v3(0.05f, 0.0f, 1.0f), eye, dir, 2.0f, 0.01f));
+      CHECK(!RayContradictsSupport(q, v3(0.0f, 0.0f, 2.03f), eye, dir, 2.0f, 0.01f));
+      CHECK(!RayContradictsSupport(q, v3(0.0f, 0.0f, 1.95f), eye, dir, 2.0f, 0.01f));          // inside the clearance before the hit
+      Patch leaf = q; leaf.n = Norm(v3(1, 0, 0.05f)); CHECK(!RayContradictsSupport(leaf, v3(0.0f, 0.0f, 1.0f), eye, dir, 2.0f, 0.01f)); }
+    // building is quicker than destruction: 3 observations build, a fresh surface needs > 3 precise observations to become SUSPECT
+    FsSurfelEvidence f{}; f.positiveSupport = 3; int n = 0; uint32_t o2 = 5;
+    while ((f.lifecycle & 3u) == FS_LIFE_ACTIVE && n < 100) { EvidenceRay(f, true, ++o2, 1); EvidenceCharge(f); MaintTransition(f, ++tick); n++; }
+    CHECK(n >= 3);
+    std::printf("evidence: fresh surface SUSPECT after %d precise contradicting observations (removal needs retire + remove levels)\n", n);
+}
+
 static void TestSparseUpdate() {
     // C09R-E5R: a change enqueues its cell once; the publication consumes the ring in change order; no page mask is ever rescanned
     DirtyRing r; r.Init(4, 64);
@@ -715,7 +763,7 @@ static void TestIndexGeneration() {
 
 int main() {
     TestPageHash(); TestEncodings(); TestSynthetic(); TestResidency(); TestHzbBand(); TestHzbDisagreement(); TestCullMath();
-    TestFusionDeterminism(); TestRelocationAcrossCell(); TestSurfaceComplex(); TestCoarsenRefine(); TestAppearanceState(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCostModel(); TestSchedulerNoStarvation(); TestCrossPageFreeRay(); TestIndexGeneration();
+    TestFusionDeterminism(); TestRelocationAcrossCell(); TestSurfaceComplex(); TestCoarsenRefine(); TestAppearanceState(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCostModel(); TestSchedulerNoStarvation(); TestEvidenceHysteresis(); TestCrossPageFreeRay(); TestIndexGeneration();
     std::printf("finalscan host world tests: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

@@ -23,7 +23,7 @@ static_assert(sizeof(FsPageHashEntry) == 32, "FsPageHashEntry layout");
 static_assert(sizeof(FsSurfaceMeasurement) == 48, "FsSurfaceMeasurement layout");
 static_assert(sizeof(FsDrawRecord) == 32, "FsDrawRecord layout");
 static_assert(sizeof(FsIndirectDrawArgs) == 16, "FsIndirectDrawArgs layout");
-static_assert(sizeof(FsSurfelEvidence) == 12, "FsSurfelEvidence layout");
+static_assert(sizeof(FsSurfelEvidence) == 32, "FsSurfelEvidence layout");
 static_assert(sizeof(FsClusterNode) == 80, "FsClusterNode layout");
 
 // ---- fixed point position (q0.25 mm, page-local) -----------------------------------------------

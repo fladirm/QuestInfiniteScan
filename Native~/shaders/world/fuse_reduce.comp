@@ -31,7 +31,7 @@ void main() {
     vec3 origin = fsPageOrigin3(pages[page].key);
     vec3 t1, t2; fsTangentFrame(q.n, t1, t2);
     FsAccum acc = fsAccumInit();
-    uint overflow = 0u;
+    uint overflow = 0u, eyeIndex = (meas[assocA[i].meas].sourceFlags >> 16) & 1u;
     for (uint k = 0u; k < uint(FS_SEG_REDUCE_MAX) + 1u; ++k) {
         uint j = i + k;
         if (j >= count || assocA[j].key != key) break;
@@ -44,17 +44,19 @@ void main() {
     if (acc.n == 0u || acc.h <= 0.0) return;
     if (overflow != 0u) atomicAdd(gctr[FS_GCTR_SEG_OVERFLOW], 1u);
     FsSurfelEvidence ev = evidence[h];
-    // ---- E4.1C refinement request: the surfel does not explain part of this observation -> insert a site at the worst residual
-    //      (the robust mean of the outlier contributions on the side of the maximum residual; the request slot is this segment's)
+    // ---- one observation updates a surfel once (C09R-E4): a later slice of the same depth frame is not new evidence
+    if (ev.lastObservationId == acc.obs && acc.obs != 0u) { atomicAdd(gctr[FS_GCTR_SEGMENTS_MATCHED], 1u); return; }
+    // ---- E4.1C / E6R refinement request: the surfel does not explain part of this observation in FS_REFINE_STREAK consecutive distinct
+    //      observations -> a site at the robust mean of the outliers on the side of the maximum residual (the request slot is this segment's)
     uint ws = acc.worstSide, oc = acc.oCnt[ws];
-    if (oc >= uint(FS_REFINE_MIN_OUTLIERS) && (q.flags & FS_FLAG_PROMOTED) != 0u && (q.flags & FS_EVIDENCE_COUNT_MASK) >= uint(FS_REFINE_MIN_SUPPORT)) {
+    uint streak = oc >= uint(FS_REFINE_MIN_OUTLIERS) ? fsResidualStreak(ev) + 1u : 0u;
+    fsResidualStreakSet(ev, streak);
+    if (streak >= uint(FS_REFINE_STREAK) && (q.flags & FS_FLAG_PROMOTED) != 0u && (q.flags & FS_EVIDENCE_COUNT_MASK) >= uint(FS_REFINE_MIN_SUPPORT)) {
         uint rw = fsSheetRefineWord(i, 0u); vec3 sp = acc.oP[ws] / float(oc);
         sheet[rw] = fsSheetPack(page, h); sheet[rw + 1u] = floatBitsToUint(sp.x); sheet[rw + 2u] = floatBitsToUint(sp.y); sheet[rw + 3u] = floatBitsToUint(sp.z);
         sheet[rw + 4u] = fsEncodeOct32(normalize(acc.oN[ws])); sheet[rw + 5u] = FS_TK(FS_T_TICK);
         sheet[rw + 6u] = floatBitsToUint(acc.oFp[ws]); sheet[rw + 7u] = floatBitsToUint(acc.oS[ws] / float(oc));
     }
-    // ---- one observation updates a surfel once (C09R-E4): a later slice of the same depth frame is not new evidence
-    if (ev.lastObservationId == acc.obs && acc.obs != 0u) { atomicAdd(gctr[FS_GCTR_SEGMENTS_MATCHED], 1u); return; }
     // ---- SurfaceObservationEstimate: robust mean of the frame's contributions with the precision of ONE measurement
     const float nEff = acc.h;
     float wObsN = acc.wN / nEff, wObsT = acc.wT / nEff;
@@ -85,7 +87,14 @@ void main() {
     float var = fsDecodeLog(fsGet_FsSurfelEvidence_varianceQ(ev), FS_VAR_NORM_BASE);
     float meanD2 = (acc.d2 / nEff) / max(acc.s2 / nEff, 1e-12);
     var += (meanD2 - var) / float(cnt + 1u);
-    uint stat = min(fsGet_FsSurfelEvidence_staticEvidence(ev) + 1u, 65535u);
+    // E6R positive observation: support, healed debt, view sector (the eye of this observation seen from the surfel), recovery
+    vec3 eyeW = eyeIndex == 0u ? vec3(uintBitsToFloat(FS_TK(FS_T_EYE0)), uintBitsToFloat(FS_TK(FS_T_EYE0 + 1)), uintBitsToFloat(FS_TK(FS_T_EYE0 + 2)))
+                               : vec3(uintBitsToFloat(FS_TK(FS_T_EYE1)), uintBitsToFloat(FS_TK(FS_T_EYE1 + 1)), uintBitsToFloat(FS_TK(FS_T_EYE1 + 2)));
+    uint pos = fsEvidencePositive(ev, fsViewSectorBit(q.n, eyeW - (origin + q.p)));
+    atomicAdd(gctr[FS_GCTR_POSITIVE_EVIDENCE], 1u);
+    if ((pos & 1u) != 0u) atomicAdd(gctr[FS_GCTR_CONTRA_HEALED], 1u);
+    if ((pos & 2u) != 0u) { atomicAdd(gctr[FS_GCTR_SURFEL_RECOVERED], 1u); fsSheetMark(page, h); }
+    uint stat = fsGet_FsSurfelEvidence_positiveSupport(ev);
     uint flags = q.flags;
     cnt = min(cnt + 1u, uint(FS_EVIDENCE_COUNT_MAX));
     if ((flags & FS_FLAG_TRANSIENT) != 0u && stat >= uint(FS_PROMOTE_STATIC)) flags = (flags & ~FS_FLAG_TRANSIENT) | FS_FLAG_PROMOTED;
@@ -97,7 +106,6 @@ void main() {
     q.flags = (flags & ~FS_EVIDENCE_COUNT_MASK) | cnt;
     if (acc.colW > 0.0) q.appearance = fsBlendAppearance(q.appearance, acc.col / acc.colW, wPrior, 1.0);
     surfels[h] = fsPack(q);
-    fsSet_FsSurfelEvidence_staticEvidence(ev, stat);
     fsSet_FsSurfelEvidence_varianceQ(ev, fsEncodeLog(var, FS_VAR_NORM_BASE));
     fsSet_FsSurfelEvidence_lastSeenFrame(ev, FS_TK(FS_T_TICK) & 0xFFFFu);
     ev.lastObservationId = acc.obs;

@@ -382,6 +382,11 @@ public:
         PushIngest pin{maxCount, tick, idBase_, idxLeafBase_, idxNodeBase_, phase, pageCount_, stride};
         PushAssoc pa{hashCap_ - 1, anchorId};
         PushFreeSpace pf{hashCap_ - 1, anchorId, freeSpace ? FS_FUSE_FLAG_FREE_SPACE : 0u, 0, {eye0[0], eye0[1], eye0[2], 0}, {eye1[0], eye1[1], eye1[2], 0}};
+        {   // E6R: eye origins of the epoch for view-sector evidence (host-visible T words, written before submit)
+            uint32_t* T = gctr_ + FS_GCTR_COUNT;
+            for (int k = 0; k < 3; ++k) { memcpy(&T[FS_T_EYE0 + k], &eye0[k], 4); memcpy(&T[FS_T_EYE1 + k], &eye1[k], 4); }
+            std::atomic_thread_fence(std::memory_order_release);
+        }
         PushShift sh[4] = {{0}, {8}, {16}, {24}};
         AddDispatch(*js, ingest, (std::min<uint32_t>(maxCount, FS_TICK_MEAS_MAX) + FS_WG_SMALL - 1) / FS_WG_SMALL, 1, &pin, sizeof pin);
         AddDispatch(*js, pipes_[K_ASSOC], 1, 1, &pa, sizeof pa, G, FS_GCTR_COUNT + FS_T_ARGS_MEAS);
@@ -965,7 +970,7 @@ public:
         w.KV("sheetGpuUsLast", stats_.sheetUs); w.KV("publishMaintUsLast", stats_.publishMaintUs); w.KV("publishLeavesUsLast", stats_.publishLeavesUs); w.KV("publishLevelsUsLast", stats_.publishLevelsUs);
         w.KV("framesAbandoned", framesAbandoned_); w.KV("measurementsAbandoned", measAbandoned_);
         w.Key("fusion"); w.BeginObject();
-        static const char* names[FS_GCTR_COUNT] = {"pageLookups","pageMisses","assocRecords","assocMatched","assocUnmatched","segmentsMatched","contributions","segOverflow","newSurfels","newShortfall","splits","merges","ghosts","candidateOverflow","indexLeafSplits","indexOverflow","dirtyCells","cowNodes","renderBlocks","rootsPending","measOutOfRange","dirtyOverflow","poolLeafEmpty","poolNodeEmpty","poolRBlockEmpty","poolRNodeEmpty","freeStamps","segmentsUnmatched","freeHopOverflow","relocations","nextSurfaceId","relocDeferred","sheetEdges","sheetNodes","crossPageEdges","coverageOverlapMm2","coverageHoleMm2","planeRmsUmSum","normalRmsMdegSum","sheetFrontierDropped","sheetSmoothed","edgeContractions","refinementBirths","sheetCandOverflow","promotions","promotedRemoved","dirtyRingDrop"};
+        static const char* names[FS_GCTR_COUNT] = {"pageLookups","pageMisses","assocRecords","assocMatched","assocUnmatched","segmentsMatched","contributions","segOverflow","newSurfels","newShortfall","splits","merges","ghosts","candidateOverflow","indexLeafSplits","indexOverflow","dirtyCells","cowNodes","renderBlocks","rootsPending","measOutOfRange","dirtyOverflow","poolLeafEmpty","poolNodeEmpty","poolRBlockEmpty","poolRNodeEmpty","freeStamps","segmentsUnmatched","freeHopOverflow","relocations","nextSurfaceId","relocDeferred","sheetEdges","sheetNodes","crossPageEdges","coverageOverlapMm2","coverageHoleMm2","planeRmsUmSum","normalRmsMdegSum","sheetFrontierDropped","sheetSmoothed","edgeContractions","refinementBirths","sheetCandOverflow","promotions","promotedRemoved","dirtyRingDrop","positiveEvidence","contradictions","contradictionsHealed","surfelSuspect","surfelRecovered","surfelRetired","freeNarrowHits"};
         for (uint32_t i = 0; i < FS_GCTR_COUNT; ++i) if (names[i][0] != '_') w.KV(names[i], gctrTotal_[i]);
         w.EndObject();
         w.Key("memory"); w.BeginObject();
