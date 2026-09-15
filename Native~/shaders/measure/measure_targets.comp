@@ -1,0 +1,54 @@
+#version 450
+// C11R2 surface-driven temporal refinement (compaction job, after emit; one sequential invocation over <= FS_MEAS_TARGETS_MAX targets):
+// the topology pass exported uncertain vertices of existing surface faces (world position, normal, sigma). Each is gated without an image
+// solve (visible and facing in the current left PCA camera with the patch inside, keyframe bound with the point + band inside it,
+// textured tiles in both, effective ray-perpendicular baseline >= FS_TEMPORAL_BEFF_MIN_M) and appended after the frame's records as a
+// temporal candidate (FS_MEAS_SRC_TARGET). The temporal refine job solves it; a target the solve does not accept is dropped by the host.
+#extension GL_GOOGLE_include_directive : require
+#include "fs_abi.glsl"
+#include "fs_meas_common.glsl"
+#include "fs_meas_frame.glsl"
+layout(local_size_x = 1) in;
+layout(std430, set = 0, binding = FS_MEAS_B_RECORDS) buffer Records { FsSurfaceMeasurement rec[]; };
+layout(std430, set = 0, binding = FS_MEAS_B_TILES) readonly buffer TileBlock { uint tiles[]; };
+layout(std430, set = 0, binding = FS_MEAS_B_TARGETS) readonly buffer TargetBlock { uint tgt[]; };
+layout(set = 0, binding = FS_MEAS_B_CAM_L) uniform sampler2D camL;
+layout(set = 0, binding = FS_MEAS_B_CAM_R) uniform sampler2D camR;
+layout(set = 0, binding = FS_MEAS_B_CAM_K) uniform sampler2D camK;
+#include "fs_meas_tiles.glsl"
+#include "fs_meas_stereo.glsl"
+void main() {
+    uint nT = min(blk.ctr[FS_MEAS_CTR_TGT_CONSIDERED], uint(FS_MEAS_TARGETS_MAX));
+    uint base = min(blk.ctr[FS_MEAS_CTR_RESERVED], pc.a.z);
+    uint written = 0u, texOk = 0u, keyOk = 0u, baseRej = 0u, visRej = 0u;
+    for (uint k = 0u; k < uint(FS_MEAS_TARGETS_MAX); ++k) {
+        if (k >= nT || base + written >= uint(FS_MEAS_GPU_RING_CAPACITY)) break;
+        uint w = k * 9u;
+        vec3 pw = vec3(uintBitsToFloat(tgt[w]), uintBitsToFloat(tgt[w + 1u]), uintBitsToFloat(tgt[w + 2u]));
+        vec3 nw = vec3(uintBitsToFloat(tgt[w + 3u]), uintBitsToFloat(tgt[w + 4u]), uintBitsToFloat(tgt[w + 5u]));
+        float sigma = uintBitsToFloat(tgt[w + 6u]);
+        if ((blk.camInfo.z & 1u) == 0u) { visRej++; continue; }
+        vec2 pl; float zl;
+        if (!fsCamPixel(0u, pw, pl, zl) || zl > FS_STEREO_MAX_DEPTH_M) { visRej++; continue; }
+        vec3 toCam = fsCamCentre(0u) - pw;
+        if (dot(nw, normalize(toCam)) < FS_TEMPORAL_FACING_COS) { visRej++; continue; }
+        float m0 = FS_STEREO_PATCH_PX + FS_STEREO_PATCH_MARGIN_PX, W = fsCamW(0u), H = fsCamH(0u);
+        if (pl.x < m0 || pl.y < m0 || pl.x > W - m0 || pl.y > H - m0) { visRej++; continue; }
+        if (blk.keyInfo.z == 0u) continue;
+        vec2 pk; float zk; float mk = m0 + FS_TEMPORAL_BAND_MAX_PX, WK = fsCamW(2u), HK = fsCamH(2u);
+        if (!fsCamPixel(2u, pw, pk, zk) || pk.x < mk || pk.y < mk || pk.x > WK - mk || pk.y > HK - mk) continue;
+        keyOk++;
+        if (fsEffectiveBaseline(2u, pw) < FS_TEMPORAL_BEFF_MIN_M) { baseRej++; continue; }
+        if (uintBitsToFloat(tiles[fsTexTileWord(0u, fsTexTileOf(pl, W, H))]) < FS_STEREO_MIN_TILE_STD || uintBitsToFloat(tiles[fsTexTileWord(2u, fsTexTileOf(pk, WK, HK))]) < FS_STEREO_MIN_TILE_STD) continue;
+        texOk++;
+        vec3 pa = (blk.anchorFromWorld * vec4(pw, 1.0)).xyz, na = normalize(mat3(blk.anchorFromWorld) * nw);
+        FsSurfaceMeasurement m;
+        m.px = pa.x; m.py = pa.y; m.pz = pa.z; m.nx = na.x; m.ny = na.y; m.nz = na.z;
+        m.sigmaN = sigma; m.footprint = FS_STEREO_PATCH_PX * zl / blk.camIntrinsics[0].x; m.sigmaT = m.footprint;
+        m.sourceFlags = FS_MEAS_SRC_CAND_TEMPORAL | FS_MEAS_SRC_TARGET; m.observationId = pc.b.x; m.reserved = tgt[w + 7u];   // reserved = target SurfaceID until the solve writes colour
+        rec[base + written] = m; written++;
+    }
+    blk.ctr[FS_MEAS_CTR_TGT_TEXTURE] = texOk; blk.ctr[FS_MEAS_CTR_TGT_KEYFRAME] = keyOk; blk.ctr[FS_MEAS_CTR_TGT_BASELINE_REJ] = baseRej;
+    blk.ctr[FS_MEAS_CTR_TGT_VISIBILITY_REJ] = visRej; blk.ctr[FS_MEAS_CTR_TGT_WRITTEN] = written;
+    blk.ctr[FS_MEAS_CTR_CAND_TEMPORAL] += written;
+}

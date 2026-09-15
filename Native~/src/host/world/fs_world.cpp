@@ -122,7 +122,7 @@ public:
         idxLeafBase_ = (uint32_t)pageCount_ * FS_CELLS_PER_PAGE;
         idxNodeBase_ = idxLeafBase_ + leafCap_ * 16;
         const VkDeviceSize indexWords = (VkDeviceSize)idxNodeBase_ + (VkDeviceSize)nodeCap_ * 8;
-        const VkDeviceSize poolWords = FS_POOL_COUNT * FS_POOL_HEADER_WORDS + (VkDeviceSize)leafCap_ + nodeCap_ + rblockCap_ + rnodeCap_;
+        const VkDeviceSize poolWords = FS_POOL_COUNT * FS_POOL_HEADER_WORDS + (VkDeviceSize)leafCap_ + nodeCap_ + rblockCap_ + rnodeCap_ + FS_TOPO_VERTEX_CAP + FS_SHEET_REC_CAP;
         const VkDeviceSize dirtyWords = (VkDeviceSize)FS_MAX_PAGES * 1024 + (VkDeviceSize)FS_MAX_PAGES * 160 + (VkDeviceSize)7 * FS_DIRTY_NODES_MAX + (VkDeviceSize)4 * FS_RELOC_MAX + (VkDeviceSize)2 * FS_DIRTY_RING_CAP;
         const VkDeviceSize sortWords = (VkDeviceSize)FS_SORT_BLOCKS_MAX * 256 + 256 + 2 * FS_TICK_MEAS_MAX + FS_SORT_BLOCKS_MAX + 64;
         bool ok = true;
@@ -146,6 +146,7 @@ public:
         ok &= Make(buf_.publishRing, (VkDeviceSize)kPublishRingSlots * FS_MAX_PAGES * sizeof(FsPendingPublish), true, "world.publishRing");
         ok &= Make(buf_.hash, (VkDeviceSize)hashCap_ * sizeof(FsPageHashEntry), true, "world.hash");
         ok &= Make(buf_.sheet, SheetWords() * 4, true, "world.sheet");
+        ok &= Make(buf_.topo, TopoWords() * 4, true, "world.topology");
         ok &= Make(cpuRecords_, (VkDeviceSize)FS_TICK_MEAS_MAX * sizeof(FsSurfaceMeasurement), true, "world.cpuRecords");
         ok &= Make(cpuCounters_, 64, true, "world.cpuCounters");
         if (!ok) return false;
@@ -161,12 +162,13 @@ public:
         rdir_ = (uint32_t*)buf_.rdir.mapped; memset(rdir_, 0xFF, (size_t)pageCount_ * 37449 * 4);
         retire_ = (uint32_t*)buf_.retire.mapped; pending_ = (FsPendingPublish*)buf_.pending.mapped; publishRing_ = (FsPendingPublish*)buf_.publishRing.mapped;
         memset(buf_.sheet.mapped, 0, (size_t)SheetWords() * 4);
-        for (uint32_t h = 0; h < surfelCap_; ++h) for (uint32_t k = 0; k < FS_SHEET_K; ++k) ((uint32_t*)buf_.sheet.mapped)[h * FS_SHEET_NODE_WORDS + k] = FS_INDEX_NONE;
+        for (uint32_t h = 0; h < surfelCap_; ++h) { uint32_t* nw = (uint32_t*)buf_.sheet.mapped + (size_t)h * FS_SHEET_NODE_WORDS; for (uint32_t k = 0; k < FS_SHEET_K; ++k) nw[k] = FS_INDEX_NONE; nw[9] = FS_INDEX_NONE; }
+        memset(buf_.topo.mapped, 0, (size_t)TopoWords() * 4);
         hashMirror_ = (FsPageHashEntry*)buf_.hash.mapped; hash_.Init(hashCap_); memcpy(hashMirror_, hash_.Data(), hash_.Bytes()); hashDirty_ = false;
         uint32_t* pools = (uint32_t*)buf_.pools.mapped;
         uint32_t ringBase = FS_POOL_COUNT * FS_POOL_HEADER_WORDS;
-        const uint32_t caps[4] = {leafCap_, nodeCap_, rblockCap_, rnodeCap_};
-        for (uint32_t p = 0; p < 4; ++p) { rings_[p].Init(caps[p], pools + p * FS_POOL_HEADER_WORDS, pools + ringBase, ringBase); ringBase += caps[p]; }
+        const uint32_t caps[6] = {leafCap_, nodeCap_, rblockCap_, rnodeCap_, FS_TOPO_VERTEX_CAP, FS_SHEET_REC_CAP};
+        for (uint32_t p = 0; p < 6; ++p) { rings_[p].Init(caps[p], pools + p * FS_POOL_HEADER_WORDS, pools + ringBase, ringBase); ringBase += caps[p]; }
         cpuRec_ = (FsSurfaceMeasurement*)cpuRecords_.mapped; cpuCtr_ = (uint32_t*)cpuCounters_.mapped; memset(cpuCtr_, 0, 64);
         fuseInFlight_ = publishInFlight_ = releaseInFlight_ = sheetInFlight_ = 0; pubStage_ = PUB_IDLE; publishWanted_ = false; cpuSlotReady_ = false; cpuSlotBusy_ = false; liveLease_ = 0;
         idBase_ = kSurfaceIdBase; tick_ = 0; toPublish_.clear(); publishSeq_ = 0;
@@ -176,7 +178,7 @@ public:
     }
     void DestroyArenas() {
         Buffer* all[] = {&buf_.pages, &buf_.surfels, &buf_.evidence, &buf_.index, &buf_.gctr, &buf_.meas, &buf_.assocA, &buf_.assocB, &buf_.sort, &buf_.freeSpace,
-                         &buf_.pools, &buf_.dirty, &buf_.render, &buf_.rblocks, &buf_.rdir, &buf_.retire, &buf_.pending, &buf_.publishRing, &buf_.hash, &buf_.sheet, &cpuRecords_, &cpuCounters_};
+                         &buf_.pools, &buf_.dirty, &buf_.render, &buf_.rblocks, &buf_.rdir, &buf_.retire, &buf_.pending, &buf_.publishRing, &buf_.hash, &buf_.sheet, &buf_.topo, &cpuRecords_, &cpuCounters_};
         for (Buffer* b : all) if (b->buffer != VK_NULL_HANDLE) DestroyBuffer(*b);
         pagesGpu_ = nullptr; slabDir_ = nullptr; surfels_ = nullptr; evidence_ = nullptr; index_ = nullptr; gctr_ = nullptr; sort_ = nullptr; rdir_ = nullptr; retire_ = nullptr; pending_ = nullptr; publishRing_ = nullptr; hashMirror_ = nullptr; cpuRec_ = nullptr; cpuCtr_ = nullptr;
         bytesTotal_ = 0;
@@ -203,7 +205,7 @@ public:
         case B_MEAS: return &buf_.meas; case B_HASH: return &buf_.hash; case B_PAGES: return &buf_.pages; case B_SURFELS: return &buf_.surfels;
         case B_EVIDENCE: return &buf_.evidence; case B_INDEX: return &buf_.index; case B_GCTR: return &buf_.gctr; case B_ASSOC_A: return &buf_.assocA;
         case B_ASSOC_B: return &buf_.assocB; case B_SORT: return &buf_.sort; case B_FREESPACE: return &buf_.freeSpace; case B_POOLS: return &buf_.pools;
-        case B_SHEET: return &buf_.sheet;
+        case B_SHEET: return &buf_.sheet; case B_TOPO: return &buf_.topo;
         case B_DIRTY: return &buf_.dirty; case B_RENDER: return &buf_.render; case B_RBLOCKS: return &buf_.rblocks; case B_RDIR: return &buf_.rdir;
         case B_RETIRE: return &buf_.retire; case B_PENDING: return &buf_.pending; case B_MEAS_RING: return &cpuRecords_; case B_MEAS_CTR: return &cpuCounters_;
         default: return nullptr;
@@ -336,7 +338,7 @@ public:
             uint32_t* sh = (uint32_t*)buf_.sheet.mapped;
             if (sh) for (uint32_t k = 0; k < FS_SLAB_SURFELS; ++k) {
                 const uint32_t h = slab * FS_SLAB_SURFELS + k;
-                for (uint32_t w = 0; w < FS_SHEET_NODE_WORDS; ++w) sh[h * FS_SHEET_NODE_WORDS + w] = w < FS_SHEET_K ? FS_INDEX_NONE : 0u;
+                for (uint32_t w = 0; w < FS_SHEET_NODE_WORDS; ++w) sh[h * FS_SHEET_NODE_WORDS + w] = (w < FS_SHEET_K || w == 9) ? FS_INDEX_NONE : 0u;   // E6R: topology records of the recycled handles are guarded by SurfaceID and released by their neighbours' commits
                 AtomicAndU32(sh + surfelCap_ * FS_SHEET_NODE_WORDS + (h >> 5), ~(1u << (h & 31u)));
             }
             slabs_.Free(slab);
@@ -365,6 +367,8 @@ public:
         std::atomic_thread_fence(std::memory_order_release);
     }
     // E4.1R sheet buffer: nodes[surfelCap x 8] | dirty mask[surfelCap / 32] | dirty ring[FS_SHEET_RING_CAP] | batch deltas[FS_SHEET_BATCH_MAX x 4]
+    VkDeviceSize TopoWords() const { return (VkDeviceSize)FS_TOPO_VERTEX_CAP * FS_TOPO_VERTEX_WORDS + (VkDeviceSize)FS_SHEET_REC_CAP * FS_SHEET_REC_WORDS + (VkDeviceSize)FS_SHEET_BATCH_MAX * FS_TOPO_DELTA_WORDS + FS_TOPO_FREE_MAX + (VkDeviceSize)FS_TEMPORAL_TARGETS * FS_TEMPORAL_TARGET_WORDS; }
+    uint64_t TopoFreeBase() const { return (uint64_t)FS_TOPO_VERTEX_CAP * FS_TOPO_VERTEX_WORDS + (uint64_t)FS_SHEET_REC_CAP * FS_SHEET_REC_WORDS + (uint64_t)FS_SHEET_BATCH_MAX * FS_TOPO_DELTA_WORDS; }
     VkDeviceSize SheetWords() const { return (VkDeviceSize)surfelCap_ * FS_SHEET_NODE_WORDS + (surfelCap_ / 32 + 1) + FS_SHEET_RING_CAP + (VkDeviceSize)FS_SHEET_BATCH_MAX * 8 + (VkDeviceSize)FS_TICK_MEAS_MAX * 8 + FS_SHEET_RING_CAP; }   // + C09R-E5R sheet ring enqueue ticks
     void BeforeJobs() {                              // epoch boundary: slabs, rings, hash mirror (no job in flight)
         TopUpSlabs();
@@ -546,9 +550,12 @@ public:
         AddDispatch(*js, pipes_[K_SHEET_GRAPH], 1, 1, &ph, sizeof ph, G, FS_GCTR_COUNT + FS_T_ARGS_SHEET);
         AddDispatch(*js, pipes_[K_SHEET_FIT], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_SHEET);
         AddDispatch(*js, pipes_[K_SHEET_APPLY], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_SHEET);
-        AddDispatch(*js, pipes_[K_SHEET_CONTRACT], 1, 1, nullptr, 0);   // E4.1C coarsen: sequential edge contraction of the batch
+        AddDispatch(*js, pipes_[K_SHEET_CONTRACT], 1, 1, nullptr, 0);   // E4.1C coarsen: sequential edge contraction of the batch (E6R matching)
+        AddDispatch(*js, pipes_[K_TOPO_FACES], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_SHEET);   // E6R shared faces (owner derivation)
+        AddDispatch(*js, pipes_[K_TOPO_COMMIT], 1, 1, nullptr, 0);      // E6R persistent topology commit (sheets, unions, cuts, targets)
         AddDispatch(*js, pipes_[K_RELOCATE], 1, 1, nullptr, 0);
         FixPushPointers(*js);
+        { uint32_t* T = gctr_ + FS_GCTR_COUNT; T[FS_T_TOPO_GEN] = ++topoGen_; T[FS_T_TARGET_COUNT] = 0; T[FS_T_TOPO_FREE_COUNT] = 0; std::atomic_thread_fence(std::memory_order_release); }
         JobDesc jd; jd.cls = FS_JOB_SCAN; jd.name = "world.sheet"; jd.dispatches = js->d.data(); jd.dispatchCount = (uint32_t)js->d.size();
         jd.onRetired = [this, js](bool ok, uint64_t s, uint64_t e) {
             std::lock_guard<std::recursive_mutex> g(m_);
@@ -562,10 +569,35 @@ public:
             for (uint32_t t : sheetAgeTicks_) { const float a = WorkAgeMs(t, now); sheetAge_.Add(a); if (a > (float)FS_SCHED_SHEET_DEADLINE_MS) deadlineMiss_[ST_SHEET]++; }
             sheetAgeTicks_.clear();
             sheetJobs_++; lastSheetBatch_ = items;
+            CollectTopology();
         };
         if (!SubmitWorldJob(jd)) return false;
         sheetInFlight_++;
         return true;
+    }
+    // E6R: released topology / sheet ids back to their rings (canonical side, scanner-only) and the C11R2 targets to the measurement front-end
+    void CollectTopology() {
+        const uint32_t* tp = (uint32_t*)buf_.topo.mapped;
+        const uint32_t nFree = std::min<uint32_t>(AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_TOPO_FREE_COUNT), FS_TOPO_FREE_MAX);
+        const uint64_t fb = TopoFreeBase();
+        for (uint32_t k = 0; k < nFree; ++k) { const uint32_t v = tp[fb + k]; rings_[(v >> 30) == 0 ? 4 : 5].Free(v & 0x3FFFFFFFu); }
+        const uint32_t nT = std::min<uint32_t>(AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_TARGET_COUNT), FS_TEMPORAL_TARGETS);
+        if (nT) {
+            std::vector<meas::RefineTarget> targets(nT);
+            const uint64_t tb = fb + FS_TOPO_FREE_MAX;
+            float worldFromAnchor[16]; memcpy(worldFromAnchor, anchors_[std::max(0, std::min(scanAnchor_, (int32_t)FS_MAX_ANCHORS - 1))], 64);
+            for (uint32_t k = 0; k < nT; ++k) {
+                const uint32_t* w = tp + tb + (uint64_t)k * FS_TEMPORAL_TARGET_WORDS;
+                float p[3]; memcpy(p, w, 12);
+                float n[3]; { float oct[2] = {((w[3] & 0xFFFFu) / 65535.f) * 2.f - 1.f, (((w[3] >> 16) & 0xFFFFu) / 65535.f) * 2.f - 1.f}; float z = 1.f - fabsf(oct[0]) - fabsf(oct[1]);
+                    if (z < 0) { float ox = (1.f - fabsf(oct[1])) * (oct[0] >= 0 ? 1.f : -1.f), oy = (1.f - fabsf(oct[0])) * (oct[1] >= 0 ? 1.f : -1.f); oct[0] = ox; oct[1] = oy; }
+                    float l = sqrtf(oct[0] * oct[0] + oct[1] * oct[1] + z * z); n[0] = oct[0] / l; n[1] = oct[1] / l; n[2] = z / l; }
+                meas::RefineTarget& t = targets[k];
+                for (int c = 0; c < 3; ++c) { t.pos[c] = worldFromAnchor[c] * p[0] + worldFromAnchor[4 + c] * p[1] + worldFromAnchor[8 + c] * p[2] + worldFromAnchor[12 + c]; t.normal[c] = worldFromAnchor[c] * n[0] + worldFromAnchor[4 + c] * n[1] + worldFromAnchor[8 + c] * n[2]; }
+                memcpy(&t.sigmaN, w + 4, 4); t.surfaceId = w[5]; t.support = w[6];
+            }
+            meas::MeasGpu_SetRefineTargets(targets.data(), nT);
+        }
     }
     uint32_t SheetEntryTick(uint32_t t) const {
         const uint64_t base = (uint64_t)AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_SHEET_RING_BASE) + FS_SHEET_RING_CAP + (uint64_t)FS_SHEET_BATCH_MAX * 8 + (uint64_t)FS_TICK_MEAS_MAX * 8;
@@ -970,13 +1002,13 @@ public:
         w.KV("sheetGpuUsLast", stats_.sheetUs); w.KV("publishMaintUsLast", stats_.publishMaintUs); w.KV("publishLeavesUsLast", stats_.publishLeavesUs); w.KV("publishLevelsUsLast", stats_.publishLevelsUs);
         w.KV("framesAbandoned", framesAbandoned_); w.KV("measurementsAbandoned", measAbandoned_);
         w.Key("fusion"); w.BeginObject();
-        static const char* names[FS_GCTR_COUNT] = {"pageLookups","pageMisses","assocRecords","assocMatched","assocUnmatched","segmentsMatched","contributions","segOverflow","newSurfels","newShortfall","splits","merges","ghosts","candidateOverflow","indexLeafSplits","indexOverflow","dirtyCells","cowNodes","renderBlocks","rootsPending","measOutOfRange","dirtyOverflow","poolLeafEmpty","poolNodeEmpty","poolRBlockEmpty","poolRNodeEmpty","freeStamps","segmentsUnmatched","freeHopOverflow","relocations","nextSurfaceId","relocDeferred","sheetEdges","sheetNodes","crossPageEdges","coverageOverlapMm2","coverageHoleMm2","planeRmsUmSum","normalRmsMdegSum","sheetFrontierDropped","sheetSmoothed","edgeContractions","refinementBirths","sheetCandOverflow","promotions","promotedRemoved","dirtyRingDrop","positiveEvidence","contradictions","contradictionsHealed","surfelSuspect","surfelRecovered","surfelRetired","freeNarrowHits"};
+        static const char* names[FS_GCTR_COUNT] = {"pageLookups","pageMisses","assocRecords","assocMatched","assocUnmatched","segmentsMatched","contributions","segOverflow","newSurfels","newShortfall","splits","merges","ghosts","candidateOverflow","indexLeafSplits","indexOverflow","dirtyCells","cowNodes","renderBlocks","rootsPending","measOutOfRange","dirtyOverflow","poolLeafEmpty","poolNodeEmpty","poolRBlockEmpty","poolRNodeEmpty","freeStamps","segmentsUnmatched","freeHopOverflow","relocations","nextSurfaceId","relocDeferred","sheetEdges","sheetNodes","crossPageEdges","coverageOverlapMm2","coverageHoleMm2","planeRmsUmSum","normalRmsMdegSum","sheetFrontierDropped","sheetSmoothed","edgeContractions","refinementBirths","sheetCandOverflow","promotions","promotedRemoved","dirtyRingDrop","positiveEvidence","contradictions","contradictionsHealed","surfelSuspect","surfelRecovered","surfelRetired","freeNarrowHits","activeSheets","sheetUnions","sheetSplits","activeFaces","facesCreated","facesRetired","facesSuspect","facesRecovered","boundaryVertices","faceDuplicateRefused","faceOwnerViolations","meshHoleMm2","meshOverlapMm2","topologyVertices","topologyPoolEmpty","bridgesPending","faceOverflow","temporalTargets","contractUnmatched"};
         for (uint32_t i = 0; i < FS_GCTR_COUNT; ++i) if (names[i][0] != '_') w.KV(names[i], gctrTotal_[i]);
         w.EndObject();
         w.Key("memory"); w.BeginObject();
         w.KV("bytesCommitted", bytesTotal_); w.KV("slabsLive", slabs_.Live()); w.KV("slabsTotal", slabs_.Total()); w.KV("canonicalBytesLive", (uint64_t)slabs_.Live() * FS_SLAB_SURFELS * (sizeof(FsSurfel) + sizeof(FsSurfelEvidence)));
-        const char* pn[4] = {"indexLeaves", "indexNodes", "renderBlocks", "renderNodes"}; const uint64_t pb[4] = {64, 32, FS_RENDER_BLOCK_SURFELS * sizeof(FsSurfel), sizeof(FsRenderNode)};
-        for (uint32_t p = 0; p < 4; ++p) { w.Key(pn[p]); w.BeginObject(); w.KV("live", rings_[p].Live()); w.KV("capacity", rings_[p].Capacity()); w.KV("bytesLive", (uint64_t)rings_[p].Live() * pb[p]); w.KV("allocFailures", rings_[p].Failures()); w.EndObject(); }
+        const char* pn[6] = {"indexLeaves", "indexNodes", "renderBlocks", "renderNodes", "topologyVertices", "sheetRecords"}; const uint64_t pb[6] = {64, 32, FS_RENDER_BLOCK_SURFELS * sizeof(FsSurfel), sizeof(FsRenderNode), FS_TOPO_VERTEX_WORDS * 4, FS_SHEET_REC_WORDS * 4};
+        for (uint32_t p = 0; p < 6; ++p) { w.Key(pn[p]); w.BeginObject(); w.KV("live", rings_[p].Live()); w.KV("capacity", rings_[p].Capacity()); w.KV("bytesLive", (uint64_t)rings_[p].Live() * pb[p]); w.KV("allocFailures", rings_[p].Failures()); w.EndObject(); }
         w.EndObject();
         w.EndObject();
         return w.Take();
@@ -995,7 +1027,7 @@ private:
     PageHash hash_; bool hashDirty_ = false; FsPageHashEntry* hashMirror_ = nullptr;
     std::vector<PageState> pages_;
     std::unordered_map<FsPageKey, LogicalPage, KeyHasher, KeyEqual> logical_;
-    SlabAllocator slabs_; IdRing rings_[4];
+    SlabAllocator slabs_; IdRing rings_[6];
     WorldBuffers buf_; Buffer cpuRecords_, cpuCounters_;
     FsPageDesc* pagesGpu_ = nullptr; uint32_t* slabDir_ = nullptr; FsSurfel* surfels_ = nullptr; FsSurfelEvidence* evidence_ = nullptr; uint32_t* index_ = nullptr;
     uint32_t* gctr_ = nullptr; uint32_t gctrLast_[FS_GCTR_COUNT] = {}; uint64_t gctrTotal_[FS_GCTR_COUNT] = {}, gctrFolded_[FS_GCTR_COUNT] = {};
@@ -1009,7 +1041,7 @@ private:
     int64_t inner_ = 0, warm_ = 0, prefetch_ = 0, requestsThisFrame_ = 0, evictions_ = 0, loads_ = 0, stalls_ = 0;
     uint64_t slabStalls_ = 0, shortfallTotal_ = 0, pagesCreated_ = 0, pagesReleased_ = 0, rootsPublished_ = 0, retireBacklogIds_ = 0, resets_ = 0, publishSeq_ = 0;
     uint32_t fuseInFlight_ = 0, publishInFlight_ = 0, releaseInFlight_ = 0, sheetInFlight_ = 0;
-    uint32_t pubStage_ = 0, pubTotal_ = 0, pubDone_ = 0, lastLeavesChunk_ = 0, lastSheetBatch_ = 0;
+    uint32_t pubStage_ = 0, pubTotal_ = 0, pubDone_ = 0, lastLeavesChunk_ = 0, lastSheetBatch_ = 0, topoGen_ = 0;
     CostModel fuseCost_, maintCost_, leavesCost_, sheetCost_;
     uint32_t workSerial_ = 0; std::vector<int64_t> workTimeNs_ = std::vector<int64_t>(FS_SCHED_SERIAL_WINDOW, 0); std::vector<uint32_t> workTimeSerial_ = std::vector<uint32_t>(FS_SCHED_SERIAL_WINDOW, 0u); int64_t pubStartNs_ = 0;
     AgeWindow fuseAge_; float fusePendingAgeMs_ = 0; uint64_t deadlineMiss_[3] = {0, 0, 0}, observationsLeased_ = 0, observationsFused_ = 0;

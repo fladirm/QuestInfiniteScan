@@ -56,6 +56,7 @@
 #define FS_MEAS_SRC_PLANAR           1024u     // bit 10: C11 robust plane fit of the Env Depth tile (low-texture path)
 #define FS_MEAS_SRC_CAND_STEREO      2048u     // bit 11: C10R candidate for the bounded stereo refine pass (cleared by it)
 #define FS_MEAS_SRC_CAND_TEMPORAL    4096u     // bit 12: C11R candidate for the bounded temporal refine pass (cleared by it)
+#define FS_MEAS_SRC_TARGET           8192u     // bit 13: C11R2 record generated from a SurfaceComplex refinement target (kept only when the temporal solve accepts it)
 #define FS_MEAS_SRC_EYE_SHIFT        16        // bit 16: eye (0 left, 1 right) the record was back-projected from (free-space ray origin)
 
 // ---- frame block (per ring slot, host-visible): u32 counters (reset by the CPU before each job) followed by the
@@ -103,8 +104,20 @@
 #define FS_MEAS_CTR_CAND_STEREO      45        // C10R records the cheap gates admitted to the stereo refine pass
 #define FS_MEAS_CTR_CAND_TEMPORAL    46        // C11R records admitted to the temporal refine pass
 #define FS_MEAS_CTR_REFINE_SKIPPED   47        // candidate records not refined: the frame's refine budget ended first
-#define FS_MEAS_CTR_WORDS            48        // counters region
-#define FS_MEAS_FB_BYTES             1168      // 192 B counters + 2 x mat4 anchorFromEye + 2 x vec4 fov + 2 x mat4 worldFromEye + 2 x mat4 predViewProj + 2 x mat4 predInvViewProj + uvec4 predInfo + 2 x mat4 camFromWorld + 2 x vec4 camIntrinsics + uvec4 camInfo + mat4 anchorFromWorld + uvec4 stereoInfo + mat4 keyCamFromWorld + vec4 keyIntrinsics + uvec4 keyInfo + mat4 worldFromAnchor
+// C11R2 surface-driven temporal refinement receipts
+#define FS_MEAS_CTR_TGT_CONSIDERED   48        // targets handed from the topology pass to this frame
+#define FS_MEAS_CTR_TGT_TEXTURE      49        // ... with textured tiles in the left image and the keyframe
+#define FS_MEAS_CTR_TGT_KEYFRAME     50        // ... with a keyframe bound and the point + band inside it
+#define FS_MEAS_CTR_TGT_BASELINE_REJ 51        // ... refused: effective baseline below FS_TEMPORAL_BEFF_MIN_M
+#define FS_MEAS_CTR_TGT_VISIBILITY_REJ 52      // ... refused: behind / outside the left camera or seen at grazing incidence
+#define FS_MEAS_CTR_TGT_WRITTEN      53        // candidate records appended after the frame's records
+#define FS_MEAS_CTR_TGT_SOLVED       54        // temporal solves run on target records
+#define FS_MEAS_CTR_TGT_ACCEPTED     55        // accepted (kept as FS_MEAS_SRC_TEMPORAL measurements)
+#define FS_MEAS_CTR_TGT_SIGMA_BEFORE_UM 56     // sum of the target sigma of accepted records
+#define FS_MEAS_CTR_TGT_SIGMA_AFTER_UM 57      // sum of the temporal sigma of accepted records
+#define FS_MEAS_CTR_TGT_INFO_GAIN    58        // sum of log2(sigmaBefore / sigmaAfter) x 1000 (information gain, accepted)
+#define FS_MEAS_CTR_WORDS            64        // counters region
+#define FS_MEAS_FB_BYTES             1232      // 256 B counters + 2 x mat4 anchorFromEye + 2 x vec4 fov + 2 x mat4 worldFromEye + 2 x mat4 predViewProj + 2 x mat4 predInvViewProj + uvec4 predInfo + 2 x mat4 camFromWorld + 2 x vec4 camIntrinsics + uvec4 camInfo + mat4 anchorFromWorld + uvec4 stereoInfo + mat4 keyCamFromWorld + vec4 keyIntrinsics + uvec4 keyInfo + mat4 worldFromAnchor
 // ---- appearance sample (C16a, contract §14 keyframe authority = the PCA frame lease at its own pose/time): the emit kernel
 // projects the measured point into the PCA camera of the same eye captured closest to the depth time and stores RGB8 in
 // FsSurfaceMeasurement.reserved with FS_MEAS_COLOR_VALID; fusion blends it precision-weighted into appearanceHandle.
@@ -144,8 +157,8 @@
 #define FS_STEREO_PATCH_MARGIN_PX    2.0       // bilinear footprint beyond the 3x3 patch
 #define FS_STEREO_BEFF_MIN_M         0.03      // effective (ray-perpendicular) baseline floor of the L/R solve
 #define FS_TEMPORAL_BEFF_MIN_M       0.15      // effective baseline floor of the temporal solve (forward motion has no parallax)
-#define FS_TEMPORAL_SUBSAMPLE        8         // temporal candidates: 1 of N existing-surface texels (deterministic hash), refinement only
-#define FS_TEMPORAL_EXISTING_SCORE   192       // score below this = the canonical prediction already has this surface (existing sheet)
+#define FS_MEAS_TARGETS_MAX          256       // C11R2 targets per frame (twin: FS_TEMPORAL_TARGETS)
+#define FS_TEMPORAL_FACING_COS       0.26      // a target seen more grazing than 75 deg from the left camera is not a useful viewpoint
 #define FS_STEREO_MIN_CONFIDENCE     0.5       // pair confidence (StereoPairer: 1 direct, 0.7 compensated, 0.4 low; halved when degraded)
 #define FS_STEREO_MAX_BLUR           0.5       // pair blur penalty (MotionGate, 0..1) above this: no geometry from the images
 #define FS_STEREO_MAX_UNCERTAINTY_NS 8000000   // capture-time uncertainty above this: no geometry from the pair
@@ -173,6 +186,7 @@
 #define FS_MEAS_B_CAM_L              6         // combined image sampler: PCA left frame (owned copy)
 #define FS_MEAS_B_CAM_R              7         // combined image sampler: PCA right frame
 #define FS_MEAS_B_CAM_K              8         // combined image sampler: C11 bound keyframe (earlier left PCA copy)
+#define FS_MEAS_B_TARGETS            10        // C11R2 refinement targets (host-visible, FS_TEMPORAL_TARGETS x 9 words: pos xyz, normal xyz, sigmaN, SurfaceID, support)
 #define FS_MEAS_B_TILES              9         // C10R/C11R scratch: PCA texture tiles (L, R, keyframe) + Env Depth planar tiles (both layers)
 #define FS_MEAS_SEL_HIST             0
 #define FS_MEAS_SEL_WGCOUNT          FS_MEAS_SCORE_BINS

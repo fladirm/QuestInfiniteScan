@@ -14,7 +14,7 @@
 #include "fs_render_common.glsl"
 layout(std430, set = 0, binding = FS_RB_DRAW) writeonly buffer AggScratchBlock { FsDrawRecord aggScratch[]; };   // native scratch, compacted later
 layout(local_size_x = FS_WG_SMALL) in;
-layout(push_constant) uniform Push { uint frameSlot; uint aggBase; uint aggCapacity; uint opaqueCapacity; uint parity; } pc;
+layout(push_constant) uniform Push { uint frameSlot; uint aggBase; uint aggCapacity; uint opaqueCapacity; uint parity; uint triCapacity; } pc;
 
 #define F frames[pc.frameSlot]
 bool fsProjectAabb(vec3 wmin, vec3 wmax, out float nearest, out vec2 ndcMin, out vec2 ndcMax) {

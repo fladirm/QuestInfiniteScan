@@ -1,0 +1,278 @@
+#version 450
+// E6R topology 2/2 (one sequential invocation over the batch in ring order: deterministic). Commits the derived faces of every changed
+// vertex into the persistent topology:
+//  - vertex records (pooled, SurfaceID guard against recycled handles) with sheet, flags, component label, incident face count;
+//  - owned faces keyed by SurfaceIDs: kept faces keep their state, vanished ones retire, new ones are created exactly once (the owner);
+//  - face state from the vertex lifecycles: ACTIVE, SUSPECT (a vertex SUSPECT / RETIRING), retired (two RETIRING vertices);
+//  - sheets (pooled union-find records): a face of unsheeted vertices founds a sheet (id = minimum SurfaceID), a face touching one sheet
+//    joins it, a face bridging different sheets waits for repeated evidence (FS_BRIDGE_EVIDENCE derivations in distinct observation
+//    ticks, support >= FS_BRIDGE_MIN_SUPPORT) and then UNIONS them (root = lower sheet id);
+//  - connectivity: vertex labels (min SurfaceID of the component, restarted by the sheet's relabel generation after a removal) and a
+//    confirmed split when a vertex's settled label stays above its sheet's minimum (persistent topological cut);
+//  - a REMOVED / RETIRING vertex releases its record (its faces retire, its neighbours relink and relabel);
+//  - temporal refinement targets (C11R2): uncertain vertices of existing faces.
+// Reference counts (vertex refs + child parent refs) free sheet records; released ids go to the host free list.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_PAGES_RO
+#define FS_USE_SURFELS_RO
+#define FS_USE_EVIDENCE_RO
+#define FS_USE_GCTR
+#define FS_USE_SHEET
+#define FS_USE_DIRTY
+#define FS_USE_TOPO
+#define FS_USE_POOLS
+#include "fs_world_blocks.glsl"
+#include "fs_fusion.glsl"
+layout(local_size_x = 1) in;
+#define NONE FS_INDEX_NONE
+uint gTargets = 0u, gFree = 0u;
+void fsTopoFree(uint kind, uint id) { if (gFree < uint(FS_TOPO_FREE_MAX)) { topo[fsTopoFreeWord(gFree)] = (kind << 30) | id; gFree++; } }
+uint fsRoot(uint s) {
+    for (uint k = 0u; k < 32u; ++k) { if (s == NONE) return NONE; uint p = topo[fsSheetRecWord(s, 1u)]; if (p == s) return s; s = p; }
+    return s;
+}
+void fsSheetUnref(uint s) {
+    for (uint k = 0u; k < 32u; ++k) {
+        if (s == NONE) return;
+        uint w = fsSheetRecWord(s, 5u);
+        if (topo[w] > 0u) topo[w]--;
+        if (topo[w] != 0u) return;
+        uint parent = topo[fsSheetRecWord(s, 1u)];
+        if (parent == s) atomicAdd(gctr[FS_GCTR_ACTIVE_SHEETS], 0xFFFFFFFFu);        // a root with no references: gone
+        fsTopoFree(1u, s);
+        if (parent == s) return;
+        s = parent;                                                                   // the child reference on its parent goes too
+    }
+}
+uint fsSheetNew(uint sheetId) {
+    uint s = fsPoolAlloc(FS_POOL_SHEETS);
+    if (s == NONE) { atomicAdd(gctr[FS_GCTR_TOPO_POOL_EMPTY], 1u); return NONE; }
+    topo[fsSheetRecWord(s, 0u)] = sheetId; topo[fsSheetRecWord(s, 1u)] = s; topo[fsSheetRecWord(s, 2u)] = 0u; topo[fsSheetRecWord(s, 3u)] = 0u;
+    topo[fsSheetRecWord(s, 4u)] = 0u; topo[fsSheetRecWord(s, 5u)] = 0u; topo[fsSheetRecWord(s, 6u)] = 1u; topo[fsSheetRecWord(s, 7u)] = sheetId;
+    atomicAdd(gctr[FS_GCTR_ACTIVE_SHEETS], 1u);
+    return s;
+}
+// vertex -> sheet (reference counted; vertex counts live on the root)
+void fsVertexSetSheet(uint tid, uint s) {
+    uint old = topo[fsTopoVertexWord(tid, 0u)];
+    if (old == s) return;
+    if (old != NONE) { uint r = fsRoot(old); if (r != NONE && topo[fsSheetRecWord(r, 2u)] > 0u) topo[fsSheetRecWord(r, 2u)]--; }
+    topo[fsTopoVertexWord(tid, 0u)] = s;
+    if (s != NONE) { topo[fsSheetRecWord(s, 5u)]++; topo[fsSheetRecWord(fsRoot(s), 2u)]++; }
+    if (old != NONE) fsSheetUnref(old);
+}
+void fsUnion(uint ra, uint rb) {                                                      // roots, ra keeps the lower sheet id
+    if (ra == rb || ra == NONE || rb == NONE) return;
+    if (topo[fsSheetRecWord(rb, 0u)] < topo[fsSheetRecWord(ra, 0u)]) { uint t = ra; ra = rb; rb = t; }
+    topo[fsSheetRecWord(rb, 1u)] = ra; topo[fsSheetRecWord(ra, 5u)]++;                // child reference
+    for (uint w = 2u; w <= 4u; ++w) topo[fsSheetRecWord(ra, w)] += topo[fsSheetRecWord(rb, w)];
+    topo[fsSheetRecWord(ra, 6u)]++; topo[fsSheetRecWord(ra, 7u)] = min(topo[fsSheetRecWord(ra, 7u)], topo[fsSheetRecWord(rb, 7u)]);
+    atomicAdd(gctr[FS_GCTR_SHEET_UNIONS], 1u); atomicAdd(gctr[FS_GCTR_ACTIVE_SHEETS], 0xFFFFFFFFu);
+}
+// topology record of handle h (packed e); allocate when `create`
+uint fsVertexRecord(uint e, bool create) {
+    uint h = e & 0x3FFFFFu;
+    uint tid = sheet[fsSheetNodeWord(h, 9u)];
+    uint sid = surfels[h].surfaceId;
+    if (tid != NONE && topo[fsTopoVertexWord(tid, 4u)] != sid) tid = NONE;           // recycled handle: the old record is not this vertex
+    if (tid != NONE || !create) return tid;
+    tid = fsPoolAlloc(FS_POOL_TOPO);
+    if (tid == NONE) { atomicAdd(gctr[FS_GCTR_TOPO_POOL_EMPTY], 1u); return NONE; }
+    topo[fsTopoVertexWord(tid, 0u)] = NONE; topo[fsTopoVertexWord(tid, 1u)] = 0u; topo[fsTopoVertexWord(tid, 2u)] = sid; topo[fsTopoVertexWord(tid, 3u)] = 0u;
+    topo[fsTopoVertexWord(tid, 4u)] = sid; topo[fsTopoVertexWord(tid, 5u)] = 0u; topo[fsTopoVertexWord(tid, 6u)] = 0u;
+    for (uint f = 0u; f < uint(FS_TOPO_FACES); ++f) { topo[fsTopoFaceWord(tid, f, 0u)] = NONE; topo[fsTopoFaceWord(tid, f, 1u)] = NONE; topo[fsTopoFaceWord(tid, f, 4u)] = 0u; }
+    sheet[fsSheetNodeWord(h, 9u)] = tid;
+    atomicAdd(gctr[FS_GCTR_TOPO_VERTICES], 1u);
+    return tid;
+}
+void fsMarkVertexCell(uint e) { uint h = e & 0x3FFFFFu; fsMarkDirtyCell(e >> 22, fsCellOf(fsSurfelLocalPos(surfels[h]))); }
+void fsIncident(uint e, int delta) {
+    uint tid = fsVertexRecord(e, delta > 0);
+    if (tid == NONE) return;
+    uint w = fsTopoVertexWord(tid, 5u), before = topo[w];
+    topo[w] = delta > 0 ? before + 1u : (before > 0u ? before - 1u : 0u);
+    if ((before == 0u) != (topo[w] == 0u)) fsMarkVertexCell(e);                        // ellipse fallback <-> mesh member: republish
+}
+void fsRetireFace(uint ownerE, uint tid, uint f) {
+    uint bE = topo[fsTopoFaceWord(tid, f, 0u)], cE = topo[fsTopoFaceWord(tid, f, 1u)];
+    uint meta = topo[fsTopoFaceWord(tid, f, 4u)];
+    if ((meta & 3u) != FS_FACE_PENDING) atomicAdd(gctr[FS_GCTR_ACTIVE_FACES], 0xFFFFFFFFu);
+    atomicAdd(gctr[FS_GCTR_FACES_RETIRED], 1u);
+    fsIncident(ownerE, -1); fsIncident(bE, -1); fsIncident(cE, -1);
+    uint s = topo[fsTopoVertexWord(tid, 0u)]; if (s != NONE) { uint r = fsRoot(s); if (topo[fsSheetRecWord(r, 3u)] > 0u) topo[fsSheetRecWord(r, 3u)]--; }
+    topo[fsTopoFaceWord(tid, f, 0u)] = NONE; topo[fsTopoFaceWord(tid, f, 1u)] = NONE; topo[fsTopoFaceWord(tid, f, 4u)] = 0u;
+}
+void fsMarkGraphNeighbours(uint h) {
+    for (uint k = 0u; k < uint(FS_SHEET_K); ++k) { uint nb = sheet[fsSheetNodeWord(h, k)]; if (nb != NONE) fsSheetMark(nb >> 22, nb & 0x3FFFFFu); }
+}
+void fsReleaseVertex(uint e, uint tid) {
+    for (uint f = 0u; f < uint(FS_TOPO_FACES); ++f) if (topo[fsTopoFaceWord(tid, f, 0u)] != NONE) fsRetireFace(e, tid, f);
+    uint s = topo[fsTopoVertexWord(tid, 0u)];
+    if (s != NONE) { uint r = fsRoot(s); topo[fsSheetRecWord(r, 6u)]++; topo[fsSheetRecWord(r, 7u)] = 0xFFFFFFFFu; }   // relabel the sheet: a cut may exist now
+    fsVertexSetSheet(tid, NONE);
+    fsMarkGraphNeighbours(e & 0x3FFFFFu);
+    sheet[fsSheetNodeWord(e & 0x3FFFFFu, 9u)] = NONE;
+    topo[fsTopoVertexWord(tid, 4u)] = 0u;
+    fsTopoFree(0u, tid);
+    atomicAdd(gctr[FS_GCTR_TOPO_VERTICES], 0xFFFFFFFFu);
+    fsMarkVertexCell(e);
+}
+bool fsVertexUsable(uint h) { uint fl = fsGet_FsSurfel_evidenceFlags(surfels[h]); return (fl & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) == 0u && (fl & FS_FLAG_PROMOTED) != 0u; }
+void main() {
+    uint n = FS_TK(FS_T_SHEET_COUNT);
+    uint tick16 = FS_TK(FS_T_TICK) & 0xFFFFu;
+    for (uint i = 0u; i < uint(FS_SHEET_BATCH_MAX); ++i) {
+        if (i >= n) break;
+        uint e = sheet[FS_TK(FS_T_SHEET_RING_BASE) + ((FS_TK(FS_T_SHEET_BEGIN) + i) & (uint(FS_SHEET_RING_CAP) - 1u))];
+        uint page = e >> 22, h = e & 0x3FFFFFu;
+        uint td = fsTopoDeltaWord(i, 0u), dflags = topo[td];
+        uint life = fsLifeState(evidence[h]);
+        uint tid = fsVertexRecord(e, false);
+        { uint raw = sheet[fsSheetNodeWord(h, 9u)]; if (raw != NONE && tid == NONE) { sheet[fsSheetNodeWord(h, 9u)] = NONE; } }   // stale record of a recycled handle is released by its own vertex
+        bool wants = (dflags & 1u) != 0u && fsVertexUsable(h) && life != FS_LIFE_RETIRING;
+        if (!wants) { if (tid != NONE) fsReleaseVertex(e, tid); continue; }
+        uint nNew = (dflags >> 8) & 15u;
+        if (tid == NONE && nNew == 0u) continue;
+        if (tid == NONE) { tid = fsVertexRecord(e, true); if (tid == NONE) continue; }
+        uint sidA = surfels[h].surfaceId;
+        topo[fsTopoVertexWord(tid, 1u)] = (dflags >> 1) & 3u;
+        // ---- diff owned faces (identity = SurfaceIDs)
+        bool matched[FS_TOPO_FACES]; for (uint k = 0u; k < uint(FS_TOPO_FACES); ++k) matched[k] = false;
+        bool changed = false;
+        for (uint f = 0u; f < uint(FS_TOPO_FACES); ++f) {
+            uint bE = topo[fsTopoFaceWord(tid, f, 0u)];
+            if (bE == NONE) continue;
+            uint sB = topo[fsTopoFaceWord(tid, f, 2u)], sC = topo[fsTopoFaceWord(tid, f, 3u)];
+            bool keep = false;
+            for (uint k = 0u; k < uint(FS_TOPO_FACES); ++k) {
+                if (k >= nNew || matched[k]) continue;
+                uint nb = topo[td + 1u + 2u * k], ncE = topo[td + 2u + 2u * k];
+                uint nsB = surfels[nb & 0x3FFFFFu].surfaceId, nsC = surfels[ncE & 0x3FFFFFu].surfaceId;
+                if ((nsB == sB && nsC == sC) || (nsB == sC && nsC == sB)) { matched[k] = true; keep = true; topo[fsTopoFaceWord(tid, f, 0u)] = nb; topo[fsTopoFaceWord(tid, f, 1u)] = ncE; break; }
+            }
+            if (!keep) { fsRetireFace(e, tid, f); changed = true; }
+        }
+        for (uint k = 0u; k < uint(FS_TOPO_FACES); ++k) {
+            if (k >= nNew || matched[k]) continue;
+            uint nb = topo[td + 1u + 2u * k], ncE = topo[td + 2u + 2u * k];
+            uint slot = NONE; for (uint f = 0u; f < uint(FS_TOPO_FACES); ++f) if (topo[fsTopoFaceWord(tid, f, 0u)] == NONE) { slot = f; break; }
+            if (slot == NONE) { atomicAdd(gctr[FS_GCTR_FACE_OVERFLOW], 1u); continue; }
+            uint sB = surfels[nb & 0x3FFFFFu].surfaceId, sC = surfels[ncE & 0x3FFFFFu].surfaceId;
+            if (sidA > sB || sidA > sC) { atomicAdd(gctr[FS_GCTR_FACE_OWNER_VIOL], 1u); continue; }
+            topo[fsTopoFaceWord(tid, slot, 0u)] = nb; topo[fsTopoFaceWord(tid, slot, 1u)] = ncE;
+            topo[fsTopoFaceWord(tid, slot, 2u)] = sB; topo[fsTopoFaceWord(tid, slot, 3u)] = sC; topo[fsTopoFaceWord(tid, slot, 4u)] = FS_FACE_PENDING;
+            fsIncident(e, 1); fsIncident(nb, 1); fsIncident(ncE, 1);
+            atomicAdd(gctr[FS_GCTR_FACES_CREATED], 1u); changed = true;
+        }
+        // ---- per face: lifecycle state, sheet membership, bridges
+        uint rA = NONE;
+        for (uint f = 0u; f < uint(FS_TOPO_FACES); ++f) {
+            uint bE = topo[fsTopoFaceWord(tid, f, 0u)];
+            if (bE == NONE) continue;
+            uint cE = topo[fsTopoFaceWord(tid, f, 1u)];
+            uint hB = bE & 0x3FFFFFu, hC = cE & 0x3FFFFFu;
+            uint lB = fsLifeState(evidence[hB]), lC = fsLifeState(evidence[hC]);
+            uint retiring = (life == FS_LIFE_RETIRING ? 1u : 0u) + (lB == FS_LIFE_RETIRING ? 1u : 0u) + (lC == FS_LIFE_RETIRING ? 1u : 0u);
+            if (!fsVertexUsable(hB) || !fsVertexUsable(hC) || retiring >= 2u) { fsRetireFace(e, tid, f); changed = true; continue; }
+            uint tB = fsVertexRecord(bE, true), tC = fsVertexRecord(cE, true);
+            if (tB == NONE || tC == NONE) continue;
+            uint meta = topo[fsTopoFaceWord(tid, f, 4u)], st = meta & 3u;
+            uint sa = fsRoot(topo[fsTopoVertexWord(tid, 0u)]), sb = fsRoot(topo[fsTopoVertexWord(tB, 0u)]), sc = fsRoot(topo[fsTopoVertexWord(tC, 0u)]);
+            uint root = sa != NONE ? sa : (sb != NONE ? sb : sc);
+            bool bridge = (sa != NONE && sa != root) || (sb != NONE && sb != root) || (sc != NONE && sc != root);
+            if (bridge) {   // a still-growing sheet joins at once; two established sheets need repeated evidence
+                uint smallest = 0xFFFFFFFFu;
+                if (sa != NONE) smallest = min(smallest, topo[fsSheetRecWord(sa, 2u)]); if (sb != NONE) smallest = min(smallest, topo[fsSheetRecWord(sb, 2u)]); if (sc != NONE) smallest = min(smallest, topo[fsSheetRecWord(sc, 2u)]);
+                if (smallest < uint(FS_BRIDGE_FREE_VERTICES)) {
+                    if (sa != NONE && sb != NONE) fsUnion(fsRoot(sa), fsRoot(sb));
+                    if (sa != NONE && sc != NONE) fsUnion(fsRoot(sa), fsRoot(sc));
+                    if (sb != NONE && sc != NONE) fsUnion(fsRoot(sb), fsRoot(sc));
+                    root = fsRoot(sa != NONE ? sa : sb); bridge = false;
+                }
+            }
+            if (bridge) {
+                bool supported = fsGet_FsSurfelEvidence_positiveSupport(evidence[h]) >= uint(FS_BRIDGE_MIN_SUPPORT) && fsGet_FsSurfelEvidence_positiveSupport(evidence[hB]) >= uint(FS_BRIDGE_MIN_SUPPORT)
+                              && fsGet_FsSurfelEvidence_positiveSupport(evidence[hC]) >= uint(FS_BRIDGE_MIN_SUPPORT) && life == FS_LIFE_ACTIVE && lB == FS_LIFE_ACTIVE && lC == FS_LIFE_ACTIVE;
+                uint ev = (meta >> 2) & 63u, lastTick = (meta >> 8) & 0xFFFFu, attempts = meta >> 24;
+                uint seen = fsGet_FsSurfelEvidence_lastSeenFrame(evidence[h]);
+                if (supported && seen != lastTick) { ev = min(ev + 1u, 63u); lastTick = seen; attempts = 0u; } else attempts = min(attempts + 1u, 255u);
+                if (!supported || ev < uint(FS_BRIDGE_EVIDENCE)) {
+                    topo[fsTopoFaceWord(tid, f, 4u)] = (st & 3u) | (ev << 2) | (lastTick << 8) | (attempts << 24);
+                    atomicAdd(gctr[FS_GCTR_BRIDGES_PENDING], 1u);
+                    if (attempts < uint(FS_BRIDGE_ATTEMPTS)) fsSheetMark(page, h);
+                    continue;
+                }
+                // confirmed: union every distinct root into the lowest sheet id
+                if (sa != NONE && sb != NONE) fsUnion(fsRoot(sa), fsRoot(sb));
+                if (sa != NONE && sc != NONE) fsUnion(fsRoot(sa), fsRoot(sc));
+                if (sb != NONE && sc != NONE) fsUnion(fsRoot(sb), fsRoot(sc));
+                root = fsRoot(sa != NONE ? sa : sb);
+            }
+            if (root == NONE) {   // join a graph neighbour's sheet before founding a new one (no fragmentation during growth)
+                for (uint k = 0u; k < uint(FS_SHEET_K); ++k) {
+                    uint nb = sheet[fsSheetNodeWord(h, k)]; if (nb == NONE || !fsVertexUsable(nb & 0x3FFFFFu)) continue;
+                    uint nt = fsVertexRecord(nb, false); if (nt == NONE) continue;
+                    uint nr = fsRoot(topo[fsTopoVertexWord(nt, 0u)]);
+                    if (nr != NONE && (root == NONE || topo[fsSheetRecWord(nr, 0u)] < topo[fsSheetRecWord(root, 0u)])) root = nr;
+                }
+                if (root == NONE) { uint minSid = min(sidA, min(surfels[hB].surfaceId, surfels[hC].surfaceId)); root = fsSheetNew(minSid); if (root == NONE) continue; }
+            }
+            fsVertexSetSheet(tid, root); fsVertexSetSheet(tB, root); fsVertexSetSheet(tC, root);
+            uint nst = (life != FS_LIFE_ACTIVE || lB != FS_LIFE_ACTIVE || lC != FS_LIFE_ACTIVE) ? FS_FACE_SUSPECT : FS_FACE_ACTIVE;
+            if (st == FS_FACE_PENDING) {
+                atomicAdd(gctr[FS_GCTR_ACTIVE_FACES], 1u); topo[fsSheetRecWord(root, 3u)]++; changed = true;
+                vec3 pa = fsSurfelLocalPos(surfels[h]) + fsPageOrigin3(pages[page].key), pb = fsSurfelLocalPos(surfels[hB]) + fsPageOrigin3(pages[bE >> 22].key), pc = fsSurfelLocalPos(surfels[hC]) + fsPageOrigin3(pages[cE >> 22].key);
+                topo[fsSheetRecWord(root, 4u)] += uint(0.5 * length(cross(pb - pa, pc - pa)) * 1e6);
+            }
+            if (st == FS_FACE_ACTIVE && nst == FS_FACE_SUSPECT) { atomicAdd(gctr[FS_GCTR_FACES_SUSPECT], 1u); changed = true; }
+            if (st == FS_FACE_SUSPECT && nst == FS_FACE_ACTIVE) { atomicAdd(gctr[FS_GCTR_FACES_RECOVERED], 1u); changed = true; }
+            topo[fsTopoFaceWord(tid, f, 4u)] = nst;
+            rA = root;
+        }
+        if (changed) fsMarkVertexCell(e);
+        // ---- connectivity labels / persistent cut
+        uint s0 = topo[fsTopoVertexWord(tid, 0u)];
+        if (s0 != NONE) {
+            uint r = fsRoot(s0);
+            if (r != s0) fsVertexSetSheet(tid, r);
+            uint gen = topo[fsSheetRecWord(r, 6u)];
+            if (topo[fsTopoVertexWord(tid, 3u)] != gen) { topo[fsTopoVertexWord(tid, 2u)] = sidA; topo[fsTopoVertexWord(tid, 3u)] = gen; topo[fsTopoVertexWord(tid, 6u)] = 0u; fsMarkGraphNeighbours(h); }
+            uint label = topo[fsTopoVertexWord(tid, 2u)], L = label;
+            for (uint k = 0u; k < uint(FS_SHEET_K); ++k) {
+                uint nb = sheet[fsSheetNodeWord(h, k)]; if (nb == NONE) continue;
+                uint nt = fsVertexRecord(nb, false); if (nt == NONE) continue;
+                if (topo[fsTopoVertexWord(nt, 3u)] != gen || fsRoot(topo[fsTopoVertexWord(nt, 0u)]) != r) continue;
+                L = min(L, topo[fsTopoVertexWord(nt, 2u)]);
+            }
+            if (L < label) { topo[fsTopoVertexWord(tid, 2u)] = L; topo[fsTopoVertexWord(tid, 6u)] = 0u; fsMarkGraphNeighbours(h); label = L; }
+            else topo[fsTopoVertexWord(tid, 6u)] = min(topo[fsTopoVertexWord(tid, 6u)] + 1u, 255u);
+            uint mw = fsSheetRecWord(r, 7u); topo[mw] = min(topo[mw], label);
+            if (label > topo[mw]) {
+                if (topo[fsTopoVertexWord(tid, 6u)] >= uint(FS_SPLIT_CONFIRM)) {
+                    uint target = NONE;
+                    for (uint k = 0u; k < uint(FS_SHEET_K); ++k) {
+                        uint nb = sheet[fsSheetNodeWord(h, k)]; if (nb == NONE) continue;
+                        uint nt = fsVertexRecord(nb, false); if (nt == NONE) continue;
+                        uint nr = fsRoot(topo[fsTopoVertexWord(nt, 0u)]);
+                        if (nr != NONE && nr != r && topo[fsSheetRecWord(nr, 0u)] == label) { target = nr; break; }
+                    }
+                    if (target == NONE) { target = fsSheetNew(label); if (target != NONE) { topo[fsSheetRecWord(target, 6u)] = gen; atomicAdd(gctr[FS_GCTR_SHEET_SPLITS], 1u); } }
+                    if (target != NONE) { fsVertexSetSheet(tid, target); topo[fsTopoVertexWord(tid, 3u)] = topo[fsSheetRecWord(target, 6u)]; fsMarkGraphNeighbours(h); fsMarkVertexCell(e); }
+                } else fsSheetMark(page, h);                                           // settle first
+            }
+        }
+        // ---- C11R2 temporal target: an uncertain vertex of existing faces
+        FsPatch q = fsUnpack(surfels[h]);
+        if (topo[fsTopoVertexWord(tid, 5u)] > 0u && life == FS_LIFE_ACTIVE && q.sigmaN > FS_TEMPORAL_SIGMA_TARGET_M && gTargets < uint(FS_TEMPORAL_TARGETS)) {
+            vec3 pw = fsPageOrigin3(pages[page].key) + q.p;
+            uint tw = fsTemporalTargetWord(gTargets, 0u);
+            topo[tw] = floatBitsToUint(pw.x); topo[tw + 1u] = floatBitsToUint(pw.y); topo[tw + 2u] = floatBitsToUint(pw.z);
+            topo[tw + 3u] = fsEncodeOct32(q.n); topo[tw + 4u] = floatBitsToUint(q.sigmaN); topo[tw + 5u] = sidA;
+            topo[tw + 6u] = fsGet_FsSurfelEvidence_positiveSupport(evidence[h]); topo[tw + 7u] = 0u;
+            gTargets++;
+        }
+    }
+    FS_TK(FS_T_TARGET_COUNT) = gTargets;
+    FS_TK(FS_T_TOPO_FREE_COUNT) = gFree;
+    if (gTargets != 0u) atomicAdd(gctr[FS_GCTR_TEMPORAL_TARGETS], gTargets);
+}

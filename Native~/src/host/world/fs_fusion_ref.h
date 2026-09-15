@@ -506,13 +506,11 @@ inline std::vector<uint32_t> SheetProposals(const SheetSite& a, const std::vecto
     std::vector<uint32_t> out; for (auto& x : best) out.push_back(x.second);
     return out;
 }
-struct SheetCell { uint32_t word = 0; float rMax = 0.f; float Radius(uint32_t k) const { return rMax * (float)(((word >> (4u * (k & 7u))) & 15u) + 1u) / 16.f; } };
-struct SheetDelta { float offset = 0.f; V3 normal; bool flat = false; uint32_t degree = 0; SheetCell cell; float rho[8] = {}; float planeRms = 0.f; float overlap = 0.f, hole = 0.f; std::vector<uint32_t> frontier;
+struct SheetDelta { float offset = 0.f; V3 normal; bool flat = false; uint32_t degree = 0; float planeRms = 0.f; float overlap = 0.f, hole = 0.f; std::vector<uint32_t> frontier;
                     uint32_t contractTarget = UINT32_MAX; float contractE = 0.f; };   // E4.1C: survivor id when this node contracts
 // Fit pass over the MUTUAL ring (both ends propose each other); proposals of non-mutual neighbours become frontier marks.
-inline float Angle8(float x, float y) { float t = atan2f(y, x) / (0.25f * 3.14159265f); return t < 0.f ? t + 8.f : t; }
-// Fit pass (twin: sheet_fit.comp); `cellOf` = the stored cells of every site (zero = none yet).
-inline SheetDelta SheetFitR(const SheetSite& a, const std::vector<uint32_t>& aProps, const std::vector<SheetSite>& sites, const std::vector<std::vector<uint32_t>>& props, const std::vector<SheetCell>& cellOf) {
+// Fit pass (twin: sheet_fit.comp).
+inline SheetDelta SheetFitR(const SheetSite& a, const std::vector<uint32_t>& aProps, const std::vector<SheetSite>& sites, const std::vector<std::vector<uint32_t>>& props, const std::vector<float>& /*unused*/) {
     SheetDelta r;
     std::vector<size_t> mut;
     for (uint32_t id : aProps) {
@@ -522,29 +520,6 @@ inline SheetDelta SheetFitR(const SheetSite& a, const std::vector<uint32_t>& aPr
     r.degree = (uint32_t)mut.size();
     if (mut.empty()) return r;
     std::vector<float> dists; for (size_t id : mut) dists.push_back(Len(sites[id].world - a.world));
-    // E4.2R restricted Voronoi cell (twin of sheet_fit.comp)
-    V3 ct1, ct2; Frame(a.q.n, ct1, ct2);
-    V3 f1, f2; Frame(a.q.n, f1, f2); V3 eM = f1 * cosf(a.q.angle) + f2 * sinf(a.q.angle), em = Cross(a.q.n, eM);
-    float rMaxCell = 0.f;
-    auto tangentOffset = [&](size_t id) { V3 d = sites[id].world - a.world; return d - a.q.n * Dot(d, a.q.n); };
-    for (uint32_t k = 0; k < 8; ++k) {
-        float ang = (float)k * 0.25f * 3.14159265f; V3 u = ct1 * cosf(ang) + ct2 * sinf(ang);
-        float rr = (float)FS_SHEET_COVER_MAX_M; bool supported = false;
-        for (size_t id : mut) { V3 d = tangentOffset(id); float L2 = Dot(d, d), c = Dot(u, d); if (c <= 1e-6f) continue; rr = fminf(rr, 0.5f * L2 / c); if (c >= 0.5f * sqrtf(L2)) supported = true; }
-        if (!supported) { float x = Dot(u, eM) / fmaxf(a.q.rM, 1e-5f), y = Dot(u, em) / fmaxf(a.q.rm, 1e-5f); rr = fminf(rr, 1.f / sqrtf(fmaxf(x * x + y * y, 1e-12f))); }
-        r.rho[k] = fmaxf(rr, (float)FS_RADIUS_MIN_M); rMaxCell = fmaxf(rMaxCell, r.rho[k]);
-    }
-    uint32_t word = 0; for (uint32_t k = 0; k < 8; ++k) { int q = (int)ceilf(r.rho[k] / rMaxCell * 16.f) - 1; word |= (uint32_t)(q < 0 ? 0 : (q > 15 ? 15 : q)) << (4u * k); }
-    for (size_t k = 0; k < mut.size(); ++k) {
-        V3 d = tangentOffset(mut[k]); float L = Len(d); if (L < 1e-6f) continue;
-        SheetCell mine{word, rMaxCell};
-        float ra = mine.Radius((uint32_t)floorf(Angle8(Dot(d, ct1), Dot(d, ct2)) + 0.5f));
-        const SheetSite& b = sites[mut[k]]; float rb = b.q.rM;
-        if (cellOf[mut[k]].rMax > 0.f) { V3 bt1, bt2; Frame(b.q.n, bt1, bt2); rb = cellOf[mut[k]].Radius((uint32_t)floorf(Angle8(-Dot(d, bt1), -Dot(d, bt2)) + 0.5f)); }
-        float gap = L - ra - rb, w = 2.f * fminf(ra, rb);
-        if (gap < 0.f) r.overlap += -gap * w; else r.hole += gap * w;
-    }
-    if (r.degree >= FS_SHEET_CELL_MIN_DEGREE) r.cell = SheetCell{word, rMaxCell};
     const float L2 = (float)(FS_SHEET_LINK_R_M * FS_SHEET_LINK_R_M);
     float wA = 1.f / (a.q.sigmaN * a.q.sigmaN);
     V3 cSum = a.world * wA, nSum = a.q.n * wA; float wSum = wA, s2Sum = wA * a.q.sigmaN * a.q.sigmaN;

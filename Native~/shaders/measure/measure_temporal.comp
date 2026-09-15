@@ -23,13 +23,20 @@ void main() {
     vec3 pw = (blk.worldFromAnchor * vec4(m.px, m.py, m.pz, 1.0)).xyz, nw = normalize(mat3(blk.worldFromAnchor) * vec3(m.nx, m.ny, m.nz));
     vec3 pt; float stg, znt;
     uint tt = fsStereoSolve(2u, pw, nw, m.sigmaN, FS_TEMPORAL_BAND_MAX_PX, FS_TEMPORAL_BEFF_MIN_M, pt, stg, znt);
-    if (tt != FS_STEREO_ST_SKIP) atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_TESTED], 1u);
+    bool target = (m.sourceFlags & FS_MEAS_SRC_TARGET) != 0u;
+    if (tt != FS_STEREO_ST_SKIP) { atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_TESTED], 1u); if (target) atomicAdd(blk.ctr[FS_MEAS_CTR_TGT_SOLVED], 1u); }
     if (tt == FS_STEREO_OK) {
         bool stereo = (m.sourceFlags & FS_MEAS_SRC_STEREO) != 0u;
         if (stereo && length(pt - pw) > FS_TEMPORAL_AGREE_K * sqrt(stg * stg + m.sigmaN * m.sigmaN)) atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_DISAGREE], 1u);
         else {
             vec3 pta = (blk.anchorFromWorld * vec4(pt, 1.0)).xyz;
             atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_VALID], 1u);
+            if (target) {
+                atomicAdd(blk.ctr[FS_MEAS_CTR_TGT_ACCEPTED], 1u);
+                atomicAdd(blk.ctr[FS_MEAS_CTR_TGT_SIGMA_BEFORE_UM], uint(min(m.sigmaN * 1e6, 1e7)));
+                atomicAdd(blk.ctr[FS_MEAS_CTR_TGT_SIGMA_AFTER_UM], uint(min(stg * 1e6, 1e7)));
+                atomicAdd(blk.ctr[FS_MEAS_CTR_TGT_INFO_GAIN], uint(max(log2(m.sigmaN / max(stg, 1e-6)), 0.0) * 1000.0));
+            }
             atomicAdd(blk.ctr[FS_MEAS_CTR_TEMPORAL_SIGMA_UM], uint(min(stg * 1e6, 1e7)));
             m.px = pta.x; m.py = pta.y; m.pz = pta.z; m.sigmaN = stg;
             m.sourceFlags = (m.sourceFlags & ~(FS_MEAS_SRC_DEPTH_PRIOR | FS_MEAS_SRC_STEREO)) | FS_MEAS_SRC_TEMPORAL;

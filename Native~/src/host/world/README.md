@@ -134,3 +134,22 @@ pool exhaustion/reset).
   margin, the FRONT published roots (`world::FrontSequence`), the anchors, mode or draw buffers changed
   (`reusedCuts` receipt); no periodic recut.
 
+## E6R persistent surface topology (METRIC SURFELS = control vertices, PERSISTENT SURFACE COMPLEX = shared faces / sheets, RENDER MESH = derived)
+- **Clock:** every world job takes a work serial; rings store it; scheduler ages are real enqueue ages. FUSE / PUBLISH /
+  TOPOLOGY each have a deadline; the most late runnable class wins, otherwise the weighted deficit.
+- **Evidence hysteresis:** support + contradiction debt (healed by positives), narrow-phase free-space contradictions against
+  the surfel support ellipse, lifecycle ACTIVE -> SUSPECT -> RETIRING (topology decides, neighbourhood-consistent) -> REMOVED.
+- **Faces (`topo_faces`):** per changed vertex, for each mutual same-sheet candidate edge the first CCW candidate forming a
+  compatible, bounded (circumradius <= 5 cm) triangle that is locally Delaunay under a deterministic SurfaceID-lifted in-circle
+  predicate; the minimum-SurfaceID vertex owns and stores it (face key = sorted SurfaceIDs; no duplicates by construction).
+- **Commit (`topo_commit`, sequential):** pooled vertex records (SurfaceID guard), owned faces diffed by SurfaceIDs, incident
+  counts, face states from vertex lifecycles, pooled union-find sheet records (root = lower sheet id; growing sheets join,
+  established sheets union only after repeated bridge evidence), component labels with relabel generations and confirmed
+  splits (persistent cuts), releases, reference-counted sheet reclamation, C11R2 temporal targets.
+- **Coarsen / refine:** interior-only contraction with one-contraction-per-vertex matching per topology generation;
+  refinement requires a residual streak.
+- **Readout:** `publish_leaves` writes owned faces as triangle render copies (`FS_RENDER_TRI_MARK`); ellipses only for vertices
+  that are not mesh members or sit on a boundary; the cull fills a third (triangle, 3-vertex) draw bucket. The 8-gon cells are gone.
+- Twin `fs_topology_ref.h`; tests `TestTopology` (face key, ownership, duplicates, shared edges, union determinism, wall union,
+  corner, door, thin wall, persistent cut, matching, refinement), `TestEvidenceHysteresis`, `TestSchedulerNoStarvation`.
+

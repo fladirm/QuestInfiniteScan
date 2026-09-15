@@ -468,6 +468,28 @@ inline bool PlanarFit(const float tx[], const float ty[], const float z[], uint3
     nEye = Normalize(V3((float)-abc[0], (float)-abc[1], (float)-abc[2]));
     return cnt >= FS_PLANAR_MIN_INLIERS && rmsZ <= (float)FS_PLANAR_MAX_RMS_RATIO * zc;
 }
+// ---- C11R2 surface-driven temporal target gate (twin: measure_targets.comp). Independent of the pixel selection score / threshold.
+enum TargetGate : uint32_t { TARGET_OK = 0, TARGET_VISIBILITY, TARGET_NO_KEYFRAME, TARGET_BASELINE, TARGET_TEXTURE };
+template <class TileFn>
+inline TargetGate TemporalTargetGate(const FrameBlock& blk, Vec3 pw, Vec3 nw, TileFn tileStd) {
+    if (!(blk.camInfo[2] & 1u)) return TARGET_VISIBILITY;
+    Mat4 ML; memcpy(ML.m, blk.camFromWorld[0], 64); const Vec3 pc = MulPoint(ML, pw);
+    if (pc.z <= 0.05f || pc.z > (float)FS_STEREO_MAX_DEPTH_M) return TARGET_VISIBILITY;
+    const Vec3 toCam = Sub(CamCentre(blk, 0), pw);
+    if (Dot(nw, Normalize(toCam)) < (float)FS_TEMPORAL_FACING_COS) return TARGET_VISIBILITY;
+    const float m0 = (float)(FS_STEREO_PATCH_PX + FS_STEREO_PATCH_MARGIN_PX);
+    const float u = blk.camIntrinsics[0][2] + blk.camIntrinsics[0][0] * pc.x / pc.z, v = blk.camIntrinsics[0][3] + blk.camIntrinsics[0][1] * pc.y / pc.z;
+    if (u < m0 || v < m0 || u > (float)blk.camInfo[0] - m0 || v > (float)blk.camInfo[1] - m0) return TARGET_VISIBILITY;
+    if (!blk.keyInfo[2]) return TARGET_NO_KEYFRAME;
+    Mat4 MK; memcpy(MK.m, blk.keyCamFromWorld, 64); const Vec3 pk = MulPoint(MK, pw);
+    const float mk = m0 + (float)FS_TEMPORAL_BAND_MAX_PX;
+    if (pk.z <= 0.05f) return TARGET_NO_KEYFRAME;
+    const float uk = blk.keyIntrinsics[2] + blk.keyIntrinsics[0] * pk.x / pk.z, vk = blk.keyIntrinsics[3] + blk.keyIntrinsics[1] * pk.y / pk.z;
+    if (uk < mk || vk < mk || uk > (float)blk.keyInfo[0] - mk || vk > (float)blk.keyInfo[1] - mk) return TARGET_NO_KEYFRAME;
+    if (EffectiveBaseline(blk, 2u, pw) < (float)FS_TEMPORAL_BEFF_MIN_M) return TARGET_BASELINE;
+    if (tileStd(0u, u, v) < (float)FS_STEREO_MIN_TILE_STD || tileStd(2u, uk, vk) < (float)FS_STEREO_MIN_TILE_STD) return TARGET_TEXTURE;
+    return TARGET_OK;
+}
 // Emit kernel body: the full back-projection of a selected texel.
 template <class DepthFn>
 inline TexelResult BackprojectTexel(const PushCompact& pc, const FrameBlock& blk, uint32_t layer, uint32_t x, uint32_t y, DepthFn depth, FsSurfaceMeasurement& out, bool& edge) {

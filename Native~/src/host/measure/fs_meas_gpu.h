@@ -55,6 +55,10 @@ uint32_t           MeasGpu_RingSlots();
 const MeasGpuRing* MeasGpu_Ring(uint32_t slot);
 // Number of READY (unconsumed) frames right now; telemetry / tests.
 uint32_t MeasGpu_ReadyFrames();
+// E6R C11R2: uncertain vertices of existing surface faces, world space, handed from the topology pass to the measurement front-end;
+// the next compaction job gates them (visibility, keyframe baseline, texture) and appends temporal refinement candidates.
+struct RefineTarget { float pos[3]; float normal[3]; float sigmaN; uint32_t surfaceId; uint32_t support; };
+void MeasGpu_SetRefineTargets(const RefineTarget* targets, uint32_t count);
 // E6R: steady ns of the newest READY frame (0 = none); totals of frames made READY and superseded before fusion.
 int64_t  MeasGpu_NewestReadyNs();
 void     MeasGpu_FrameTotals(uint64_t& ready, uint64_t& superseded);

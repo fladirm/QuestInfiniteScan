@@ -14,7 +14,10 @@
 #define FS_USE_RDIR
 #define FS_USE_RETIRE
 #define FS_USE_SHEET_RO
+#define FS_USE_TOPO_RO
+#define FS_USE_PAGES_RO
 #include "fs_world_blocks.glsl"
+#include "fs_fusion.glsl"
 #include "fs_render_agg.glsl"
 #define FS_MAINT_LEAVES_MAX 64
 #define FS_MAINT_STACK 32
@@ -89,21 +92,55 @@ void main() {
             // C09R-E4 authoritative FRONT: only PROMOTED geometry is published (it feeds the canonical prediction, the HZB and
             // persistence); transient candidates never reach the render tree, so a wrong depth pixel cannot confirm itself.
             if ((fsGet_FsSurfel_evidenceFlags(s) & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) != 0u) continue;
-            if (total >= uint(FS_CELL_RENDER_MAX)) { overflow++; continue; }
-            if (curBlock == FS_INDEX_NONE || fill == uint(FS_RENDER_BLOCK_SURFELS)) {
-                if (curBlock != FS_INDEX_NONE) { uint ln = fsMakeLeafNode(curBlock, fill); if (ln == FS_INDEX_NONE) break; blocks[nb++] = ln; }
-                curBlock = fsPoolAlloc(FS_POOL_RBLOCK); fill = 0u;
-                if (curBlock == FS_INDEX_NONE) { atomicAdd(gctr[FS_GCTR_POOL_RBLOCK_EMPTY], 1u); break; }
+            // E6R shared surface mesh: a vertex of the persistent topology publishes the faces it OWNS as triangle render records (positions
+            // from the canonical control vertices now); its own ellipse is the fallback only while it is not a mesh member (no incident
+            // face) or sits on a boundary. The canonical surfels are never modified: these are render copies.
+            uint tid = sheet[fsSheetNodeWord(h, 9u)];
+            if (tid != FS_INDEX_NONE && topo[fsTopoVertexWord(tid, 4u)] != s.surfaceId) tid = FS_INDEX_NONE;
+            bool meshMember = tid != FS_INDEX_NONE && topo[fsTopoVertexWord(tid, 5u)] > 0u && (topo[fsTopoVertexWord(tid, 1u)] & FS_TOPO_FLAG_BOUNDARY) == 0u;
+            uint emitCount = meshMember ? 0u : 1u;
+            FsSurfel records[1 + FS_TOPO_FACES];
+            if (!meshMember) { FsSurfel e0 = s; fsSet_FsSurfel_sigmaTMinor(e0, 0u); records[0] = e0; }
+            if (tid != FS_INDEX_NONE) {
+                FsPatch pa = fsUnpack(s);
+                vec3 originA = fsPageOrigin3(pages[page].key);
+                for (uint f = 0u; f < uint(FS_TOPO_FACES); ++f) {
+                    uint bE = topo[fsTopoFaceWord(tid, f, 0u)];
+                    uint st = topo[fsTopoFaceWord(tid, f, 4u)] & 3u;
+                    if (bE == FS_INDEX_NONE || (st != FS_FACE_ACTIVE && st != FS_FACE_SUSPECT)) continue;
+                    uint cE = topo[fsTopoFaceWord(tid, f, 1u)];
+                    FsSurfel sb = surfels[bE & 0x3FFFFFu], sc = surfels[cE & 0x3FFFFFu];
+                    if (sb.surfaceId != topo[fsTopoFaceWord(tid, f, 2u)] || sc.surfaceId != topo[fsTopoFaceWord(tid, f, 3u)]) continue;   // vertex recycled: the next commit retires the face
+                    vec3 ob = fsPageOrigin3(pages[bE >> 22].key) - originA + fsSurfelLocalPos(sb) - pa.p;
+                    vec3 oc = fsPageOrigin3(pages[cE >> 22].key) - originA + fsSurfelLocalPos(sc) - pa.p;
+                    if (any(greaterThan(abs(ob), vec3(FS_TRI_OFFSET_RANGE_M))) || any(greaterThan(abs(oc), vec3(FS_TRI_OFFSET_RANGE_M)))) { atomicAdd(gctr[FS_GCTR_FACE_OVERFLOW], 1u); continue; }
+                    vec3 nf = cross(ob, oc); float nl = length(nf); if (nl < 1e-10) continue;
+                    nf /= nl; if (dot(nf, pa.n) < 0.0) nf = -nf;
+                    FsSurfel t = s;
+                    uint o, oh; fsSplitOct32(fsEncodeOct32(nf), o, oh); fsSet_FsSurfel_normalOct(t, o); fsSet_FsSurfel_normalOctHi(t, oh);
+                    t.radiusMajor_radiusMinor = fsTriOffsetEncode(ob); t.sigmaN_sigmaTMajor = fsTriOffsetEncode(oc); fsSet_FsSurfel_sigmaTMinor(t, FS_RENDER_TRI_MARK);
+                    // appearance: confirmed only when all three vertices carry confirmed photometry (count-free average of their colours)
+                    uint ca = s.appearanceHandle, cb = sb.appearanceHandle, cc = sc.appearanceHandle;
+                    uint obsMin = min(min((ca & FS_APPEARANCE_OBS_MASK), (cb & FS_APPEARANCE_OBS_MASK)), (cc & FS_APPEARANCE_OBS_MASK));
+                    if ((ca & cb & cc & FS_APPEARANCE_MEASURED) != 0u) {
+                        vec3 col = (vec3(float(ca & 0xFFu), float((ca >> 8) & 0xFFu), float((ca >> 16) & 0xFFu)) + vec3(float(cb & 0xFFu), float((cb >> 8) & 0xFFu), float((cb >> 16) & 0xFFu)) + vec3(float(cc & 0xFFu), float((cc >> 8) & 0xFFu), float((cc >> 16) & 0xFFu))) / 3.0;
+                        uvec3 c8 = uvec3(clamp(col + 0.5, vec3(0.0), vec3(255.0)));
+                        t.appearanceHandle = FS_APPEARANCE_MEASURED | obsMin | c8.x | (c8.y << 8) | (c8.z << 16);
+                    } else t.appearanceHandle = s.appearanceHandle & 0x00FFFFFFu;
+                    records[emitCount] = t; emitCount++;
+                }
             }
-            // E4.2R derived micro-surface readout: a site with a cell (>= FS_SHEET_CELL_MIN_DEGREE mutual same-sheet neighbours) publishes its
-            // restricted Voronoi cell (rMajor = cell rMax, ratios in sigmaN_sigmaTMajor, marked); others keep the statistical ellipse
-            // (surfel fallback). The canonical surfel is never modified: this is the render copy only.
-            float cellR = uintBitsToFloat(sheet[fsSheetNodeWord(h, 9u)]);
-            if (cellR > 0.0) {
-                uint r16 = fsEncodeLogRadius(cellR); fsSet_FsSurfel_radiusMajor(s, r16); fsSet_FsSurfel_radiusMinor(s, r16);
-                fsSet_FsSurfel_tangentAngle(s, 0u); s.sigmaN_sigmaTMajor = sheet[fsSheetNodeWord(h, 8u)]; fsSet_FsSurfel_sigmaTMinor(s, FS_RENDER_CELL_MARK);
-            } else fsSet_FsSurfel_sigmaTMinor(s, 0u);
-            rsurfels[curBlock * uint(FS_RENDER_BLOCK_SURFELS) + fill] = s; fill++; total++;
+            for (uint r = 0u; r < 1u + uint(FS_TOPO_FACES); ++r) {
+                if (r >= emitCount) break;
+                if (total >= uint(FS_CELL_RENDER_MAX)) { overflow++; continue; }
+                if (curBlock == FS_INDEX_NONE || fill == uint(FS_RENDER_BLOCK_SURFELS)) {
+                    if (curBlock != FS_INDEX_NONE) { uint ln = fsMakeLeafNode(curBlock, fill); if (ln == FS_INDEX_NONE) break; blocks[nb++] = ln; }
+                    curBlock = fsPoolAlloc(FS_POOL_RBLOCK); fill = 0u;
+                    if (curBlock == FS_INDEX_NONE) { atomicAdd(gctr[FS_GCTR_POOL_RBLOCK_EMPTY], 1u); break; }
+                }
+                rsurfels[curBlock * uint(FS_RENDER_BLOCK_SURFELS) + fill] = records[r]; fill++; total++;
+            }
+            if (curBlock == FS_INDEX_NONE) break;
         }
     }
     if (curBlock != FS_INDEX_NONE && fill != 0u) { uint ln = fsMakeLeafNode(curBlock, fill); if (ln != FS_INDEX_NONE) blocks[nb++] = ln; }

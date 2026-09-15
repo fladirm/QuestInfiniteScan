@@ -27,6 +27,7 @@ int32_t FsMeas_SetStereoPair(uint32_t observationId, int64_t xrTimeNsL, int64_t 
 int32_t FsMeas_GetStereoStats(int64_t out[17]);
 int32_t FsMeas_SetKeyframe(uint32_t slotIndex, void* unityTexture, uint32_t width, uint32_t height, uint32_t sensorWidth, uint32_t sensorHeight, const float worldFromCamera[16], float fx, float fy, float cx, float cy, int32_t rowFlip, int64_t xrTimeNs);   // C11 keyframe slot
 int32_t FsMeas_GetMultiviewStats(int64_t out[22]);
+int32_t FsMeas_GetTargetStats(int64_t out[11]);   // C11R2 surface-driven temporal refinement receipts
 int32_t FsMeas_SetCameraFrame(int32_t eye, void* unityTexture, uint32_t width, uint32_t height, uint32_t sensorWidth, uint32_t sensorHeight, const float worldFromCamera[16], float fx, float fy, float cx, float cy, int32_t rowFlip, int64_t xrTimeNs);   // budget = measurements selected per depth frame (§7.6), maxOut = record cap
 // out[8]: framesSeen, framesSubmitted, framesSuperseded, lastCount, lastOverflow, lastGpuUs, importFailures, lastEdgeTexels
 int32_t FsMeas_GetStats(int64_t out[8]);

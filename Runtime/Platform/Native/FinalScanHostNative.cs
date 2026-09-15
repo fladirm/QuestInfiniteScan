@@ -124,6 +124,7 @@ namespace FinalScan.Platform.Native
         [DllImport(Lib)] static extern int FsMeas_GetStereoStats([Out] long[] out17);
         [DllImport(Lib)] static extern int FsMeas_SetKeyframe(uint slotIndex, IntPtr unityTexture, uint width, uint height, uint sensorWidth, uint sensorHeight, float[] worldFromCamera16, float fx, float fy, float cx, float cy, int rowFlip, long xrTimeNs);
         [DllImport(Lib)] static extern int FsMeas_GetMultiviewStats([Out] long[] out22);
+        [DllImport(Lib)] static extern int FsMeas_GetTargetStats([Out] long[] out11);
 
         static int s_abi = int.MinValue;
         /// <summary>True when the plugin loads and reports ABI 2. Cached after the first successful probe.</summary>
@@ -214,6 +215,8 @@ namespace FinalScan.Platform.Native
             => FsMeas_SetKeyframe(slot, texture, width, height, sensorWidth, sensorHeight, worldFromCamera16, fx, fy, cx, cy, rowFlip ? 1 : 0, xrTimeNs);
         /// <summary>FsMeas_GetMultiviewStats (C11 receipts): temporal tested, valid, lowTex, ambiguous, bandEdge, noCover, disagree, sigma um, planar tested, valid, rejected, sigma um, rms um, keyframes set, frames with keyframe.</summary>
         public static int GetMultiviewStats(long[] out22) => FsMeas_GetMultiviewStats(out22);
+        /// <summary>FsMeas_GetTargetStats (C11R2): considered, texture, keyframe, baseline rejected, visibility rejected, written, solved, accepted, sigma before um, sigma after um, information gain x1000.</summary>
+        public static int GetTargetStats(long[] out11) => FsMeas_GetTargetStats(out11);
         public static int SetMode(RenderModeId mode) => FsRender_SetMode((int)mode);
 #else
         public static bool Available => false;
@@ -256,6 +259,7 @@ namespace FinalScan.Platform.Native
         public static int GetStereoStats(long[] out17) => ResultUnavailable;
         public static int SetKeyframe(uint slot, IntPtr texture, uint width, uint height, uint sensorWidth, uint sensorHeight, float[] worldFromCamera16, float fx, float fy, float cx, float cy, bool rowFlip, long xrTimeNs) => ResultUnavailable;
         public static int GetMultiviewStats(long[] out22) => ResultUnavailable;
+        public static int GetTargetStats(long[] out11) => ResultUnavailable;
 #endif
 
         /// <summary>

@@ -122,10 +122,10 @@ typedef struct FsSurfaceMeasurement {
 #define FS_APPEARANCE_OBS_SHIFT   24
 #define FS_APPEARANCE_OBS_MASK    0x0F000000u
 #define FS_APPEARANCE_CONFIRM_OBS 3
-// E4.2R derived micro-surface cell in the RENDER COPY of a surfel (publish_leaves): sigmaTMinor == FS_RENDER_CELL_MARK marks
-// that sigmaN_sigmaTMajor carries 8 x 4-bit boundary ratios of the site's restricted Voronoi cell (direction k at k x 45 deg
-// in the canonical tangent frame of the normal, radius = rMajor x (q + 1) / 16).
-#define FS_RENDER_CELL_MARK       0xFFFFu
+// E6R shared surface mesh in the RENDER COPY (publish_leaves): sigmaTMinor == FS_RENDER_TRI_MARK marks a triangle of the persistent
+// topology owned by that vertex: position = the owner vertex, radiusMajor_radiusMinor / sigmaN_sigmaTMajor = offsets of the other
+// two vertices (3 x 10-bit signed, FS_TRI_OFFSET_RANGE_M), normal = face normal. Derived readout only: the canonical surfels stay.
+#define FS_RENDER_TRI_MARK        0xFFFEu
 
 // ---- Draw (contract §13) -----------------------------------------------------------------------
 // The native CULL pass writes compact draw records for the published FRONT of resident pages.
@@ -223,6 +223,6 @@ typedef struct FsRenderNode {
 // bit 3 aggregate (coverage LOD; low 16 bits of colorOrHandle alpha carry coverage), bit 4 transient.
 #define FS_DRAW_FLAG_AGGREGATE (1u << 3)
 #define FS_DRAW_FLAG_TRANSIENT (1u << 4)
-#define FS_DRAW_FLAG_CELL (1u << 6)            // E4.2R micro-surface cell: 8-gon fan with per-direction radii; ratio nibbles 0..1 in the
-                                               // rMinor byte of tangentAndRadii, nibbles 2..7 in flags bits 8..31; angle = world frame rotation
+#define FS_DRAW_FLAG_TRIANGLE (1u << 6)        // E6R mesh triangle: centre = vertex 0 (world), tangentAndRadii / surfaceId = world offsets of vertices 1 / 2
+                                               // (3 x 10-bit signed, FS_TRI_OFFSET_RANGE_M); drawn by the triangle bucket (3 vertices)
 #define FS_DRAW_FLAG_NO_APPEARANCE (1u << 5)   // geometry without a measured appearance: never in SCAN; XRAY / PLAN draw it neutral grey (E4.2)

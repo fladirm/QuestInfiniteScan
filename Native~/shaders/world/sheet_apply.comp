@@ -1,7 +1,7 @@
 #version 450
 // E4.1R 3/3 apply (one dispatch over the batch): every surfel writes only itself and its own node. Flat sheet -> centre moved
 // along the fitted normal by FS_SHEET_BLEND of the offset, normal blended toward the fit; the canonical radii are NOT touched
-// (statistical support stays statistical). Node meta = mutual degree + derived coverage radius, component label. A centre that
+// (statistical support stays statistical). Node meta = mutual degree. A centre that
 // crossed its cell emits a relocation record; the cell is marked dirty for the next publication. Clears the graph-dirty bit.
 #extension GL_GOOGLE_include_directive : require
 #define FS_USE_PAGES_RO
@@ -23,13 +23,7 @@ void main() {
     uint dw = fsSheetDeltaWord(i, 0u);
     uint flags = sheet[dw + 2u];
     if ((flags & 2u) != 0u) { FsSurfelEvidence er = evidence[h]; if (fsLifeState(er) == FS_LIFE_SUSPECT) { fsLifeSet(er, FS_LIFE_RETIRING); evidence[h] = er; } }
-    sheet[fsSheetNodeWord(h, 6u)] = ((flags >> 4) & 15u) << 24;
-    sheet[fsSheetNodeWord(h, 7u)] = sheet[dw + 3u];
-    // E4.2R micro-surface cell: a changed cell republishes the owner cell of the site
-    if (sheet[fsSheetNodeWord(h, 8u)] != sheet[dw + 5u] || sheet[fsSheetNodeWord(h, 9u)] != sheet[dw + 6u]) {
-        sheet[fsSheetNodeWord(h, 8u)] = sheet[dw + 5u]; sheet[fsSheetNodeWord(h, 9u)] = sheet[dw + 6u];
-        if ((fsGet_FsSurfel_evidenceFlags(surfels[h]) & FS_FLAG_REMOVED) == 0u) fsMarkDirtyCell(page, fsCellOf(fsSurfelLocalPos(surfels[h])));
-    }
+    sheet[fsSheetNodeWord(h, 8u)] = (flags >> 4) & 15u;
     if ((flags & 1u) == 0u || sheet[dw + 4u] != FS_INDEX_NONE) return;   // curved, or contracted by sheet_contract (E4.1C)
     FsSurfel s = surfels[h];
     FsPatch a = fsUnpack(s);

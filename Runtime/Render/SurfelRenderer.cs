@@ -37,9 +37,10 @@ namespace FinalScan.Render
         public const int PassOpaque = 0;
         public const int PassAggregate = 1;
         public const int PassXRay = 2;
-        public const int ArgsSlotCount = 2;                                  // opaque, aggregate
+        public const int ArgsSlotCount = 3;                                  // opaque fallback, aggregate, E6R mesh triangles
         public const int ArgsUintCount = ArgsSlotCount * SurfelDrawAbi.IndirectArgsCount;
         public const int AggregateArgsByteOffset = SurfelDrawAbi.IndirectArgsCount * sizeof(uint);   // 16
+        public const int TriangleArgsByteOffset = 2 * SurfelDrawAbi.IndirectArgsCount * sizeof(uint);  // 32
         public const uint PolygonFanVertexCount = 24;                        // 8-gon fan
 
         /// <summary>Instance used by the render feature (one per scene).</summary>
@@ -78,7 +79,7 @@ namespace FinalScan.Render
         GraphicsBuffer _drawRecords;
         GraphicsBuffer _indirectArgs;
         Material _material;
-        MaterialPropertyBlock _propsOpaque, _propsAggregate;
+        MaterialPropertyBlock _propsOpaque, _propsAggregate, _propsTriangles;
         bool _registered;
         int _registerAttempts;
         float _nextRegisterTime;
@@ -138,13 +139,15 @@ namespace FinalScan.Render
             }
             _propsOpaque ??= new MaterialPropertyBlock();
             _propsAggregate ??= new MaterialPropertyBlock();
-            foreach (var p in new[] { _propsOpaque, _propsAggregate })
+            _propsTriangles ??= new MaterialPropertyBlock();
+            foreach (var p in new[] { _propsOpaque, _propsAggregate, _propsTriangles })
             {
                 p.SetBuffer(DrawRecordsId, _drawRecords);
                 p.SetBuffer(DrawArgsId, _indirectArgs);
             }
             _propsOpaque.SetInt(ArgsSlotId, 0);
             _propsAggregate.SetInt(ArgsSlotId, 1);
+            _propsTriangles.SetInt(ArgsSlotId, 2);
             _registered = false;
             _nextRegisterTime = 0f;
         }
@@ -215,6 +218,8 @@ namespace FinalScan.Render
             bool xray = mode == RenderMode.XRay;
             cmd.DrawProceduralIndirect(Matrix4x4.identity, _material, xray ? PassXRay : PassOpaque, MeshTopology.Triangles, _indirectArgs, 0, _propsOpaque);
             cmd.DrawProceduralIndirect(Matrix4x4.identity, _material, xray ? PassXRay : PassAggregate, MeshTopology.Triangles, _indirectArgs, AggregateArgsByteOffset, _propsAggregate);
+            // E6R shared surface mesh: one opaque triangle draw (records behind opaque + aggregates)
+            cmd.DrawProceduralIndirect(Matrix4x4.identity, _material, xray ? PassXRay : PassOpaque, MeshTopology.Triangles, _indirectArgs, TriangleArgsByteOffset, _propsTriangles);
             DrawsIssued++;
         }
     }

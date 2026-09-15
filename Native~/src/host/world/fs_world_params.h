@@ -66,20 +66,47 @@
 #define FS_RETIRE_NEIGHBOUR_FRACTION 0.5  // spatial consistency: at least this share of the graph neighbours are SUSPECT / RETIRING
 #define FS_REFINE_STREAK      2         // refinement: unexplained residual in this many consecutive observations
 #define FS_FREE_GRAZE_COS     0.15      // narrow phase: rays more grazing than this never contradict a support
+// ---- E6R persistent surface topology --------------------------------------------------------------------------------------------
+#define FS_TOPO_VERTEX_CAP      262144   // topology vertex records (promoted surfels in faces); pooled
+#define FS_TOPO_VERTEX_WORDS    32       // header 7 + FS_TOPO_FACES x FS_TOPO_FACE_WORDS
+#define FS_TOPO_HEADER_WORDS    7        // sheet index, flags, label, label generation, SurfaceID guard, incident faces, label stable count
+#define FS_TOPO_FACES           5        // faces owned by one vertex (owner = minimum SurfaceID of the face)
+#define FS_TOPO_FACE_WORDS      5        // b packed, c packed, SurfaceID b, SurfaceID c, meta (state | bridge evidence | last tick | attempts)
+#define FS_SHEET_REC_CAP        65536    // sheet records (union-find); pooled
+#define FS_SHEET_REC_WORDS      8        // sheetId, parent, vertices, faces, area mm2, refs, relabel generation, min label
+#define FS_TOPO_DELTA_WORDS     12       // per batch node: flags, 5 x (b packed, c packed), hole receipt
+#define FS_TOPO_FREE_MAX        16384    // released ids per topology job (host-visible)
+#define FS_TEMPORAL_TARGETS     256      // C11R2 targets per topology job
+#define FS_TEMPORAL_TARGET_WORDS 8       // world xyz, normal oct, sigmaN, SurfaceID, positive support, pad
+#define FS_TEMPORAL_SIGMA_TARGET_M 0.004 // a face vertex whose sigmaN is above this still needs precision (temporal target)
+#define FS_FACE_MAX_GAP_RAD     2.618    // a fan gap wider than 150 deg is a boundary (no face across it)
+#define FS_FACE_MAX_CIRCUM_M    0.05     // no face with a circumradius beyond 5 cm (openings, leaf gaps)
+#define FS_FACE_LIFT_M2         1e-7     // in-circle predicate: deterministic SurfaceID lift (m^2) breaks cocircular ties identically for every owner
+#define FS_FACE_FOLD_COS        0.5      // face normal vs vertex normals below this: folded (overlap receipt)
+#define FS_BRIDGE_MIN_SUPPORT   6        // a face joining two sheets needs this positive support on all three vertices
+#define FS_BRIDGE_EVIDENCE      3        // ... and this many derivations in distinct observation ticks before the union
+#define FS_BRIDGE_FREE_VERTICES 16       // a sheet this small is still growing: a face joining it to another sheet unions at once
+#define FS_BRIDGE_ATTEMPTS      8        // a pending bridge re-marks its owner at most this many times without new evidence
+#define FS_SPLIT_CONFIRM        3        // a vertex whose component label stays above its sheet's minimum this many passes splits off
+#define FS_FACE_PENDING         0u       // face states (meta bits 0..1)
+#define FS_FACE_ACTIVE          1u
+#define FS_FACE_SUSPECT         2u
+#define FS_TOPO_FLAG_INTERIOR   1u       // vertex flags: fan closed
+#define FS_TOPO_FLAG_BOUNDARY   2u
+#define FS_TRI_OFFSET_RANGE_M   0.128    // render copy: triangle vertex offsets from the owner vertex, 10 bits signed per axis
 #define FS_PROMOTE_STATIC     3         // DISTINCT consistent observations (frames, not pixels) before a transient candidate becomes canonical
 #define FS_HUBER_K            1.345     // C09R-E4 robust update: contribution weight min(1, k * gate_sigma / |plane residual|)
 #define FS_ASSOC_PLANE_MAX_M  0.08      // C09R-E4 topological bound of the plane gate: a broad depth-prior sigma never joins sheets farther apart (provisional)
 #define FS_DEPTH_PRIOR_SIGMA_FLOOR_M 0.005  // C09R-E4 systematic floor of a depth-prior-only surfel (random noise averages, bias does not; C01 characterises it)
 // ---- C09R-E4.1R surface complex core (provisional numbers). Canonical rM/rm = statistical support only; the SurfaceGraph is
 // derived and persistent per surfel handle; coverage (readout) is derived from mutual edges, never grown into the canonical.
-#define FS_SHEET_K            6         // proposed neighbours per node (true metric top-K of the ball query)
+#define FS_SHEET_K            8         // proposed neighbours per node (true metric top-K of the ball query; E6R: 8 for the local triangulation)
 #define FS_SHEET_LINK_R_M     0.06      // ball query radius / maximum edge length
 #define FS_SHEET_CAND_MAX     384       // candidates examined per ball query (counted beyond)
 #define FS_SHEET_MIN_DOT      0.9       // edge: normals within ~26 deg (a 90 deg corner never connects)
 #define FS_SHEET_PLANE_MAX_M  0.02      // edge: signed plane distance bound in the mean-normal frame (no depth discontinuity)
 #define FS_SHEET_FLAT_K       1.5       // flat when the mutual ring's plane RMS <= K x its mean sigma (else curvature is preserved)
 #define FS_SHEET_BLEND        0.5       // flat sheet: fraction of the fitted normal offset / normal applied per graph update
-#define FS_SHEET_CELL_MIN_DEGREE 2    // E4.2R: a site with >= 2 mutual same-sheet neighbours reads out as a micro-surface cell
 #define FS_SHEET_COVER_MAX_M  0.05      // derived coverage radius bound (readout only)
 #define FS_SHEET_MOVE_MIN_M   0.002     // reduce marks a promoted surfel graph-dirty when its centre moved more than this ...
 #define FS_SHEET_TURN_MIN_COS 0.9994    // ... or its normal turned more than ~2 deg (converged in-plane updates cost no graph work)
@@ -103,7 +130,7 @@
 #define FS_REFINE_MIN_OUTLIERS  3       // ... in one observation, at least this many
 #define FS_REFINE_MIN_SUPPORT   4       // ... on a surfel with this much support: insert a site at the worst residual
 #define FS_REFINE_BIRTHS_MAX    256     // site insertions per epoch (bounded sequential pass)
-#define FS_SHEET_NODE_WORDS   10        // per handle: nbr[6] (page << 22 | handle), meta (degree << 24), component, cell ratios (8 x 4 bit), cell rMax (float bits)
+#define FS_SHEET_NODE_WORDS   11        // per handle: nbr[8] (page << 22 | handle), meta (degree), topology vertex record id, contraction generation stamp
 #define FS_RELOC_MAX          1024      // C09R-E4 relocation records per epoch (centre crossed its index cell); beyond: the position update waits (counted)
 #define FS_VAR_NORM_BASE      0.001     // log base of the normalised residual variance (varianceQ): 0.001 .. ~6e4 (E3b; run 00:12: 111 k splits against the fused sigma)
 #define FS_MERGE_MIN_DOT      0.98      // coplanar within ~11 deg ...
@@ -224,7 +251,26 @@
 #define FS_GCTR_SURFEL_RECOVERED   51     // SUSPECT / RETIRING -> healthier state by positives
 #define FS_GCTR_SURFEL_RETIRED     52     // promoted RETIRING -> REMOVED
 #define FS_GCTR_FREE_NARROW_HITS   53     // free-space rays that crossed a surfel support (narrow phase)
-#define FS_GCTR_COUNT              54
+#define FS_GCTR_ACTIVE_SHEETS      54     // E6R topology receipts: live sheet roots (gauge maintained by the commit pass)
+#define FS_GCTR_SHEET_UNIONS       55
+#define FS_GCTR_SHEET_SPLITS       56
+#define FS_GCTR_ACTIVE_FACES       57     // gauge: live faces (ACTIVE + SUSPECT)
+#define FS_GCTR_FACES_CREATED      58
+#define FS_GCTR_FACES_RETIRED      59
+#define FS_GCTR_FACES_SUSPECT      60     // face transitions to SUSPECT
+#define FS_GCTR_FACES_RECOVERED    61
+#define FS_GCTR_BOUNDARY_VERTICES  62     // topology passes that found the vertex on a boundary (fan not closed)
+#define FS_GCTR_FACE_DUP_REFUSED   63     // a face already present in the owner's list was proposed again (kept, not duplicated)
+#define FS_GCTR_FACE_OWNER_VIOL    64     // a face whose owner is not the minimum SurfaceID (must stay 0)
+#define FS_GCTR_MESH_HOLE_MM2      65     // interior fan wedges refused (Delaunay / circumradius) area sum
+#define FS_GCTR_MESH_OVERLAP_MM2   66     // folded faces (normal disagrees with the vertex normals) area sum
+#define FS_GCTR_TOPO_VERTICES      67     // gauge: vertices with a topology record
+#define FS_GCTR_TOPO_POOL_EMPTY    68     // topology / sheet pool exhausted (counted, never silent)
+#define FS_GCTR_BRIDGES_PENDING    69     // bridge faces waiting for repeated evidence (derivations)
+#define FS_GCTR_FACE_OVERFLOW      70     // owned faces beyond FS_TOPO_FACES (counted)
+#define FS_GCTR_TEMPORAL_TARGETS   71     // uncertain surface vertices exported for C11R2 refinement
+#define FS_GCTR_CONTRACT_UNMATCHED 72     // contraction proposals refused by the matching (vertex already used this generation)
+#define FS_GCTR_COUNT              73
 
 // ---- fusion scratch layout (u32 words in the `tick` buffer; per epoch) -------------------------------------
 #define FS_T_COUNT           0          // measurements in the epoch (GPU-written from the ring counters)
@@ -246,6 +292,9 @@
 #define FS_T_WORK_SERIAL     80         // E6R scheduler clock: serial of the world job being recorded (any class); rings store it, the host maps serial -> steady ns
 #define FS_T_EYE0            81         // E6R: 3 words float bits, anchor-local eye origins of the fuse epoch (view sectors)
 #define FS_T_EYE1            84
+#define FS_T_TOPO_GEN        87         // E6R topology generation (one per topology job): contraction matching stamps
+#define FS_T_TARGET_COUNT    88         // E6R temporal refinement targets written by the commit pass (host-visible)
+#define FS_T_TOPO_FREE_COUNT 89         // E6R topology / sheet ids released by the commit pass (host-visible list)
 #define FS_T_DIRTY_TAIL      79         //   producer tail (atomic, fsMarkDirtyCell)
 #define FS_T_REFINE_BIRTHS   77         // E4.1C refinement births of the epoch (deterministic ids after the candidates)
 #define FS_T_RELOC_COUNT     9          // relocation records (written by fuse_reduce / fuse_maint_apply, consumed and zeroed by world_relocate)
@@ -264,7 +313,7 @@
 #define FS_T_WORDS           96
 #define FS_CELL_RENDER_MAX   4096       // surfels published per cell (64 blocks); beyond = coverage aggregate only (counted)
 #define FS_POOL_HEADER_WORDS 8          // per free-id ring: head, tail, mask, failures, ringBase, cap, pad, pad
-#define FS_POOL_COUNT        4
+#define FS_POOL_COUNT        6          // + E6R topology vertex records, sheet records
 
 // ---- cull stats words (device -> host ring) -----------------------------------------------------------
 #define FS_CSTAT_FRAME            0

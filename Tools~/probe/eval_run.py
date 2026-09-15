@@ -91,6 +91,20 @@ def main():
         row("cost maint / leaves / sheet fixed us (structural)", f"{w.get('costMaintFixedUs')} ({w.get('costMaintStructural')}) / {w.get('costLeavesFixedUs')} ({w.get('costLeavesStructural')}) / {w.get('costSheetFixedUs')} ({w.get('costSheetStructural')})", True, "E5R")
         meas_total, meas_drop = last.get("measurements") or 0, last.get("measurementsDropped") or 0
         row("measurements dropped share", f"{(meas_drop / meas_total * 100) if meas_total else 0:.1f} %", meas_total == 0 or meas_drop / meas_total < 0.5, "E5R: not tens of percent (latest-only drops OK)")
+        # E6R rows
+        fz = w.get('observationsFused') or 0; rcv = w.get('observationsReceived') or 0
+        span = max((last.get('t') or 1) - (tele[0].get('t') or 0), 1)
+        row("fuse Hz (observations fused / s) / received / superseded", f"{fz / span:.2f} / {rcv} / {w.get('observationsSuperseded')}", fz / span >= 15, "E6R: 15-20 Hz")
+        row("age p95 ms fuse / publish / topology", f"{w.get('fuseAgeP95Ms')} / {w.get('publicationAgeP95Ms')} / {w.get('topologyAgeP95Ms')}", (w.get('publicationAgeP95Ms') or 1e9) < 100 and (w.get('topologyAgeP95Ms') or 1e9) < 250, "E6R")
+        row("jobs fuse / publish / topology; overdue picks", f"{w.get('fuseJobs')} / {w.get('publishJobs')} / {w.get('topologyJobs')}; {w.get('fuseOverduePicks')} / {w.get('publishOverduePicks')} / {w.get('topologyOverduePicks')}", True, "E6R")
+        row("sheets active / unions / splits", f"{fu.get('activeSheets')} / {fu.get('sheetUnions')} / {fu.get('sheetSplits')}", True, "E6R")
+        row("topology vertices / faces active / created / retired", f"{fu.get('topologyVertices')} / {fu.get('activeFaces')} / {fu.get('facesCreated')} / {fu.get('facesRetired')}", (fu.get('activeFaces') or 0) > 0, "E6R")
+        row("faces suspect / recovered; duplicate refused / owner violations", f"{fu.get('facesSuspect')} / {fu.get('facesRecovered')}; {fu.get('faceDuplicateRefused')} / {fu.get('faceOwnerViolations')}", (fu.get('faceOwnerViolations') or 0) == 0, "E6R")
+        row("mesh hole / overlap mm2 (sums); boundary passes", f"{fu.get('meshHoleMm2')} / {fu.get('meshOverlapMm2')}; {fu.get('boundaryVertices')}", True, "E6R")
+        row("evidence positive / contradictions / healed", f"{fu.get('positiveEvidence')} / {fu.get('contradictions')} / {fu.get('contradictionsHealed')}", True, "E6R")
+        row("surfel suspect / recovered / retired; narrow hits", f"{fu.get('surfelSuspect')} / {fu.get('surfelRecovered')} / {fu.get('surfelRetired')}; {fu.get('freeNarrowHits')}", True, "E6R")
+        row("contractions / unmatched; refinement births; bridges pending", f"{fu.get('edgeContractions')} / {fu.get('contractUnmatched')}; {fu.get('refinementBirths')}; {fu.get('bridgesPending')}", True, "E6R")
+        row("topology pool empty / face overflow / temporal targets", f"{fu.get('topologyPoolEmpty')} / {fu.get('faceOverflow')} / {fu.get('temporalTargets')}", (fu.get('topologyPoolEmpty') or 0) == 0, "E6R")
         row("publish chunks / leavesChunk / sheet jobs / sheetBatch", f"{w.get('publishChunks')} / {w.get('leavesChunk')} / {w.get('sheetJobs')} / {w.get('sheetBatch')}", True, "E5")
         row("last us: fuse / maint / leaves / levels / sheet", f"{w.get('fuseGpuUsLast')} / {w.get('publishMaintUsLast')} / {w.get('publishLeavesUsLast')} / {w.get('publishLevelsUsLast')} / {w.get('sheetGpuUsLast')}", True, "E5")
         row("frames abandoned / measurements abandoned", f"{w.get('framesAbandoned')} / {w.get('measurementsAbandoned')}", True, "E5")
@@ -110,6 +124,8 @@ def main():
             row("temporal sigma mean mm / keyframes set / frames with keyframe", f"{(mv.get('temporalSigmaUm',0)/1000/tv) if tv else 0:.2f} / {mv.get('keyframesSet')} / {mv.get('framesWithKeyframe')}", True, "C11")
             row("candidates stereo / temporal; refine skipped / jobs; pairs rejected for geometry", f"{mv.get('candidatesStereo')} / {mv.get('candidatesTemporal')}; {mv.get('refineSkipped')} / {mv.get('refineJobs')}; {mv.get('pairsGeometryRejected')}", True, "C10R/C11R")
             row("refine ms per frame p95 / last compaction us", f"{(mv.get('refineFrameUsP95') or 0)/1000:.2f} / {mv.get('lastCompactUs')}", True, "C10R: compaction back to ~1 ms")
+            tg = last.get("targets") if isinstance(last.get("targets"), dict) else {}
+            if tg: row("C11R2 targets considered / texture / keyframe / baselineRej / visibilityRej / written / solved / accepted", " / ".join(str(tg.get(k)) for k in ("considered","textureEligible","keyframeEligible","baselineRejected","visibilityRejected","written","solved","accepted")), True, "C11R2")
             row("planar tested / valid / rejected / sigma mm / rms mm", f"{mv.get('planarTested')} / {pv} / {mv.get('planarRejected')} / {(mv.get('planarSigmaUm',0)/1000/pv) if pv else 0:.2f} / {(mv.get('planarRmsUm',0)/1000/pv) if pv else 0:.2f}", True, "C11")
         # sort share (review gap 3): native stage ring of the last records
         sort_us, fuse_us = 0.0, 0.0

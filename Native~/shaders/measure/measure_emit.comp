@@ -97,21 +97,7 @@ void main() {
                     }
                 }
             }
-            // ---- C11R temporal = refinement only: an existing surface (canonical prediction agrees within the band), textured left tile,
-            //      keyframe with enough ray-perpendicular baseline, point + band inside the keyframe, 1 of FS_TEMPORAL_SUBSAMPLE texels
-            if ((m.sourceFlags & FS_MEAS_SRC_PLANAR) == 0u && blk.keyInfo.z != 0u && (blk.camInfo.z & 1u) != 0u && g.z <= FS_STEREO_MAX_DEPTH_M && !g.edge
-                && score[t] < uint(FS_TEMPORAL_EXISTING_SCORE) && ((fsMeasHash(t, pc.b.y) % uint(FS_TEMPORAL_SUBSAMPLE)) == 0u)) {
-                vec2 pl, pk; float zl, zk;
-                if (fsCamPixel(0u, pw, pl, zl) && fsCamPixel(2u, pw, pk, zk)) {
-                    float m0 = FS_STEREO_PATCH_PX + FS_STEREO_PATCH_MARGIN_PX, mk = m0 + FS_TEMPORAL_BAND_MAX_PX;
-                    float W = fsCamW(0u), H = fsCamH(0u), WK = fsCamW(2u), HK = fsCamH(2u);
-                    bool inside = pl.x >= m0 && pl.y >= m0 && pl.x <= W - m0 && pl.y <= H - m0 && pk.x >= mk && pk.y >= mk && pk.x <= WK - mk && pk.y <= HK - mk;
-                    if (inside && uintBitsToFloat(tiles[fsTexTileWord(0u, fsTexTileOf(pl, W, H))]) >= FS_STEREO_MIN_TILE_STD && uintBitsToFloat(tiles[fsTexTileWord(2u, fsTexTileOf(pk, WK, HK))]) >= FS_STEREO_MIN_TILE_STD
-                        && fsEffectiveBaseline(2u, pw) >= FS_TEMPORAL_BEFF_MIN_M) {
-                        m.sourceFlags |= FS_MEAS_SRC_CAND_TEMPORAL; atomicAdd(blk.ctr[FS_MEAS_CTR_CAND_TEMPORAL], 1u);
-                    }
-                }
-            }
+            // C11R2: temporal refinement is NOT part of this pixel stream; its candidates come from the SurfaceComplex (measure_targets)
             write = true;
         }
     }

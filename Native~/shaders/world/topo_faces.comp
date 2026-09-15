@@ -1,0 +1,120 @@
+#version 450
+// E6R topology 1/2 (one dispatch over the batch, immutable analysis): the shared faces a changed vertex OWNS. A face (a, b, c) exists
+// only between same-sheet-compatible control vertices (mutual SurfaceGraph edges a-b, a-c and a compatible b-c edge: normals, signed
+// plane gate, link radius, free-space separator already applied by the graph), consecutive around a in a's tangent plane (fan gap
+// < FS_FACE_MAX_GAP_RAD, wider = boundary), with a circumradius <= FS_FACE_MAX_CIRCUM_M (openings / leaf gaps stay open), locally
+// Delaunay against every compatible vertex proposed by a, b or c (no point strictly inside the circumcircle), and it is OWNED by the
+// vertex with the minimum SurfaceID: exactly one vertex derives it, every other vertex only references it -> no duplicate faces.
+// Writes only this node's topology delta: flags (valid, interior, boundary, face count) + up to FS_TOPO_FACES (b, c) packed pairs.
+// Receipts: interior wedges refused by the Delaunay / circumradius test (hole area), folded faces (overlap area), overflow.
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_PAGES_RO
+#define FS_USE_SURFELS_RO
+#define FS_USE_EVIDENCE_RO
+#define FS_USE_GCTR
+#define FS_USE_SHEET_RO
+#define FS_USE_TOPO
+#include "fs_world_blocks.glsl"
+#include "fs_fusion.glsl"
+#include "fs_sheet.glsl"
+layout(local_size_x = FS_WG_SMALL) in;
+bool fsTopoVertexUsable(uint h) {
+    FsPatch q = fsUnpack(surfels[h]);
+    return (q.flags & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) == 0u && (q.flags & FS_FLAG_PROMOTED) != 0u && fsLifeState(evidence[h]) != FS_LIFE_RETIRING;
+}
+float fsSidLift(uint sid) { uint k = sid * 2654435761u; k ^= k >> 15; return FS_FACE_LIFT_M2 * float(k & 1023u) / 1023.0; }
+// lifted in-circle predicate: a at the origin, (a, b, c) counter-clockwise; d strictly inside -> true. The SurfaceID lift breaks cocircular
+// ties the same way for every owner, so two owners never pick the two different diagonals of one square (no overlapping faces).
+bool fsInCircleLifted(vec2 b, vec2 c, vec2 d, float la, float lb, float lc, float ld) {
+    float adx = -d.x, ady = -d.y, bdx = b.x - d.x, bdy = b.y - d.y, cdx = c.x - d.x, cdy = c.y - d.y;
+    float dl = dot(d, d) + ld;
+    float al = la - dl, bl = dot(b, b) + lb - dl, cl = dot(c, c) + lc - dl;
+    return adx * (bdy * cl - bl * cdy) - ady * (bdx * cl - bl * cdx) + al * (bdx * cdy - bdy * cdx) > 0.0;
+}
+bool fsMutual(uint hA, uint eA, uint hB) { for (uint j = 0u; j < uint(FS_SHEET_K); ++j) if (sheet[fsSheetNodeWord(hB, j)] == eA) return true; return false; }
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= FS_TK(FS_T_SHEET_COUNT)) return;
+    uint e = sheet[FS_TK(FS_T_SHEET_RING_BASE) + ((FS_TK(FS_T_SHEET_BEGIN) + i) & (uint(FS_SHEET_RING_CAP) - 1u))];
+    uint page = e >> 22, h = e & 0x3FFFFFu;
+    uint td = fsTopoDeltaWord(i, 0u);
+    for (uint w = 0u; w < uint(FS_TOPO_DELTA_WORDS); ++w) topo[td + w] = w == 0u ? 0u : FS_INDEX_NONE;
+    if (!fsTopoVertexUsable(h)) return;
+    FsPatch a = fsUnpack(surfels[h]);
+    vec3 pa = fsPageOrigin3(pages[page].key) + a.p;
+    vec3 t1, t2; fsTangentFrame(a.n, t1, t2);
+    // ---- candidates: mutual, usable neighbours sorted by angle around a
+    uint ce[FS_SHEET_K]; float ca[FS_SHEET_K]; vec2 cu[FS_SHEET_K]; uint nc = 0u;
+    for (uint k = 0u; k < uint(FS_SHEET_K); ++k) {
+        uint nbE = sheet[fsSheetNodeWord(h, k)];
+        if (nbE == FS_INDEX_NONE) continue;
+        uint nbH = nbE & 0x3FFFFFu;
+        if (!fsTopoVertexUsable(nbH) || !fsMutual(h, e, nbH)) continue;
+        vec3 d = fsPageOrigin3(pages[nbE >> 22].key) + fsUnpack(surfels[nbH]).p - pa;
+        vec2 u = vec2(dot(d, t1), dot(d, t2));
+        float ang = atan(u.y, u.x);
+        uint pos = nc;
+        while (pos > 0u && ca[pos - 1u] > ang) { ce[pos] = ce[pos - 1u]; ca[pos] = ca[pos - 1u]; cu[pos] = cu[pos - 1u]; pos--; }
+        ce[pos] = nbE; ca[pos] = ang; cu[pos] = u; nc++;
+    }
+    uint flags = 1u; bool interior = nc >= 3u;
+    uint nf = 0u; float holeMm2 = 0.0, foldMm2 = 0.0;
+    // for every candidate edge (a, c_j): the first counter-clockwise candidate c_k (<= 3 steps) forming a valid triangle. Delaunay gives
+    // exactly one triangle on the CCW side of each Delaunay edge, so every owner derives the same faces.
+    float coveredUntil = -1e9, firstStart = 0.0; bool first = true;
+    for (uint j = 0u; j < uint(FS_SHEET_K); ++j) {
+        if (j >= nc || nc < 2u) break;
+        bool found = false;
+        for (uint st = 1u; st <= 3u; ++st) {
+            if (st >= nc || found) break;
+            uint j2 = (j + st) % nc;
+            float gap = ca[j2] - ca[j]; if (gap <= 0.0) gap += 2.0 * FS_PI;
+            if (gap >= FS_FACE_MAX_GAP_RAD || gap <= 1e-4) break;
+            uint eB = ce[j], eC = ce[j2], hB = eB & 0x3FFFFFu, hC = eC & 0x3FFFFFu;
+            FsPatch b = fsUnpack(surfels[hB]), c = fsUnpack(surfels[hC]);
+            vec3 pb = fsPageOrigin3(pages[eB >> 22].key) + b.p, pc = fsPageOrigin3(pages[eC >> 22].key) + c.p;
+            float dbc; if (!fsSheetEdge(b, pb, c, pc, dbc)) continue;
+            vec2 ub = cu[j], uc = cu[j2];
+            float den = 2.0 * (ub.x * uc.y - ub.y * uc.x);
+            if (abs(den) < 1e-10) continue;
+            float bb = dot(ub, ub), cc2 = dot(uc, uc);
+            vec2 cen = vec2(uc.y * bb - ub.y * cc2, ub.x * cc2 - uc.x * bb) / den;
+            float area = 0.25 * abs(den);
+            if (length(cen) > FS_FACE_MAX_CIRCUM_M) { holeMm2 += area * 1e6; continue; }
+            bool delaunay = true;
+            for (uint src = 0u; src < 3u && delaunay; ++src) {
+                uint hs = src == 0u ? h : (src == 1u ? hB : hC);
+                for (uint k = 0u; k < uint(FS_SHEET_K); ++k) {
+                    uint dE = sheet[fsSheetNodeWord(hs, k)];
+                    if (dE == FS_INDEX_NONE || dE == e || dE == eB || dE == eC) continue;
+                    uint dH = dE & 0x3FFFFFu;
+                    if (!fsTopoVertexUsable(dH)) continue;
+                    FsPatch dp = fsUnpack(surfels[dH]);
+                    if (dot(dp.n, a.n) < FS_SHEET_MIN_DOT) continue;
+                    vec3 dd = fsPageOrigin3(pages[dE >> 22].key) + dp.p - pa;
+                    if (abs(dot(dd, a.n)) > FS_SHEET_PLANE_MAX_M) continue;
+                    vec2 du = vec2(dot(dd, t1), dot(dd, t2));
+                    if (fsInCircleLifted(ub, uc, du, fsSidLift(a.surfaceId), fsSidLift(b.surfaceId), fsSidLift(c.surfaceId), fsSidLift(dp.surfaceId))) { delaunay = false; break; }
+                }
+            }
+            if (!delaunay) continue;
+            found = true;
+            if (first) { firstStart = ca[j]; first = false; } else if (ca[j] > coveredUntil + 1e-3) interior = false;
+            coveredUntil = ca[j] + gap;
+            if (a.surfaceId > b.surfaceId || a.surfaceId > c.surfaceId) continue;
+            vec3 nf3 = cross(pb - pa, pc - pa); float nl = length(nf3); if (nl < 1e-10) continue;
+            nf3 /= nl; if (dot(nf3, a.n) < 0.0) nf3 = -nf3;
+            if (dot(nf3, a.n) < FS_FACE_FOLD_COS || dot(nf3, b.n) < FS_FACE_FOLD_COS || dot(nf3, c.n) < FS_FACE_FOLD_COS) foldMm2 += 0.5 * nl * 1e6;
+            if (nf >= uint(FS_TOPO_FACES)) { atomicAdd(gctr[FS_GCTR_FACE_OVERFLOW], 1u); continue; }
+            topo[td + 1u + 2u * nf] = eB; topo[td + 2u + 2u * nf] = eC; nf++;
+        }
+        if (!found) interior = false;
+    }
+    if (!first && coveredUntil < firstStart + 2.0 * FS_PI - 1e-3) interior = false;
+    flags |= (interior ? FS_TOPO_FLAG_INTERIOR : FS_TOPO_FLAG_BOUNDARY) << 1u;
+    topo[td] = flags | (nf << 8);
+    topo[td + 11u] = uint(min(holeMm2, 4.0e9));
+    if (holeMm2 > 0.0) atomicAdd(gctr[FS_GCTR_MESH_HOLE_MM2], uint(min(holeMm2, 1.0e6)));
+    if (foldMm2 > 0.0) atomicAdd(gctr[FS_GCTR_MESH_OVERLAP_MM2], uint(min(foldMm2, 1.0e6)));
+    if (!interior) atomicAdd(gctr[FS_GCTR_BOUNDARY_VERTICES], 1u);
+}

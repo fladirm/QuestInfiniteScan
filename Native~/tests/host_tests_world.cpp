@@ -12,6 +12,7 @@
 #include "../src/host/world/fs_synthetic.h"
 #include "../src/host/world/fs_fusion_ref.h"
 #include "../src/host/fs_cost_model.h"
+#include "../src/host/world/fs_topology_ref.h"
 #include "../src/host/world/fs_pools.h"
 #include "../src/host/render/fs_cull_math.h"
 #include "../src/host/render/fs_hzb_math.h"
@@ -356,32 +357,16 @@ static void TestSurfaceComplex() {
     std::vector<SheetSite> shuffled = sites; std::reverse(shuffled.begin(), shuffled.end());
     CHECK(SheetProposals(sites[centre], shuffled) == props[centre]);
     for (size_t k = 0; k < 4; ++k) CHECK_NEAR(Len(sites[props[centre][k]].world - sites[centre].world), 0.025, 0.004);
-    std::vector<SheetCell> cover(sites.size());
+    std::vector<float> cover(sites.size(), 0.f);
     SheetDelta d = SheetFitR(sites[centre], props[centre], sites, props, cover);
     CHECK(d.degree >= 4 && d.flat);
-    // E4.2R restricted Voronoi cell of a 2.5 cm grid site: bisector 1.25 cm toward the axis neighbours; the diagonal directions reach
-    // the square corner (1.77 cm) or the nearest bisector; quantisation rounds outward (never a hole)
-    CHECK(d.cell.rMax > 0.f);
-    for (uint32_t k = 0; k < 8; ++k) { CHECK(d.cell.Radius(k) >= d.rho[k] - 1e-6f && d.cell.Radius(k) <= d.rho[k] + d.cell.rMax / 16.f + 1e-6f); }
-    { V3 t1, t2; Frame(sites[centre].q.n, t1, t2); (void)t1; (void)t2; }
-    // a flat regular grid tiles: once every site stores its cell, the edge receipts show neither holes nor more than quantisation overlap
-    { std::vector<Patch> flat; for (int y = -3; y <= 3; ++y) for (int x = -3; x <= 3; ++x) flat.push_back(SheetPatch(v3(0.025f * x, 0.025f * y, 0.f), v3(0, 0, 1), 0.004f, 0.004f));
-      std::vector<SheetSite> fs = Sites(flat); std::vector<std::vector<uint32_t>> fp; for (auto& s : fs) fp.push_back(SheetProposals(s, fs));
-      std::vector<SheetCell> cells(fs.size()); for (auto& s : fs) cells[s.id] = SheetFitR(s, fp[s.id], fs, fp, cells).cell;
-      SheetDelta dc = SheetFitR(fs[centre], fp[centre], fs, fp, cells);
-      std::printf("cell: rMax %.4f rho0 %.4f rho1 %.4f overlap %.2f mm2 hole %.2f mm2\n", dc.cell.rMax, dc.rho[0], dc.rho[1], dc.overlap * 1e6f, dc.hole * 1e6f);
-      CHECK_NEAR(dc.rho[0], 0.0125, 1e-4); CHECK(dc.hole < 1e-9f);
-      CHECK(dc.overlap <= (float)dc.degree * 2.f * (dc.cell.rMax / 16.f) * 2.f * dc.cell.rMax); }   // overlap = outward quantisation only
-    // boundary site (corner of the grid): unsupported directions are capped by the statistical ellipse (4 mm), not extended
-    { SheetDelta corner = SheetFitR(sites[0], props[0], sites, props, cover); CHECK(corner.cell.rMax > 0.f); for (uint32_t k : {0u, 1u, 2u}) CHECK(corner.rho[k] <= 0.004f + 1e-4f);    // frame of +z: t1 = -x, t2 = -y -> directions 0..2 face outward
-      CHECK_NEAR(corner.rho[4], 0.0125, 1e-4); }
     Patch moved = SheetApplyR(ps[centre], d);
     CHECK(moved.rM == ps[centre].rM && moved.rm == ps[centre].rm);                                    // canonical statistical support untouched
     CHECK(Dot(moved.n, v3(0, 0, 1)) >= Dot(ps[centre].n, v3(0, 0, 1)) - 1e-6f);
     // mutual only: a site that proposes the centre but the centre (with 6 closer neighbours) does not propose back -> frontier, no edge
     std::vector<Patch> ps2 = ps; ps2.push_back(SheetPatch(v3(0.05f, 0.0f, 0.0f), v3(0, 0, 1), 0.004f, 0.004f));   // duplicate of (2,0) spot
     std::vector<SheetSite> s2 = Sites(ps2); std::vector<std::vector<uint32_t>> p2; for (auto& s : s2) p2.push_back(SheetProposals(s, s2));
-    SheetDelta dFar = SheetFitR(s2.back(), p2.back(), s2, p2, std::vector<SheetCell>(s2.size()));
+    SheetDelta dFar = SheetFitR(s2.back(), p2.back(), s2, p2, std::vector<float>(s2.size(), 0.f));
     CHECK(dFar.degree + dFar.frontier.size() == p2.back().size());
     // 90 deg corner never connects
     std::vector<Patch> corner{SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.004f, 0.004f), SheetPatch(v3(0.01f, 0, 0.01f), v3(1, 0, 0), 0.004f, 0.004f), SheetPatch(v3(0.01f, 0.02f, 0.01f), v3(1, 0, 0), 0.004f, 0.004f)};
@@ -396,7 +381,7 @@ static void TestSurfaceComplex() {
     std::vector<Patch> sph{SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.004f, 0.0005f)};
     for (int k = 0; k < 8; ++k) { float ang = 6.2831853f * (float)k / 8.f; V3 p = v3(0.02f * cosf(ang), 0.02f * sinf(ang), 0.f); p.z = 0.05f - sqrtf(0.05f * 0.05f - Dot(p, p)); sph.push_back(SheetPatch(p, v3(-p.x, -p.y, 0.05f - p.z), 0.004f, 0.0005f)); }
     std::vector<SheetSite> ss = Sites(sph); std::vector<std::vector<uint32_t>> psph; for (auto& s : ss) psph.push_back(SheetProposals(s, ss));
-    SheetDelta dsp = SheetFitR(ss[0], psph[0], ss, psph, std::vector<SheetCell>(ss.size()));
+    SheetDelta dsp = SheetFitR(ss[0], psph[0], ss, psph, std::vector<float>(ss.size(), 0.f));
     CHECK(dsp.degree >= 3 && !dsp.flat && SheetApplyR(sph[0], dsp).p.z == sph[0].p.z);
     // cross page: world positions of sites in different pages connect exactly like same-page sites
     SheetSite pa; pa.q = SheetPatch(v3(1.99f, 0, 0), v3(0, 0, 1), 0.004f, 0.004f); pa.world = v3(3.99f, 0, 0); pa.id = 0;
@@ -485,7 +470,7 @@ static void TestCoarsenRefine() {
     for (auto& s : sites) { s.ev.positiveSupport = 10; s.q.surfaceId = s.id; }
     const uint32_t centre = 24; sites[centre].q.surfaceId = 1000;
     std::vector<std::vector<uint32_t>> props; for (auto& s : sites) props.push_back(SheetProposals(s, sites));
-    std::vector<SheetCell> cover(sites.size());
+    std::vector<float> cover(sites.size(), 0.f);
     SheetDelta d = SheetFitR(sites[centre], props[centre], sites, props, cover);
     std::printf("coarsen: degree %u flat %d target %u E %.3f\n", d.degree, (int)d.flat, d.contractTarget, d.contractE);
     CHECK(d.flat && d.degree >= FS_CONTRACT_MIN_DEGREE && d.contractTarget != UINT32_MAX && d.contractE < (float)FS_CONTRACT_BUDGET);   // flat wall coarsens
@@ -510,13 +495,13 @@ static void TestCoarsenRefine() {
     std::vector<Patch> strip{SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.01f, 0.002f), SheetPatch(v3(0.025f, 0, 0), v3(0, 0, 1), 0.01f, 0.002f), SheetPatch(v3(0.05f, 0, 0), v3(0, 0, 1), 0.01f, 0.002f)};
     std::vector<SheetSite> st = Sites(strip); for (auto& s : st) { s.ev.positiveSupport = 10; s.q.surfaceId = s.id; } st[1].q.surfaceId = 99;
     std::vector<std::vector<uint32_t>> pst; for (auto& s : st) pst.push_back(SheetProposals(s, st));
-    CHECK(SheetFitR(st[1], pst[1], st, pst, std::vector<SheetCell>(3)).contractTarget == UINT32_MAX);
+    CHECK(SheetFitR(st[1], pst[1], st, pst, std::vector<float>(3, 0.f)).contractTarget == UINT32_MAX);
     // curved ring (5 cm sphere) never contracts
     std::vector<Patch> sph{SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.004f, 0.0005f)};
     for (int k = 0; k < 8; ++k) { float ang = 6.2831853f * (float)k / 8.f; V3 p = v3(0.02f * cosf(ang), 0.02f * sinf(ang), 0.f); p.z = 0.05f - sqrtf(0.05f * 0.05f - Dot(p, p)); sph.push_back(SheetPatch(p, v3(-p.x, -p.y, 0.05f - p.z), 0.004f, 0.0005f)); }
     std::vector<SheetSite> ss = Sites(sph); for (auto& s : ss) { s.ev.positiveSupport = 10; s.q.surfaceId = s.id; } ss[0].q.surfaceId = 99;
     std::vector<std::vector<uint32_t>> psph; for (auto& s : ss) psph.push_back(SheetProposals(s, ss));
-    CHECK(SheetFitR(ss[0], psph[0], ss, psph, std::vector<SheetCell>(ss.size())).contractTarget == UINT32_MAX);
+    CHECK(SheetFitR(ss[0], psph[0], ss, psph, std::vector<float>(ss.size(), 0.f)).contractTarget == UINT32_MAX);
 
     // ---- refinement: a converged surfel receives an observation whose part lies 2 cm in front of its plane (an ornament / step)
     FsPageKey key{0, 0, 0, 0}; V3 origin = PageOrigin3(key);
@@ -669,6 +654,133 @@ static void TestEvidenceHysteresis() {
     std::printf("evidence: fresh surface SUSPECT after %d precise contradicting observations (removal needs retire + remove levels)\n", n);
 }
 
+// ---- E6R topology behaviour ------------------------------------------------------------------------------------------------------
+static std::vector<TopoSite> TopoGrid(const std::vector<std::pair<V3, V3>>& pn, uint32_t sidBase = 100) {
+    std::vector<TopoSite> v(pn.size());
+    for (size_t i = 0; i < pn.size(); ++i) { Patch q; q.p = pn[i].first; q.n = Norm(pn[i].second); q.rM = q.rm = 0.008f; q.sigmaN = 0.002f; q.sigmaT = 0.004f; q.flags = kFlagPromoted | 8; q.surfaceId = sidBase + (uint32_t)i; v[i].s.q = q; v[i].s.world = q.p; v[i].s.id = (uint32_t)i; }
+    std::vector<SheetSite> sites; for (auto& x : v) sites.push_back(x.s);
+    for (size_t i = 0; i < v.size(); ++i) v[i].props = SheetProposals(sites[i], sites);
+    return v;
+}
+static std::vector<std::pair<V3, V3>> WallPoints(int nx, int ny, float step, float gapAfterX = 1e9f, float gap = 0.f, float jitter = 0.0015f) {
+    std::vector<std::pair<V3, V3>> p; std::mt19937 rng(7); std::uniform_real_distribution<float> j(-jitter, jitter);
+    for (int y = 0; y < ny; ++y) for (int x = 0; x < nx; ++x) { float px = step * x + (step * x > gapAfterX ? gap : 0.f); p.push_back({v3(px + j(rng), step * y + j(rng), 0.f), v3(0, 0, 1)}); }
+    return p;
+}
+static std::map<FaceKey, int> AllFaces(const std::vector<TopoSite>& v, std::vector<uint32_t>* ownerViolations = nullptr) {
+    std::map<FaceKey, int> faces;
+    for (uint32_t i = 0; i < v.size(); ++i) for (auto& f : DeriveFaces(v, i).owned) {
+        FaceKey k = MakeFaceKey(v[i].s.q.surfaceId, v[f.first].s.q.surfaceId, v[f.second].s.q.surfaceId);
+        faces[k]++;
+        if (ownerViolations && k.a != v[i].s.q.surfaceId) ownerViolations->push_back(i);
+    }
+    return faces;
+}
+static void TestTopology() {
+    // A. face key invariance
+    CHECK(MakeFaceKey(7, 3, 5) == MakeFaceKey(5, 7, 3) && MakeFaceKey(3, 5, 7) == MakeFaceKey(7, 5, 3));
+    // B/C/E. a wall: every face derived exactly once by its minimum-SurfaceID owner; interior edges shared by two faces, never more
+    std::vector<TopoSite> wall = TopoGrid(WallPoints(8, 8, 0.025f));
+    std::vector<uint32_t> viol; std::map<FaceKey, int> faces = AllFaces(wall, &viol);
+    CHECK(viol.empty());
+    CHECK(faces.size() >= 70);                                                                   // ~2 (n-1)^2 = 98 for a full 8x8 triangulation
+    for (auto& f : faces) CHECK(f.second == 1);                                                 // C: no duplicate face
+    std::map<std::pair<uint32_t, uint32_t>, int> edges;
+    for (auto& f : faces) { edges[MakeEdgeKey(f.first.a, f.first.b)]++; edges[MakeEdgeKey(f.first.b, f.first.c)]++; edges[MakeEdgeKey(f.first.a, f.first.c)]++; }
+    int shared = 0; for (auto& e : edges) { CHECK(e.second <= 2); if (e.second == 2) shared++; }
+    CHECK(shared >= 50);
+    std::printf("topology: 8x8 wall -> %zu faces, %zu edges (%d shared)\n", faces.size(), edges.size(), shared);
+    // D. deterministic union root
+    { TopologyModel m(4); int32_t a = m.NewSheet(9), b = m.NewSheet(5); m.Union(a, b); CHECK(m.sheets[m.Root(a)].sheetId == 5 && m.sheets[m.Root(b)].sheetId == 5);
+      TopologyModel m2(4); int32_t a2 = m2.NewSheet(9), b2 = m2.NewSheet(5); m2.Union(b2, a2); CHECK(m2.sheets[m2.Root(a2)].sheetId == 5); }
+    // F. wall union: left half first, right half separately, then repeated bridge evidence -> ONE sheet
+    {
+        std::vector<TopoSite> v = TopoGrid(WallPoints(12, 6, 0.025f));
+        for (auto& x : v) x.support = 3;
+        TopologyModel m(v.size());
+        auto isLeft = [&](uint32_t i) { return (i % 12) < 6; };
+        for (uint32_t i = 0; i < v.size(); ++i) v[i].usable = isLeft(i);
+        std::vector<uint32_t> left; std::vector<bool> leftView(v.size()); for (uint32_t i = 0; i < v.size(); ++i) { leftView[i] = isLeft(i); if (isLeft(i)) left.push_back(i); }
+        m.Settle(v, left, 4096, &leftView);
+        // the right half is scanned separately: the left is out of view (not re-observed, not removed); its vertices are not candidates
+        for (uint32_t i = 0; i < v.size(); ++i) v[i].usable = !isLeft(i);
+        std::vector<uint32_t> right; std::vector<bool> rightView(v.size()); for (uint32_t i = 0; i < v.size(); ++i) { rightView[i] = !isLeft(i); if (!isLeft(i)) right.push_back(i); }
+        m.Settle(v, right, 4096, &rightView);
+        for (uint32_t i = 0; i < v.size(); ++i) v[i].usable = true;
+        const uint32_t before = m.ActiveSheets();
+        std::printf("topology: wall halves -> %u sheets before bridge evidence (pending %llu)\n", before, (unsigned long long)m.bridgesPending);
+        CHECK(before == 2);
+        std::vector<uint32_t> all; for (uint32_t i = 0; i < v.size(); ++i) all.push_back(i);
+        m.Settle(v, all);
+        std::printf("topology: boundary revisit, weak support -> %u sheets (pending %llu)\n", m.ActiveSheets(), (unsigned long long)m.bridgesPending);
+        CHECK(m.ActiveSheets() == 2);                                                           // one weak look never unions established sheets
+        for (auto& x : v) x.support = 10;
+        for (uint16_t obs = 1; obs <= 4; ++obs) { for (auto& x : v) x.lastSeen = obs; m.Settle(v, all); }
+        std::printf("topology: after revisits -> %u sheet(s), unions %llu\n", m.ActiveSheets(), (unsigned long long)m.unions);
+        CHECK(m.ActiveSheets() == 1 && m.unions >= 1);
+        std::map<FaceKey, int> fu = AllFaces(v); for (auto& f : fu) CHECK(f.second == 1);         // one shared mesh, no second shell
+    }
+    // G. 90 degree corner: floor and wall never share a face, stay two sheets
+    {
+        std::vector<std::pair<V3, V3>> p;
+        for (int y = 0; y < 6; ++y) for (int x = 1; x < 7; ++x) p.push_back({v3(0.025f * x, 0.025f * y, 0.f), v3(0, 0, 1)});
+        for (int y = 0; y < 6; ++y) for (int z = 1; z < 7; ++z) p.push_back({v3(0.f, 0.025f * y, 0.025f * z), v3(1, 0, 0)});
+        std::vector<TopoSite> v = TopoGrid(p); TopologyModel m(v.size());
+        std::vector<uint32_t> all; for (uint32_t i = 0; i < v.size(); ++i) all.push_back(i);
+        m.Settle(v, all);
+        for (auto& f : AllFaces(v)) { bool floorV = (f.first.a - 100) < 36, wallV = (f.first.c - 100) >= 36; CHECK(!(floorV && wallV)); }
+        CHECK(m.ActiveSheets() == 2);
+    }
+    // H. door opening (10 cm gap in a wall): no triangle across it
+    {
+        std::vector<TopoSite> v = TopoGrid(WallPoints(10, 8, 0.025f, 0.10f, 0.10f));
+        for (auto& f : AllFaces(v)) {
+            float xa = v[f.first.a - 100].s.world.x, xb = v[f.first.b - 100].s.world.x, xc = v[f.first.c - 100].s.world.x;
+            const bool leftSide = std::min({xa, xb, xc}) < 0.105f, rightSide = std::max({xa, xb, xc}) > 0.19f;
+            CHECK(!(leftSide && rightSide));
+        }
+    }
+    // I. thin wall: front and back 5 cm apart with opposite normals stay separate
+    {
+        std::vector<std::pair<V3, V3>> p;
+        for (int y = 0; y < 5; ++y) for (int x = 0; x < 5; ++x) p.push_back({v3(0.025f * x, 0.025f * y, 0.f), v3(0, 0, 1)});
+        for (int y = 0; y < 5; ++y) for (int x = 0; x < 5; ++x) p.push_back({v3(0.025f * x, 0.025f * y, -0.05f), v3(0, 0, -1)});
+        std::vector<TopoSite> v = TopoGrid(p); TopologyModel m(v.size());
+        std::vector<uint32_t> all; for (uint32_t i = 0; i < v.size(); ++i) all.push_back(i);
+        m.Settle(v, all);
+        for (auto& f : AllFaces(v)) CHECK(((f.first.a - 100) < 25) == ((f.first.c - 100) < 25));
+        CHECK(m.ActiveSheets() == 2);
+    }
+    // K. persistent cut: one removed vertex keeps one sheet; a removed band across the strip splits it
+    {
+        std::vector<TopoSite> v = TopoGrid(WallPoints(16, 5, 0.025f, 1e9f, 0.f, 0.001f)); TopologyModel m(v.size());
+        std::vector<uint32_t> all; for (uint32_t i = 0; i < v.size(); ++i) all.push_back(i);
+        m.Settle(v, all);
+        CHECK(m.ActiveSheets() == 1);
+        v[2 * 16 + 5].usable = false; m.Settle(v, all);
+        CHECK(m.ActiveSheets() == 1 && m.splits == 0);
+        for (int y = 0; y < 5; ++y) for (int x = 9; x <= 11; ++x) v[y * 16 + x].usable = false;   // a 10 cm band: wider than the link radius
+        for (int k = 0; k < 8; ++k) m.Settle(v, all);
+        std::printf("topology: band cut -> %u sheets, splits %llu\n", m.ActiveSheets(), (unsigned long long)m.splits);
+        CHECK(m.ActiveSheets() == 2 && m.splits >= 1);
+    }
+    // L. contraction matching: a vertex takes part in at most one contraction per generation
+    {
+        auto acc = ContractionMatching({{1, 2}, {3, 2}, {2, 4}, {5, 6}, {6, 7}, {8, 9}});
+        std::map<uint32_t, int> uses; for (auto& p : acc) { uses[p.first]++; uses[p.second]++; }
+        for (auto& u : uses) CHECK(u.second == 1);
+        CHECK(acc.size() == 3 && acc[0] == std::make_pair(1u, 2u) && acc[1] == std::make_pair(5u, 6u) && acc[2] == std::make_pair(8u, 9u));
+    }
+    // M. refinement: two requests for the same unexplained spot in one epoch -> one site (the first covers the second)
+    {
+        Patch parent; parent.p = v3(0, 0, 0); parent.n = v3(0, 0, 1); parent.rM = parent.rm = 0.02f; parent.sigmaN = 0.002f;
+        V3 site = v3(0.01f, 0.0f, 0.02f); std::vector<Patch> live{parent};
+        int births = 0;
+        for (int req = 0; req < 2; ++req) if (!RefineCovered(live, site, v3(0, 0, 1), 0.002f)) { Patch np = parent; np.p = site; np.rM = np.rm = 0.005f; live.push_back(np); births++; }
+        CHECK(births == 1);
+    }
+}
+
 static void TestSparseUpdate() {
     // C09R-E5R: a change enqueues its cell once; the publication consumes the ring in change order; no page mask is ever rescanned
     DirtyRing r; r.Init(4, 64);
@@ -763,7 +875,7 @@ static void TestIndexGeneration() {
 
 int main() {
     TestPageHash(); TestEncodings(); TestSynthetic(); TestResidency(); TestHzbBand(); TestHzbDisagreement(); TestCullMath();
-    TestFusionDeterminism(); TestRelocationAcrossCell(); TestSurfaceComplex(); TestCoarsenRefine(); TestAppearanceState(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCostModel(); TestSchedulerNoStarvation(); TestEvidenceHysteresis(); TestCrossPageFreeRay(); TestIndexGeneration();
+    TestFusionDeterminism(); TestRelocationAcrossCell(); TestSurfaceComplex(); TestCoarsenRefine(); TestAppearanceState(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCostModel(); TestSchedulerNoStarvation(); TestEvidenceHysteresis(); TestTopology(); TestCrossPageFreeRay(); TestIndexGeneration();
     std::printf("finalscan host world tests: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

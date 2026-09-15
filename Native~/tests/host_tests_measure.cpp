@@ -470,6 +470,14 @@ static void TestTemporalAndPlanar() {
       CHECK(EffectiveBaseline(fb, 2u, onAxis) < 0.001f && Length(Sub(CamCentre(fb, 2), CamCentre(fb, 0))) > 0.29f);
       Vec3 q; float sq, zq; CHECK(StereoSolve(fb, onAxis, V3(0, 0, -1), 0.02f, bilinear, q, sq, zq, 2u, (float)FS_TEMPORAL_BAND_MAX_PX, (float)FS_TEMPORAL_BEFF_MIN_M) == STEREO_SKIP);
       CHECK_NEAR(EffectiveBaseline(blk, 2u, V3(0.0f, 0.0f, 1.5f)), 0.30, 0.01); }
+    // O. C11R2: an uncertain vertex of an existing surface is a temporal candidate even when the pixel selector's threshold is 224
+    //    (run 13:37: every selected record had score >= 224 and the old score < 192 gate produced 0 candidates)
+    { FrameBlock tb = blk; tb.ctr[FS_MEAS_CTR_THRESHOLD] = 224; tb.camInfo[2] = 1;
+      auto textured = [](uint32_t, float, float) { return 0.05f; };
+      CHECK(TemporalTargetGate(tb, V3(0.10f, 0.05f, 1.5f), V3(0, 0, -1), textured) == TARGET_OK);
+      auto flat = [](uint32_t, float, float) { return 0.001f; };
+      CHECK(TemporalTargetGate(tb, V3(0.10f, 0.05f, 1.5f), V3(0, 0, -1), flat) == TARGET_TEXTURE);
+      CHECK(TemporalTargetGate(tb, V3(0.10f, 0.05f, 1.5f), V3(1, 0, 0), textured) == TARGET_VISIBILITY); }             // seen edge-on
     // keyframe selection: 0.1 m (too short), 0.28 m (best), 0.45 m, 0.29 m but turned 60 deg, 0.31 m but 10 s old
     { float cur[16]; Mat4 I = Identity(); memcpy(cur, I.m, 64);
       struct K { float x; float yawDeg; int64_t t; } ks[4] = {{0.10f, 0, 0}, {0.28f, 10, 0}, {0.45f, 0, 0}, {0.29f, 60, 0}};
@@ -493,14 +501,14 @@ static void TestTemporalAndPlanar() {
 static void TestPushLayout() {
     CHECK_EQ(sizeof(PushCompact), 48u);
     CHECK_EQ(offsetof(PushCompact, layers), 16u); CHECK_EQ(offsetof(PushCompact, budget), 20u); CHECK_EQ(offsetof(PushCompact, obsId), 32u);
-    CHECK_EQ(sizeof(FrameBlock), (size_t)FS_MEAS_FB_BYTES); CHECK_EQ(offsetof(FrameBlock, anchorFromEye), 192u); CHECK_EQ(offsetof(FrameBlock, fov), 320u);
-    CHECK_EQ(offsetof(FrameBlock, worldFromEye), 352u); CHECK_EQ(offsetof(FrameBlock, predViewProj), 480u); CHECK_EQ(offsetof(FrameBlock, predInvViewProj), 608u); CHECK_EQ(offsetof(FrameBlock, predInfo), 736u);
+    CHECK_EQ(sizeof(FrameBlock), (size_t)FS_MEAS_FB_BYTES); CHECK_EQ(offsetof(FrameBlock, anchorFromEye), 256u); CHECK_EQ(offsetof(FrameBlock, fov), 384u);
+    CHECK_EQ(offsetof(FrameBlock, worldFromEye), 416u); CHECK_EQ(offsetof(FrameBlock, predViewProj), 544u); CHECK_EQ(offsetof(FrameBlock, predInvViewProj), 672u); CHECK_EQ(offsetof(FrameBlock, predInfo), 800u);
     { float k[4]; DeliveredIntrinsics(871.8f, 871.8f, 642.3f, 644.0f, 1280, 1280, 1280, 960, k);                  // Quest 3S: 1280x960 delivered = centre crop of the 1280x1280 sensor frame
       CHECK_NEAR(k[0], 871.8, 1e-3); CHECK_NEAR(k[1], 871.8, 1e-3); CHECK_NEAR(k[2], 642.3, 1e-3); CHECK_NEAR(k[3], 644.0 - 160.0, 1e-3);
       DeliveredIntrinsics(871.8f, 871.8f, 642.3f, 644.0f, 1280, 1280, 640, 480, k);                              // half resolution: scaled + cropped
       CHECK_NEAR(k[0], 435.9, 1e-3); CHECK_NEAR(k[2], 321.15, 1e-3); CHECK_NEAR(k[3], (644.0 - 160.0) * 0.5, 1e-3);
       DeliveredIntrinsics(800.f, 800.f, 400.f, 300.f, 0, 0, 800, 600, k); CHECK_NEAR(k[2], 400.0, 1e-6); }         // unknown sensor: pass-through
-    CHECK_EQ(offsetof(FrameBlock, camFromWorld), 752u); CHECK_EQ(offsetof(FrameBlock, camIntrinsics), 880u); CHECK_EQ(offsetof(FrameBlock, camInfo), 912u); CHECK_EQ(offsetof(FrameBlock, anchorFromWorld), 928u); CHECK_EQ(offsetof(FrameBlock, stereoInfo), 992u); CHECK_EQ(offsetof(FrameBlock, keyCamFromWorld), 1008u); CHECK_EQ(offsetof(FrameBlock, keyInfo), 1088u); CHECK_EQ(offsetof(FrameBlock, worldFromAnchor), 1104u);
+    CHECK_EQ(offsetof(FrameBlock, camFromWorld), 816u); CHECK_EQ(offsetof(FrameBlock, camIntrinsics), 944u); CHECK_EQ(offsetof(FrameBlock, camInfo), 976u); CHECK_EQ(offsetof(FrameBlock, anchorFromWorld), 992u); CHECK_EQ(offsetof(FrameBlock, stereoInfo), 1056u); CHECK_EQ(offsetof(FrameBlock, keyCamFromWorld), 1072u); CHECK_EQ(offsetof(FrameBlock, keyInfo), 1152u); CHECK_EQ(offsetof(FrameBlock, worldFromAnchor), 1168u);
     CHECK((size_t)FS_MEAS_SEL_WORDS * 4 < 65536); CHECK(FS_MEAS_DEFAULT_BUDGET <= FS_MEAS_DEFAULT_MAX_OUT);
     CHECK_EQ(sizeof(FsSurfaceMeasurement), 48u);
     CHECK_EQ((uint32_t)FS_MEAS_SRC_DEPTH_PRIOR, 1u << 2); CHECK_EQ((uint32_t)FS_MEAS_SRC_EDGE, 1u << 8); CHECK_EQ((uint32_t)FS_MEAS_SRC_LOW_TEXTURE, 1u << 9);

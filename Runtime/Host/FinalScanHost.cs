@@ -424,6 +424,14 @@ namespace FinalScan.Host
                 + ",\"candidatesStereo\":" + s[15] + ",\"candidatesTemporal\":" + s[16] + ",\"refineSkipped\":" + s[17] + ",\"refineJobs\":" + s[18] + ",\"pairsGeometryRejected\":" + s[19]
                 + ",\"refineFrameUsP95\":" + s[20] + ",\"lastCompactUs\":" + s[21] + "}";
         }
+        readonly long[] _tgtStats = new long[11];
+        string TargetsJson()
+        {
+            if (!NativeAvailable || FinalScanHostNative.GetTargetStats(_tgtStats) != FinalScanHostNative.ResultOk) return "null";
+            var s = _tgtStats;
+            return "{\"considered\":" + s[0] + ",\"textureEligible\":" + s[1] + ",\"keyframeEligible\":" + s[2] + ",\"baselineRejected\":" + s[3] + ",\"visibilityRejected\":" + s[4]
+                + ",\"written\":" + s[5] + ",\"solved\":" + s[6] + ",\"accepted\":" + s[7] + ",\"sigmaBeforeUm\":" + s[8] + ",\"sigmaAfterUm\":" + s[9] + ",\"informationGainMilli\":" + s[10] + "}";
+        }
         string StereoJson()
         {
             if (!NativeAvailable || FinalScanHostNative.GetStereoStats(_stereoStats) != FinalScanHostNative.ResultOk) return "null";
@@ -466,6 +474,7 @@ namespace FinalScan.Host
              .Prop("envDepthGated", _envDepth != null ? _envDepth.GatedFrames : 0).Prop("envDepthAngularDegPerSec", _envDepth != null ? _envDepth.LastAngularDegPerSec : 0f)
              .Prop("stereoPairsPushed", _pcaFrames != null ? _pcaFrames.PairsPushed : 0).Prop("stereoPairRc", _pcaFrames != null ? _pcaFrames.LastPairResult : -1)
              .PropRaw("stereo", StereoJson())
+             .PropRaw("targets", TargetsJson())
              .Prop("keyframesStored", _keyframes != null ? _keyframes.Stored : 0).Prop("keyframeRc", _keyframes != null ? _keyframes.LastResult : -1)
              .PropRaw("multiview", MultiviewJson())
              .Prop("syntheticRc", _syntheticResult)

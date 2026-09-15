@@ -5,6 +5,8 @@
 // loser is REMOVED (its leaf is compacted by the next maintenance of its dirty cell), the survivor's centre relocates when it crossed
 // its cell, and the survivor plus every former neighbour of the loser is marked graph-dirty so the next batches relink the edges.
 // Flat walls coarsen; curved rings (no flat fit), boundaries (degree < FS_CONTRACT_MIN_DEGREE) and detail never contract.
+// E6R matching: within one topology generation (FS_T_TOPO_GEN) a vertex takes part in at most ONE contraction, as loser or survivor
+// (node word 10 = generation stamp); proposals are processed in batch order, so the matching is deterministic.
 #extension GL_GOOGLE_include_directive : require
 #define FS_USE_PAGES_RO
 #define FS_USE_SURFELS
@@ -27,6 +29,8 @@ void main() {
         FsPatch pd = fsUnpack(surfels[lh]), ps = fsUnpack(surfels[shh]);
         const uint dead = FS_FLAG_REMOVED | FS_FLAG_TRANSIENT;
         if ((pd.flags & dead) != 0u || (ps.flags & dead) != 0u || (ps.flags & FS_FLAG_PROMOTED) == 0u) continue;
+        const uint gen = FS_TK(FS_T_TOPO_GEN) | 0x80000000u;
+        if (sheet[fsSheetNodeWord(lh, 10u)] == gen || sheet[fsSheetNodeWord(shh, 10u)] == gen) { atomicAdd(gctr[FS_GCTR_CONTRACT_UNMATCHED], 1u); continue; }
         FsSurfel oldS = surfels[shh];
         uint oldCell = fsCellOf(ps.p);
         pd.p += fsPageOrigin3(pages[lp].key) - fsPageOrigin3(pages[sp].key);   // loser centre in the survivor's page frame
@@ -35,6 +39,7 @@ void main() {
         uint newCell = fsCellOf(r.p);
         if (newCell != oldCell && !fsPushRelocation(shh, sp, oldCell, newCell, oldS)) continue;   // list full: the contraction waits
         surfels[shh] = fsPack(r);
+        sheet[fsSheetNodeWord(lh, 10u)] = gen; sheet[fsSheetNodeWord(shh, 10u)] = gen;
         FsSurfelEvidence es = evidence[shh], ed = evidence[lh];
         fsSet_FsSurfelEvidence_positiveSupport(es, min(fsGet_FsSurfelEvidence_positiveSupport(es) + fsGet_FsSurfelEvidence_positiveSupport(ed), 65535u));
         fsSet_FsSurfelEvidence_contradictionDebt(es, min(fsGet_FsSurfelEvidence_contradictionDebt(es), fsGet_FsSurfelEvidence_contradictionDebt(ed)));   // E6R: absorbed support never inherits the worse debt
@@ -49,7 +54,8 @@ void main() {
             sheet[fsSheetNodeWord(lh, k)] = FS_INDEX_NONE;
             if (nbE != FS_INDEX_NONE && nbE != target) fsSheetMark(nbE >> 22, nbE & 0x3FFFFFu);
         }
-        sheet[fsSheetNodeWord(lh, 6u)] = 0u; sheet[fsSheetNodeWord(lh, 7u)] = 0u; sheet[fsSheetNodeWord(lh, 8u)] = 0u; sheet[fsSheetNodeWord(lh, 9u)] = 0u;
+        sheet[fsSheetNodeWord(lh, 8u)] = 0u;   // degree; the loser's topology record is released by topo_commit (it is REMOVED and marked)
+        fsSheetMark(lp, lh);
         fsSheetMark(sp, shh);
         contractions++; atomicAdd(gctr[FS_GCTR_PROMOTED_REMOVED], 1u);
     }

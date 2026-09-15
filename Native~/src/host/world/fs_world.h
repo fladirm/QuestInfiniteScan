@@ -29,6 +29,7 @@ struct WorldBuffers {          // valid while DeviceUp(); all fs::Buffer (§15.3
     Buffer publishRing;        // FS_CULL_FRAME_RING x FS_MAX_PAGES pending entries applied at FRAME_BEGIN
     Buffer hash;               // FsPageHashEntry mirror
     Buffer sheet;              // E4.1R SurfaceGraph nodes, graph-dirty mask / ring, batch deltas (host-visible: cleared at reset / release)
+    Buffer topo;               // E6R persistent topology: vertex records, sheet records, topology deltas, released ids, temporal targets
     uint32_t pageCount = 0;
 };
 

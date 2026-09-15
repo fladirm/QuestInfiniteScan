@@ -80,6 +80,8 @@ layout(std430, set = 0, binding = FS_B_POOLS) buffer PoolBlock { uint pool[]; };
 #define FS_POOL_INODE   1
 #define FS_POOL_RBLOCK  2
 #define FS_POOL_RNODE   3
+#define FS_POOL_TOPO    4   // E6R topology vertex records
+#define FS_POOL_SHEETS  5   // E6R sheet records
 // Pops one id or returns FS_INDEX_NONE (failure counted in the pool header). head/tail are monotonic; the CPU
 // appends free ids at tail after retirement proof, the GPU consumes at head. Ring storage base/mask per pool.
 uint fsPoolAlloc(uint p) {
@@ -135,6 +137,21 @@ vec3 fsPageRangeGuard(vec3 l) { float hh = FS_PAGE_EXTENT_M * 0.5 - 0.0005; retu
 #endif
 #ifdef FS_USE_SHEET
 layout(std430, set = 0, binding = FS_B_SHEET) buffer SheetBlock { uint sheet[]; };
+#endif
+#ifdef FS_USE_TOPO
+layout(std430, set = 0, binding = FS_B_TOPO) buffer TopoBlock { uint topo[]; };
+#endif
+#ifdef FS_USE_TOPO_RO
+layout(std430, set = 0, binding = FS_B_TOPO) readonly buffer TopoBlockRO { uint topo[]; };
+#endif
+#if defined(FS_USE_TOPO) || defined(FS_USE_TOPO_RO)
+// E6R topology buffer layout (twin: fs::world::TopoLayout in fs_world.cpp): vertex records | sheet records | batch deltas | released ids | temporal targets
+uint fsTopoVertexWord(uint id, uint w) { return id * uint(FS_TOPO_VERTEX_WORDS) + w; }
+uint fsTopoFaceWord(uint id, uint f, uint w) { return id * uint(FS_TOPO_VERTEX_WORDS) + uint(FS_TOPO_HEADER_WORDS) + f * uint(FS_TOPO_FACE_WORDS) + w; }
+uint fsSheetRecWord(uint s, uint w) { return uint(FS_TOPO_VERTEX_CAP) * uint(FS_TOPO_VERTEX_WORDS) + s * uint(FS_SHEET_REC_WORDS) + w; }
+uint fsTopoDeltaWord(uint i, uint w) { return uint(FS_TOPO_VERTEX_CAP) * uint(FS_TOPO_VERTEX_WORDS) + uint(FS_SHEET_REC_CAP) * uint(FS_SHEET_REC_WORDS) + i * uint(FS_TOPO_DELTA_WORDS) + w; }
+uint fsTopoFreeWord(uint i) { return fsTopoDeltaWord(uint(FS_SHEET_BATCH_MAX), 0u) + i; }
+uint fsTemporalTargetWord(uint i, uint w) { return fsTopoFreeWord(uint(FS_TOPO_FREE_MAX)) + i * uint(FS_TEMPORAL_TARGET_WORDS) + w; }
 #endif
 #ifdef FS_USE_SHEET_RO
 layout(std430, set = 0, binding = FS_B_SHEET) readonly buffer SheetBlockRO { uint sheet[]; };

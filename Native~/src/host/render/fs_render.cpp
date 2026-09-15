@@ -30,6 +30,7 @@ namespace render {
 namespace {
 
 constexpr uint32_t kAggregateCapacityMax = 65536;
+constexpr uint32_t kTriangleCapacityMax = 262144;   // E6R mesh triangle bucket scratch
 constexpr float    kCenterNear = 0.05f, kCenterFar = 200.f;
 
 struct DepthSource {
@@ -63,9 +64,10 @@ public:
         ok &= CreateBuffer(work_, (VkDeviceSize)WorkWords() * 4, use | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, true, "render.work");
         ok &= CreateBuffer(hzb_, (VkDeviceSize)HzbWords() * 4, use, false, "render.hzb");
         ok &= CreateBuffer(aggScratch_, (VkDeviceSize)kAggregateCapacityMax * sizeof(FsDrawRecord), use, false, "render.aggScratch");
+        ok &= CreateBuffer(triScratch_, (VkDeviceSize)kTriangleCapacityMax * sizeof(FsDrawRecord), use, false, "render.triScratch");
         ok &= CreateBuffer(statsRing_, (VkDeviceSize)FS_CULL_FRAME_RING * FS_CULL_STATS_WORDS * 4, use, true, "render.stats");
         ok &= CreateBuffer(fallbackDraw_, (VkDeviceSize)FS_DEFAULT_DRAW_CAPACITY * sizeof(FsDrawRecord), use, false, "render.fallbackDraw");
-        ok &= CreateBuffer(fallbackArgs_, 2 * sizeof(FsIndirectDrawArgs), use | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, true, "render.fallbackArgs");
+        ok &= CreateBuffer(fallbackArgs_, 3 * sizeof(FsIndirectDrawArgs), use | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, true, "render.fallbackArgs");
         if (!ok || !frameRing_.mapped || !work_.mapped || !statsRing_.mapped) { LogError("FS-RENDER buffer creation failed"); Destroy(); return; }
         uint32_t* w = (uint32_t*)work_.mapped; memset(w, 0, WorkWords() * 4);
         InitWorkArgs(w);
@@ -82,7 +84,7 @@ public:
     }
     static uint32_t HzbWords() { return 3 * FS_HZB_SIZE * FS_HZB_SIZE + 2 * HzbTotalTexels(); }
     void Destroy() {
-        Buffer* all[] = {&frameRing_, &work_, &hzb_, &aggScratch_, &statsRing_, &fallbackDraw_, &fallbackArgs_};
+        Buffer* all[] = {&frameRing_, &work_, &hzb_, &aggScratch_, &triScratch_, &statsRing_, &fallbackDraw_, &fallbackArgs_};
         for (Buffer* b : all) if (b->buffer != VK_NULL_HANDLE) DestroyBuffer(*b);
         unityDraw_ = Buffer{}; unityArgs_ = Buffer{}; drawImported_ = false;
     }
@@ -108,6 +110,7 @@ public:
         switch (kernel) {
         case R_CULL_COMPACT:
             if (binding == RB_AGGSRC) return &aggScratch_;
+            if (binding == RB_TRISRC) return &triScratch_;
             if (binding == RB_ARGS) return ArgsBuffer();
             if (binding == RB_STATS) return &statsRing_;
             break;
@@ -116,6 +119,7 @@ public:
             break;
         case R_CULL_BLOCKS:
             if (binding == RB_AGGSCRATCH) return &aggScratch_;
+            if (binding == RB_TRISCRATCH) return &triScratch_;
             break;
         default: break;
         }
@@ -148,7 +152,8 @@ public:
         uint32_t cap = drawImported_ ? (uint32_t)(unityDrawBytes_ / sizeof(FsDrawRecord)) : (uint32_t)FS_DEFAULT_DRAW_CAPACITY;
         if (cap < 1024) cap = 1024;
         aggCapacity_ = std::min<uint32_t>(kAggregateCapacityMax, cap / 8);
-        opaqueCapacity_ = cap - aggCapacity_;
+        triCapacity_ = std::min<uint32_t>(kTriangleCapacityMax, cap * 3 / 8);   // E6R: [opaque fallback][aggregates][mesh triangles]
+        opaqueCapacity_ = cap - aggCapacity_ - triCapacity_;
         if (screenWorkBudget_ && screenWorkBudget_ < opaqueCapacity_) opaqueCapacity_ = screenWorkBudget_;
         aggBase_ = opaqueCapacity_;
     }
@@ -313,12 +318,12 @@ public:
         FrameStageEnd(cmd, st); st = FrameStageBegin(cmd, kStageNames[S_CULL_EXPAND]);
         for (uint32_t level = 0; level < FS_CULL_LEVELS; ++level) {          // bounded frontier walk: root .. leaf blocks
             const uint32_t parity = level & 1u;
-            PushCull pc{slot, aggBase_, aggCapacity_, opaqueCapacity_, parity};
+            PushCull pc{slot, aggBase_, aggCapacity_, opaqueCapacity_, parity, triCapacity_};
             Bind(cmd, R_CULL_EXPAND, &pc, sizeof pc); vkCmdDispatchIndirect(cmd, work_.buffer, (VkDeviceSize)(WK_EXPAND_ARGS + 4 * parity) * 4); Barrier(cmd);
             ResetFrontierArgs(cmd, parity);
         }
         FrameStageEnd(cmd, st); st = FrameStageBegin(cmd, kStageNames[S_CULL_BLOCKS]);
-        PushCull pc{slot, aggBase_, aggCapacity_, opaqueCapacity_, 0};
+        PushCull pc{slot, aggBase_, aggCapacity_, opaqueCapacity_, 0, triCapacity_};
         Bind(cmd, R_CULL_BLOCKS, &pc, sizeof pc); vkCmdDispatchIndirect(cmd, work_.buffer, (VkDeviceSize)WK_EMIT_ARGS * 4); Barrier(cmd);
         FrameStageEnd(cmd, st); st = FrameStageBegin(cmd, kStageNames[S_CULL_COMPACT]);
         Bind(cmd, R_CULL_COMPACT, &pc, sizeof pc); vkCmdDispatchIndirect(cmd, work_.buffer, (VkDeviceSize)WK_COMPACT_ARGS * 4); Barrier(cmd);
@@ -416,10 +421,10 @@ public:
 private:
     std::recursive_mutex m_;
     bool inited_ = false, deviceUp_ = false, pipesReady_ = false, bound_ = false, drawImported_ = false, forceRecut_ = true;
-    Buffer frameRing_, work_, hzb_, aggScratch_, statsRing_, fallbackDraw_, fallbackArgs_, unityDraw_, unityArgs_;
+    Buffer frameRing_, work_, hzb_, aggScratch_, triScratch_, statsRing_, fallbackDraw_, fallbackArgs_, unityDraw_, unityArgs_;
     Pipeline pipes_[R_COUNT];
     void* regDraw_ = nullptr; void* regArgs_ = nullptr; uint32_t unityDrawBytes_ = 0; uint64_t regDrawVersion_ = 0, importedDrawVersion_ = 0;
-    uint32_t opaqueCapacity_ = FS_DEFAULT_DRAW_CAPACITY - 65536, aggBase_ = FS_DEFAULT_DRAW_CAPACITY - 65536, aggCapacity_ = 65536, screenWorkBudget_ = 0;
+    uint32_t opaqueCapacity_ = FS_DEFAULT_DRAW_CAPACITY - 65536, aggBase_ = FS_DEFAULT_DRAW_CAPACITY - 65536, aggCapacity_ = 65536, triCapacity_ = 0, screenWorkBudget_ = 0;
     Mat4 viewL_, viewR_, projL_, projR_; float headPos_[3] = {0, 0, 0};
     DepthSource prev_, env_; uint64_t hzbBuiltVersion_ = 0;
     float fovealPx_ = 1.f, peripheralPx_ = 3.5f, marginDeg_ = 5.f; int32_t headroomUs_ = 0; int32_t renderMode_ = FS_RENDER_MODE_SCAN;
