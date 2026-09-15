@@ -49,9 +49,11 @@
 
 // ---- FsSurfaceMeasurement.sourceFlags bits written here ----------------------------------------------------
 #define FS_MEAS_SRC_STEREO           1u        // bit 0: C10 PCA L/R stereo measurement (geometry authority = stereo, sigma from disparity)
+#define FS_MEAS_SRC_TEMPORAL         2u        // bit 1: C11 temporal large-baseline multiview (current left PCA frame vs a keyframe 20-50 cm away)
 #define FS_MEAS_SRC_DEPTH_PRIOR      4u        // bit 2
 #define FS_MEAS_SRC_EDGE             256u      // bit 8
 #define FS_MEAS_SRC_LOW_TEXTURE      512u      // bit 9
+#define FS_MEAS_SRC_PLANAR           1024u     // bit 10: C11 robust local plane fit of the Env Depth window (low-texture path)
 #define FS_MEAS_SRC_EYE_SHIFT        16        // bit 16: eye (0 left, 1 right) the record was back-projected from (free-space ray origin)
 
 // ---- frame block (per ring slot, host-visible): u32 counters (reset by the CPU before each job) followed by the
@@ -82,8 +84,22 @@
 #define FS_MEAS_CTR_STEREO_BIN_RES   26        // 4 words: sum |z_stereo - z_envdepth| per bin (0.1 mm units): EnvDepth-only vs stereo residual
 #define FS_MEAS_CTR_STEREO_SIGMA_UM  30        // sum of the stereo sigma of valid records (um)
 #define FS_MEAS_CTR_ENV_SIGMA_UM     31        // sum of the Env Depth sigma of the same records (um)
-#define FS_MEAS_CTR_WORDS            32        // counters region
-#define FS_MEAS_FB_BYTES             944       // 128 B counters + 2 x mat4 anchorFromEye + 2 x vec4 fov + 2 x mat4 worldFromEye + 2 x mat4 predViewProj + 2 x mat4 predInvViewProj + uvec4 predInfo + 2 x mat4 camFromWorld + 2 x vec4 camIntrinsics + uvec4 camInfo + mat4 anchorFromWorld + uvec4 stereoInfo
+// C11 receipts
+#define FS_MEAS_CTR_TEMPORAL_TESTED  32        // texels the temporal solve ran on (keyframe bound, textured, prior in range)
+#define FS_MEAS_CTR_TEMPORAL_VALID   33        // temporal measurements emitted
+#define FS_MEAS_CTR_TEMPORAL_LOWTEX  34
+#define FS_MEAS_CTR_TEMPORAL_AMBIG   35
+#define FS_MEAS_CTR_TEMPORAL_EDGE    36
+#define FS_MEAS_CTR_TEMPORAL_NOCOVER 37        // the point is not visible in the keyframe image
+#define FS_MEAS_CTR_TEMPORAL_DISAGREE 38       // temporal endpoint outside 3 sigma of a valid L/R stereo endpoint: neither overrides, stereo kept
+#define FS_MEAS_CTR_TEMPORAL_SIGMA_UM 39
+#define FS_MEAS_CTR_PLANAR_TESTED    40        // low-texture texels the planar fit ran on
+#define FS_MEAS_CTR_PLANAR_VALID     41
+#define FS_MEAS_CTR_PLANAR_REJECTED  42        // too few inliers or residual beyond the flat bound (not a plane)
+#define FS_MEAS_CTR_PLANAR_SIGMA_UM  43
+#define FS_MEAS_CTR_PLANAR_RMS_UM    44
+#define FS_MEAS_CTR_WORDS            48        // counters region (45..47 reserved)
+#define FS_MEAS_FB_BYTES             1104      // 192 B counters + 2 x mat4 anchorFromEye + 2 x vec4 fov + 2 x mat4 worldFromEye + 2 x mat4 predViewProj + 2 x mat4 predInvViewProj + uvec4 predInfo + 2 x mat4 camFromWorld + 2 x vec4 camIntrinsics + uvec4 camInfo + mat4 anchorFromWorld + uvec4 stereoInfo + mat4 keyCamFromWorld + vec4 keyIntrinsics + uvec4 keyInfo
 // ---- appearance sample (C16a, contract §14 keyframe authority = the PCA frame lease at its own pose/time): the emit kernel
 // projects the measured point into the PCA camera of the same eye captured closest to the depth time and stores RGB8 in
 // FsSurfaceMeasurement.reserved with FS_MEAS_COLOR_VALID; fusion blends it precision-weighted into appearanceHandle.
@@ -104,6 +120,22 @@
 #define FS_STEREO_MIN_ZNCC           0.85      // best hypothesis must correlate at least this well
 #define FS_STEREO_UNIQ_MARGIN        0.05      // best cost + margin < best non-neighbour cost (unique minimum)
 #define FS_STEREO_SIGMA_D_PX         0.25      // subpixel disparity sigma at ZNCC 1 (divided by ZNCC^2)
+// ---- C11 temporal multiview + planar path (contract §6, provisional) ---------------------------------------------------------
+#define FS_MEAS_KEYFRAMES            4         // keyframe slots (managed store: left PCA copies spaced by camera motion)
+#define FS_TEMPORAL_BASELINE_MIN_M   0.20      // usable keyframe: camera centre 20..50 cm from the current left PCA camera
+#define FS_TEMPORAL_BASELINE_MAX_M   0.50
+#define FS_TEMPORAL_BASELINE_BEST_M  0.30      // preferred baseline (closest wins)
+#define FS_TEMPORAL_MAX_ANGLE_DEG    35.0      // optical axes within this angle (co-visibility / foreshortening of the 3x3 patch)
+#ifdef __cplusplus
+#define FS_TEMPORAL_MAX_AGE_NS       8000000000LL // older keyframes are not trusted as the same static scene (CPU selection only: beyond GLSL int)
+#endif
+#define FS_TEMPORAL_BAND_MAX_PX      12.0      // band cap of the large-baseline solve (step <= 2 px over 13 hypotheses)
+#define FS_TEMPORAL_AGREE_K          3.0       // temporal vs L/R stereo consistency (combined sigma units)
+#define FS_PLANAR_RADIUS             2         // (2R+1)^2 Env Depth window of the planar fit
+#define FS_PLANAR_MIN_INLIERS        18        // of 25
+#define FS_PLANAR_HUBER_K            1.345     // IRLS on the inverse-depth plane residual
+#define FS_PLANAR_MAX_RMS_RATIO      0.004     // inlier RMS above 0.4 % of depth: not a plane
+#define FS_PLANAR_CORR_TEXELS        4.0       // Env Depth texels are correlated: effective samples = inliers / this
 
 // ---- bindings ----------------------------------------------------------------------------------------------
 #define FS_MEAS_B_DEPTH              0         // combined image sampler, sampler2DArray (nearest): Environment Depth
@@ -114,6 +146,7 @@
 #define FS_MEAS_B_SELECT             5         // uint hist[256] + wgCount[FS_MEAS_MAX_GROUPS] + wgBase[FS_MEAS_MAX_GROUPS]
 #define FS_MEAS_B_CAM_L              6         // combined image sampler: PCA left frame (owned copy)
 #define FS_MEAS_B_CAM_R              7         // combined image sampler: PCA right frame
+#define FS_MEAS_B_CAM_K              8         // combined image sampler: C11 bound keyframe (earlier left PCA copy)
 #define FS_MEAS_SEL_HIST             0
 #define FS_MEAS_SEL_WGCOUNT          FS_MEAS_SCORE_BINS
 #define FS_MEAS_SEL_WGBASE           (FS_MEAS_SCORE_BINS + FS_MEAS_MAX_GROUPS)

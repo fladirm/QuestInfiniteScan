@@ -90,6 +90,7 @@ namespace FinalScan.Host
         readonly long[] _cls = new long[FinalScanHostNative.ClassStatsCount];
         EnvDepthFeeder _envDepth;
         PcaFrameFeeder _pcaFrames;
+        PcaKeyframeStore _keyframes;
         SensorAuthority _sensor;
 
         // ---- state exposed to HUD / residency / spin test -------------------------------------------------------
@@ -226,6 +227,7 @@ namespace FinalScan.Host
             if (_sensor == null) Debug.LogError("[FinalScan] SensorAuthority missing on " + name + ": no PCA / Environment Depth ingest (the editor setup attaches it).");
             _envDepth ??= new EnvDepthFeeder(this, _sensor);
             _pcaFrames ??= new PcaFrameFeeder(this, _sensor);
+            _keyframes ??= new PcaKeyframeStore(this, _sensor);
         }
 
         void OnDisable()
@@ -235,6 +237,7 @@ namespace FinalScan.Host
 
         void OnDestroy()
         {
+            _keyframes?.Dispose();
             if (_native && _initCalled) { int rc = FinalScanHostNative.Shutdown(); Debug.Log("[FinalScan] FsHost_Shutdown rc=" + rc); }
             _log?.Dispose();
             if (Current == this) Current = null;
@@ -291,6 +294,7 @@ namespace FinalScan.Host
             SendGpuHeadroom();
             _envDepth?.Update();
             _pcaFrames?.Update();
+            _keyframes?.Update();
             RefreshStats();
             EmitTelemetry();
         }
@@ -409,6 +413,15 @@ namespace FinalScan.Host
         double _measWindowStart = -1; long _measWindowBase;
 
         readonly long[] _stereoStats = new long[17];
+        readonly long[] _mvStats = new long[15];
+        string MultiviewJson()
+        {
+            if (!NativeAvailable || FinalScanHostNative.GetMultiviewStats(_mvStats) != FinalScanHostNative.ResultOk) return "null";
+            var s = _mvStats;
+            return "{\"temporalTested\":" + s[0] + ",\"temporalValid\":" + s[1] + ",\"temporalLowTex\":" + s[2] + ",\"temporalAmbiguous\":" + s[3] + ",\"temporalBandEdge\":" + s[4]
+                + ",\"temporalNoCover\":" + s[5] + ",\"temporalDisagree\":" + s[6] + ",\"temporalSigmaUm\":" + s[7] + ",\"planarTested\":" + s[8] + ",\"planarValid\":" + s[9]
+                + ",\"planarRejected\":" + s[10] + ",\"planarSigmaUm\":" + s[11] + ",\"planarRmsUm\":" + s[12] + ",\"keyframesSet\":" + s[13] + ",\"framesWithKeyframe\":" + s[14] + "}";
+        }
         string StereoJson()
         {
             if (!NativeAvailable || FinalScanHostNative.GetStereoStats(_stereoStats) != FinalScanHostNative.ResultOk) return "null";
@@ -451,6 +464,8 @@ namespace FinalScan.Host
              .Prop("envDepthGated", _envDepth != null ? _envDepth.GatedFrames : 0).Prop("envDepthAngularDegPerSec", _envDepth != null ? _envDepth.LastAngularDegPerSec : 0f)
              .Prop("stereoPairsPushed", _pcaFrames != null ? _pcaFrames.PairsPushed : 0).Prop("stereoPairRc", _pcaFrames != null ? _pcaFrames.LastPairResult : -1)
              .PropRaw("stereo", StereoJson())
+             .Prop("keyframesStored", _keyframes != null ? _keyframes.Stored : 0).Prop("keyframeRc", _keyframes != null ? _keyframes.LastResult : -1)
+             .PropRaw("multiview", MultiviewJson())
              .Prop("syntheticRc", _syntheticResult)
              .PropRaw("native", native)
              .PropRaw("world", world)

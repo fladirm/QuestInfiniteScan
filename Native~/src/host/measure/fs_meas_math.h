@@ -101,6 +101,9 @@ struct FrameBlock {
     uint32_t camInfo[4];                 // width, height, validMask (bit e = eye e usable, bit 2 = coherent L/R stereo pair), rowFlip (1 = row 0 top)
     float    anchorFromWorld[16];        // C10: stereo endpoints are solved in world space
     uint32_t stereoInfo[4];              // pair observation id, skew class, 0, 0
+    float    keyCamFromWorld[16];        // C11: bound keyframe (left PCA copy) pose inverse
+    float    keyIntrinsics[4];           // fx, fy, cx, cy (delivered pixels, bottom-left origin)
+    uint32_t keyInfo[4];                 // width, height, valid (1 = bound for this frame), rowFlip
 };
 static_assert(sizeof(FrameBlock) == FS_MEAS_FB_BYTES, "frame block layout");
 
@@ -309,40 +312,42 @@ inline Vec3 Scale3(Vec3 a, float s) { return V3(a.x * s, a.y * s, a.z * s); }
 inline Vec3 TransposeMulDir(const Mat4& A, Vec3 d) {     // R^T d of a rigid camFromWorld
     return V3(A.m[0] * d.x + A.m[1] * d.y + A.m[2] * d.z, A.m[4] * d.x + A.m[5] * d.y + A.m[6] * d.z, A.m[8] * d.x + A.m[9] * d.y + A.m[10] * d.z);
 }
-inline Vec3 CamCentre(const FrameBlock& blk, uint32_t e) { Mat4 M; memcpy(M.m, blk.camFromWorld[e], 64); return Scale3(TransposeMulDir(M, V3(M.m[12], M.m[13], M.m[14])), -1.f); }
+inline const float* CamM(const FrameBlock& blk, uint32_t e) { return e == 2u ? blk.keyCamFromWorld : blk.camFromWorld[e]; }
+inline const float* CamK(const FrameBlock& blk, uint32_t e) { return e == 2u ? blk.keyIntrinsics : blk.camIntrinsics[e]; }
+inline Vec3 CamCentre(const FrameBlock& blk, uint32_t e) { Mat4 M; memcpy(M.m, CamM(blk, e), 64); return Scale3(TransposeMulDir(M, V3(M.m[12], M.m[13], M.m[14])), -1.f); }
 // `bilinear(eye, u, t)` = bilinear luma at continuous texture coordinates (u right, t = texture row coordinate), 0..1.
 template <class LumaFn>
 inline bool CamLuma(const FrameBlock& blk, uint32_t e, Vec3 pw, LumaFn bilinear, float& luma) {
     luma = 0.f;
-    Mat4 M; memcpy(M.m, blk.camFromWorld[e], 64);
+    Mat4 M; memcpy(M.m, CamM(blk, e), 64);
     const Vec3 pc = MulPoint(M, pw);
     if (pc.z <= 0.05f) return false;
-    const float* k = blk.camIntrinsics[e];
+    const float* k = CamK(blk, e);
     const float u = k[2] + k[0] * pc.x / pc.z, v = k[3] + k[1] * pc.y / pc.z;
-    const float W = (float)blk.camInfo[0], H = (float)blk.camInfo[1];
+    const float W = (float)(e == 2u ? blk.keyInfo[0] : blk.camInfo[0]), H = (float)(e == 2u ? blk.keyInfo[1] : blk.camInfo[1]);
     if (u < 1.f || v < 1.f || u > W - 1.f || v > H - 1.f) return false;
-    luma = bilinear(e, u, blk.camInfo[3] ? H - v : v);
+    luma = bilinear(e, u, (e == 2u ? blk.keyInfo[3] : blk.camInfo[3]) ? H - v : v);
     return true;
 }
 // Disparity band of the prior: centre d0 = f b / z0, half band = max(K sigma f b / z0^2, (HYPS-1)/2 x step floor).
-inline void StereoBand(float z0, float sigmaEnv, float fx, float b, float& d0, float& step) {
+inline void StereoBand(float z0, float sigmaEnv, float fx, float b, float& d0, float& step, float bandMaxPx = (float)FS_STEREO_BAND_MAX_PX) {
     const int half = (FS_STEREO_HYPS - 1) / 2;
     d0 = fx * b / z0;
-    const float halfBand = fminf(fmaxf((float)FS_STEREO_BAND_K * sigmaEnv * fx * b / (z0 * z0), (float)half * (float)FS_STEREO_STEP_MIN_PX), (float)FS_STEREO_BAND_MAX_PX);
+    const float halfBand = fminf(fmaxf((float)FS_STEREO_BAND_K * sigmaEnv * fx * b / (z0 * z0), (float)half * (float)FS_STEREO_STEP_MIN_PX), bandMaxPx);
     step = halfBand / (float)half;
 }
 inline float SubpixelParabola(float cm, float c0, float cp) { const float den = cm - 2.f * c0 + cp; return den > 1e-6f ? fminf(fmaxf(0.5f * (cm - cp) / den, -0.5f), 0.5f) : 0.f; }
 inline float StereoSigmaZ(float z, float fx, float b, float zncc) { return z * z * ((float)FS_STEREO_SIGMA_D_PX / (zncc * zncc)) / (fx * b); }
 template <class LumaFn>
-inline StereoStatus StereoSolve(const FrameBlock& blk, Vec3 pEnv, Vec3 nEnv, float sigmaEnv, LumaFn bilinear, Vec3& pOut, float& sigmaOut, float& znccOut) {
+inline StereoStatus StereoSolve(const FrameBlock& blk, Vec3 pEnv, Vec3 nEnv, float sigmaEnv, LumaFn bilinear, Vec3& pOut, float& sigmaOut, float& znccOut, uint32_t other = 1u, float bandMaxPx = (float)FS_STEREO_BAND_MAX_PX) {
     pOut = pEnv; sigmaOut = sigmaEnv; znccOut = 0.f;
-    const Vec3 cL = CamCentre(blk, 0), cR = CamCentre(blk, 1);
+    const Vec3 cL = CamCentre(blk, 0), cR = CamCentre(blk, other);
     const float b = Length(Sub(cR, cL)), fx = blk.camIntrinsics[0][0];
     Mat4 ML; memcpy(ML.m, blk.camFromWorld[0], 64);
     const Vec3 pcL = MulPoint(ML, pEnv);
     if (pcL.z <= 0.1f || b < 0.01f) return STEREO_SKIP;
     const Vec3 rayW = TransposeMulDir(ML, Scale3(pcL, 1.f / pcL.z));
-    const float z0 = pcL.z; float d0, step; StereoBand(z0, sigmaEnv, fx, b, d0, step);   // band capped: a prior far off stays EDGE / AMBIG
+    const float z0 = pcL.z; float d0, step; StereoBand(z0, sigmaEnv, fx, b, d0, step, bandMaxPx);   // band capped: a prior far off stays EDGE / AMBIG
     const int half = (FS_STEREO_HYPS - 1) / 2;
     const Vec3 up = fabsf(nEnv.y) > 0.99f ? V3(1, 0, 0) : V3(0, 1, 0);
     const Vec3 t1 = Normalize(Cross(nEnv, up)), t2 = Cross(nEnv, t1);
@@ -357,7 +362,7 @@ inline StereoStatus StereoSolve(const FrameBlock& blk, Vec3 pEnv, Vec3 nEnv, flo
         float a[9], r[9], ma = 0.f, mr = 0.f;
         for (int j = 0; j < 9; ++j) {
             const Vec3 q = Add3(X, Add3(Scale3(t1, (float)(j % 3 - 1) * sp), Scale3(t2, (float)(j / 3 - 1) * sp)));
-            if (!CamLuma(blk, 0, q, bilinear, a[j]) || !CamLuma(blk, 1, q, bilinear, r[j])) return STEREO_NOCOVER;
+            if (!CamLuma(blk, 0, q, bilinear, a[j]) || !CamLuma(blk, other, q, bilinear, r[j])) return STEREO_NOCOVER;
             ma += a[j]; mr += r[j];
         }
         ma /= 9.f; mr /= 9.f;
@@ -380,6 +385,69 @@ inline StereoStatus StereoSolve(const FrameBlock& blk, Vec3 pEnv, Vec3 nEnv, flo
     sigmaOut = StereoSigmaZ(zStar, fx, b, zncc);
     znccOut = zncc;
     return STEREO_OK;
+}
+// ---- C11 keyframe selection (twin: Measure::SelectKeyframeLocked) -----------------------------------------------------------
+// `get(i, wfc, t)` returns false for an empty slot. Camera forward = +Z column of worldFromCamera.
+template <class GetFn>
+inline int32_t SelectKeyframe(const float curWfc[16], int64_t curTimeNs, GetFn get) {
+    const Vec3 c0 = V3(curWfc[12], curWfc[13], curWfc[14]), f0 = Normalize(V3(curWfc[8], curWfc[9], curWfc[10]));
+    const float cosMax = cosf((float)FS_TEMPORAL_MAX_ANGLE_DEG * 3.14159265f / 180.f);
+    int32_t best = -1; float bestErr = 1e30f;
+    for (uint32_t i = 0; i < FS_MEAS_KEYFRAMES; ++i) {
+        const float* wfc = nullptr; int64_t t = 0;
+        if (!get(i, wfc, t)) continue;
+        const int64_t age = curTimeNs > t ? curTimeNs - t : t - curTimeNs;
+        if (age > (int64_t)FS_TEMPORAL_MAX_AGE_NS) continue;
+        const float bl = Length(Sub(V3(wfc[12], wfc[13], wfc[14]), c0));
+        if (bl < (float)FS_TEMPORAL_BASELINE_MIN_M || bl > (float)FS_TEMPORAL_BASELINE_MAX_M) continue;
+        if (Dot(Normalize(V3(wfc[8], wfc[9], wfc[10])), f0) < cosMax) continue;
+        const float err = fabsf(bl - (float)FS_TEMPORAL_BASELINE_BEST_M);
+        if (err < bestErr) { bestErr = err; best = (int32_t)i; }
+    }
+    return best;
+}
+// ---- C11 planar fit (twin: fsMeasPlanarFit) -----------------------------------------------------------------------------------
+// tx/ty/z of the (2R+1)^2 window (z <= 0 = invalid). 1/z = a tx + b ty + c, Huber IRLS on the inverse-depth residual.
+inline bool Solve3(const double A[3][3], const double r[3], double x[3]) {
+    const double det = A[0][0] * (A[1][1] * A[2][2] - A[1][2] * A[2][1]) - A[0][1] * (A[1][0] * A[2][2] - A[1][2] * A[2][0]) + A[0][2] * (A[1][0] * A[2][1] - A[1][1] * A[2][0]);
+    if (fabs(det) < 1e-12) return false;
+    for (int c = 0; c < 3; ++c) {
+        double M[3][3]; for (int i = 0; i < 3; ++i) for (int j = 0; j < 3; ++j) M[i][j] = j == c ? r[i] : A[i][j];
+        x[c] = (M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1]) - M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0]) + M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0])) / det;
+    }
+    return true;
+}
+inline bool PlanarFit(const float tx[], const float ty[], const float z[], uint32_t n, float tcx, float tcy, float& zc, Vec3& nEye, float& rmsZ, uint32_t& inliers) {
+    zc = 0.f; nEye = V3(0, 0, -1); rmsZ = 0.f; inliers = 0;
+    double abc[3] = {0, 0, 0}; double scale = 0;
+    for (int it = 0; it < 3; ++it) {
+        double A[3][3] = {{0}}, rhs[3] = {0}; double wsum = 0;
+        for (uint32_t j = 0; j < n; ++j) {
+            if (!(z[j] > 0.f)) continue;
+            const double iz = 1.0 / z[j], a[3] = {tx[j], ty[j], 1.0};
+            double w = 1.0;
+            if (it > 0) { const double r = iz - (abc[0] * a[0] + abc[1] * a[1] + abc[2]); const double c = FS_PLANAR_HUBER_K * (scale > 1e-6 ? scale : 1e-6); w = fabs(r) <= c ? 1.0 : c / fabs(r); }
+            for (int p = 0; p < 3; ++p) { rhs[p] += w * iz * a[p]; for (int q = 0; q < 3; ++q) A[p][q] += w * a[p] * a[q]; }
+            wsum += w;
+        }
+        if (wsum < FS_PLANAR_MIN_INLIERS * 0.5 || !Solve3(A, rhs, abc)) return false;
+        double s2 = 0; uint32_t cnt = 0;
+        for (uint32_t j = 0; j < n; ++j) { if (!(z[j] > 0.f)) continue; const double r = 1.0 / z[j] - (abc[0] * tx[j] + abc[1] * ty[j] + abc[2]); s2 += r * r; cnt++; }
+        scale = sqrt(s2 / (cnt ? cnt : 1));
+    }
+    const double izc = abc[0] * tcx + abc[1] * tcy + abc[2];
+    if (izc <= 1e-6) return false;
+    zc = (float)(1.0 / izc);
+    double r2 = 0; uint32_t cnt = 0;
+    for (uint32_t j = 0; j < n; ++j) {
+        if (!(z[j] > 0.f)) continue;
+        const double izp = abc[0] * tx[j] + abc[1] * ty[j] + abc[2], r = 1.0 / z[j] - izp;
+        if (fabs(r) > 3.0 * (scale > 1e-6 ? scale : 1e-6)) continue;
+        const double ez = izp > 1e-6 ? z[j] - 1.0 / izp : 0.0; r2 += ez * ez; cnt++;
+    }
+    inliers = cnt; rmsZ = (float)sqrt(r2 / (cnt ? cnt : 1));
+    nEye = Normalize(V3((float)-abc[0], (float)-abc[1], (float)-abc[2]));
+    return cnt >= FS_PLANAR_MIN_INLIERS && rmsZ <= (float)FS_PLANAR_MAX_RMS_RATIO * zc;
 }
 // Emit kernel body: the full back-projection of a selected texel.
 template <class DepthFn>

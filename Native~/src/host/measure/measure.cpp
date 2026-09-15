@@ -54,7 +54,7 @@ static const KernelSpec kKernels[K_COUNT_] = {     // sampler bindings come LAST
     {"measure_select", FS_KS(kMeasureSelectSpirv), {FS_MEAS_B_COUNTERS, FS_MEAS_B_SELECT}, 2, 0},
     {"measure_count",  FS_KS(kMeasureCountSpirv),  {FS_MEAS_B_COUNTERS, FS_MEAS_B_SCORE, FS_MEAS_B_SELECT}, 3, 0},
     {"measure_prefix", FS_KS(kMeasurePrefixSpirv), {FS_MEAS_B_COUNTERS, FS_MEAS_B_SELECT}, 2, 0},
-    {"measure_emit",   FS_KS(kMeasureEmitSpirv),   {FS_MEAS_B_RECORDS, FS_MEAS_B_COUNTERS, FS_MEAS_B_SCORE, FS_MEAS_B_SELECT, FS_MEAS_B_DEPTH, FS_MEAS_B_CAM_L, FS_MEAS_B_CAM_R}, 7, 3},
+    {"measure_emit",   FS_KS(kMeasureEmitSpirv),   {FS_MEAS_B_RECORDS, FS_MEAS_B_COUNTERS, FS_MEAS_B_SCORE, FS_MEAS_B_SELECT, FS_MEAS_B_DEPTH, FS_MEAS_B_CAM_L, FS_MEAS_B_CAM_R, FS_MEAS_B_CAM_K}, 8, 4},
 };
 #undef FS_KS
 constexpr int32_t  kAnchorId = 0;                // one anchor until the AnchorGraph cut (C19) assigns observations to anchors
@@ -184,6 +184,24 @@ public:
         CounterAdd(FS_CTR_STEREO_PAIRS, 1);
         return FS_OK;
     }
+    // C11: a keyframe slot (an earlier left PCA frame copied by the managed store when the camera moved); tex == null clears it.
+    int32_t SetKeyframe(uint32_t slotIndex, void* tex, uint32_t w, uint32_t h, uint32_t sw, uint32_t sh, const float wfc[16], float fx, float fy, float cx, float cy, int32_t rowFlip, int64_t xrTimeNs) {
+        if (slotIndex >= FS_MEAS_KEYFRAMES) return FS_ERR_INVALID;
+        std::lock_guard<std::mutex> g(m_);
+        CameraInput& c = key_[slotIndex];
+        if (!tex) { c.texture = nullptr; c.seq++; return FS_OK; }
+        if (!wfc || w == 0 || h == 0 || fx <= 0.f || fy <= 0.f) return FS_ERR_INVALID;
+        c.texture = tex; c.width = w; c.height = h; memcpy(c.worldFromCamera, wfc, 64); DeliveredIntrinsics(fx, fy, cx, cy, sw, sh, w, h, c.k); c.rowFlip = rowFlip ? 1 : 0; c.xrTimeNs = xrTimeNs; c.seq++;
+        keyframesSet_++;
+        return FS_OK;
+    }
+    // Keyframe for the current left PCA frame: baseline within [MIN, MAX], optical axes within MAX_ANGLE, age within MAX_AGE;
+    // the baseline closest to BEST wins (twin: SelectKeyframe). -1 = none.
+    int32_t SelectKeyframeLocked() const {
+        const CameraInput& cur = cam_[0];
+        if (!cur.texture) return -1;
+        return SelectKeyframe(cur.worldFromCamera, cur.xrTimeNs, [&](uint32_t i, const float*& wfc, int64_t& t) { if (!key_[i].texture) return false; wfc = key_[i].worldFromCamera; t = key_[i].xrTimeNs; return true; });
+    }
     int32_t SetParams(uint32_t budget, uint32_t maxOut, uint32_t flags) {
         std::lock_guard<std::mutex> g(m_);
         maxOut_ = maxOut == 0 ? FS_MEAS_DEFAULT_MAX_OUT : (maxOut > FS_MEAS_GPU_RING_CAPACITY ? FS_MEAS_GPU_RING_CAPACITY : maxOut);
@@ -195,6 +213,8 @@ public:
     }
     // C10 receipts (totals since start): tested, valid, lowTex, ambiguous, bandEdge, noCover, n[4], res0.1mm[4], sigmaUm, envSigmaUm, frames with pair
     void StereoStats(int64_t out[17]) { std::lock_guard<std::mutex> g(m_); for (uint32_t k = 0; k < 16; ++k) out[k] = (int64_t)stereoTotals_[k]; out[16] = (int64_t)stereoFrames_; }
+    // C11 receipts (totals): temporal tested, valid, lowTex, ambiguous, bandEdge, noCover, disagree, sigmaUm, planar tested, valid, rejected, sigmaUm, rmsUm, keyframes set, frames with keyframe
+    void MultiviewStats(int64_t out[15]) { std::lock_guard<std::mutex> g(m_); for (uint32_t k = 0; k < 13; ++k) out[k] = (int64_t)stereoTotals_[16 + k]; out[13] = (int64_t)keyframesSet_; out[14] = (int64_t)keyFramesUsed_; }
     void Stats(int64_t out[8]) {
         std::lock_guard<std::mutex> g(m_);
         out[0] = framesSeen_; out[1] = framesSubmitted_; out[2] = framesSuperseded_; out[3] = lastCount_; out[4] = lastRejected_; out[5] = lastGpuUs_; out[6] = importFailures_; out[7] = lastThreshold_;
@@ -235,6 +255,17 @@ public:
                 if (ImportUnityTexture(c.texture, ci, cvv, cf, cw, ch, cl)) { cv = cvv; camImported_[e] = true; camImportedW_[e] = cw; camImportedH_[e] = ch; }
             }
             if (cv != camView_[e]) { if (!BindImage(pipes_[K_EMIT], e == 0 ? FS_MEAS_B_CAM_L : FS_MEAS_B_CAM_R, cv, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ExecSampler(true))) { importFailures_++; return; } camView_[e] = cv; }
+        }
+        // C11 keyframe: select against the current left PCA frame, import, bind (none: the left camera / depth view stands in)
+        {
+            keySel_ = SelectKeyframeLocked(); keyImported_ = false;
+            VkImageView kv = camView_[0] ? camView_[0] : view;
+            if (keySel_ >= 0) {
+                CameraInput& kc = key_[keySel_];
+                VkImage ki; VkImageView kvv; VkFormat kf; uint32_t kw, kh, kl;
+                if (ImportUnityTexture(kc.texture, ki, kvv, kf, kw, kh, kl) && kw == kc.width && kh == kc.height) { kv = kvv; keyImported_ = true; keySelSeq_ = kc.seq; }
+            }
+            if (kv != keyView_) { if (!BindImage(pipes_[K_EMIT], FS_MEAS_B_CAM_K, kv, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ExecSampler(true))) { importFailures_++; return; } keyView_ = kv; }
         }
         importedW_ = w; importedH_ = h; importedLayers_ = layers; imported_ = input_.seq; importedFrame_ = frame;
         pendingSubmit_ = true;
@@ -293,6 +324,15 @@ public:
         blk.camInfo[2] = camMask; blk.camInfo[3] = (uint32_t)cam_[(camMask & 1u) ? 0 : 1].rowFlip; if (camMask) camFramesUsed_++;
         memcpy(blk.anchorFromWorld, anchorFromWorld.m, 64);
         blk.stereoInfo[0] = pair_.observationId; blk.stereoInfo[1] = pair_.skewClass; blk.stereoInfo[2] = 0; blk.stereoInfo[3] = 0;
+        // C11 keyframe (selected + imported at frame begin; still the same slot content)
+        memset(blk.keyCamFromWorld, 0, sizeof blk.keyCamFromWorld); memset(blk.keyIntrinsics, 0, sizeof blk.keyIntrinsics); memset(blk.keyInfo, 0, sizeof blk.keyInfo);
+        if ((camMask & 1u) && keyImported_ && keySel_ >= 0 && key_[keySel_].seq == keySelSeq_) {
+            const CameraInput& kc = key_[keySel_];
+            Mat4 kw; memcpy(kw.m, kc.worldFromCamera, 64); Mat4 kcfw; if (!Invert(kw, kcfw)) kcfw = Identity();
+            memcpy(blk.keyCamFromWorld, kcfw.m, 64); memcpy(blk.keyIntrinsics, kc.k, 16);
+            blk.keyInfo[0] = kc.width; blk.keyInfo[1] = kc.height; blk.keyInfo[2] = 1; blk.keyInfo[3] = (uint32_t)kc.rowFlip;
+            keyFramesUsed_++;
+        }
         memset(select_.mapped, 0, FS_MEAS_SCORE_BINS * 4);            // histogram reset (host-coherent, before submit)
         if (!scratchBound_) BindScratch();
         if (!scratchBound_) return;
@@ -340,7 +380,7 @@ public:
             lastCount_ = slot.frame.count; lastOverflow_ = slot.frame.overflow; lastEdge_ = ctr[FS_MEAS_CTR_EDGE]; lastRejected_ = ctr[FS_MEAS_CTR_REJECTED]; lastThreshold_ = ctr[FS_MEAS_CTR_THRESHOLD];
             lastGpuUs_ = gpuEnd > gpuStart ? (int64_t)((gpuEnd - gpuStart) / 1000ull) : 0;
             CounterAdd(FS_CTR_MEASUREMENTS, (int64_t)slot.frame.count);
-            for (uint32_t k = 0; k < 16; ++k) stereoTotals_[k] += ctr[FS_MEAS_CTR_STEREO_TESTED + k];
+            for (uint32_t k = 0; k < 32; ++k) stereoTotals_[k] += ctr[FS_MEAS_CTR_STEREO_TESTED + k];
             if (slot.frame.overflow) CounterAdd(FS_CTR_MEASUREMENTS_DROPPED, (int64_t)slot.frame.overflow);
             if (slot.frame.count) { slot.state = SLOT_READY; obs = slot.frame.observationId; request = true; }
             else slot.state = SLOT_FREE;
@@ -355,6 +395,13 @@ public:
                         (unsigned long long)seq, slot.blk->stereoInfo[0], slot.blk->stereoInfo[1], ctr[FS_MEAS_CTR_STEREO_TESTED], v, ctr[FS_MEAS_CTR_STEREO_LOWTEX], ctr[FS_MEAS_CTR_STEREO_AMBIG], ctr[FS_MEAS_CTR_STEREO_EDGEBAND], ctr[FS_MEAS_CTR_STEREO_NOCOVER],
                         mm(0), ctr[FS_MEAS_CTR_STEREO_BIN_N], mm(1), ctr[FS_MEAS_CTR_STEREO_BIN_N + 1], mm(2), ctr[FS_MEAS_CTR_STEREO_BIN_N + 2], mm(3), ctr[FS_MEAS_CTR_STEREO_BIN_N + 3],
                         v ? ctr[FS_MEAS_CTR_STEREO_SIGMA_UM] * 1e-3 / v : 0.0, v ? ctr[FS_MEAS_CTR_ENV_SIGMA_UM] * 1e-3 / v : 0.0, (unsigned long long)stereoFrames_);
+                }
+                if (ctr[FS_MEAS_CTR_TEMPORAL_TESTED] || ctr[FS_MEAS_CTR_PLANAR_TESTED]) {
+                    const uint32_t tv = ctr[FS_MEAS_CTR_TEMPORAL_VALID], pv = ctr[FS_MEAS_CTR_PLANAR_VALID];
+                    Log("FS-MEAS multiview #%llu: keyframe %s %ux%u | temporal tested %u valid %u lowTex %u ambiguous %u bandEdge %u noCover %u disagree %u sigma mean %.2f mm | planar tested %u valid %u rejected %u sigma mean %.2f mm rms mean %.2f mm",
+                        (unsigned long long)seq, slot.blk->keyInfo[2] ? "bound" : "none", slot.blk->keyInfo[0], slot.blk->keyInfo[1],
+                        ctr[FS_MEAS_CTR_TEMPORAL_TESTED], tv, ctr[FS_MEAS_CTR_TEMPORAL_LOWTEX], ctr[FS_MEAS_CTR_TEMPORAL_AMBIG], ctr[FS_MEAS_CTR_TEMPORAL_EDGE], ctr[FS_MEAS_CTR_TEMPORAL_NOCOVER], ctr[FS_MEAS_CTR_TEMPORAL_DISAGREE], tv ? ctr[FS_MEAS_CTR_TEMPORAL_SIGMA_UM] * 1e-3 / tv : 0.0,
+                        ctr[FS_MEAS_CTR_PLANAR_TESTED], pv, ctr[FS_MEAS_CTR_PLANAR_REJECTED], pv ? ctr[FS_MEAS_CTR_PLANAR_SIGMA_UM] * 1e-3 / pv : 0.0, pv ? ctr[FS_MEAS_CTR_PLANAR_RMS_UM] * 1e-3 / pv : 0.0);
                 }
                 // Receipt (§20): where the records are. Host-visible ring, read after the fence retired.
                 const FsSurfaceMeasurement* rec = (const FsSurfaceMeasurement*)slot.ring.records.mapped;
@@ -409,7 +456,8 @@ private:
     uint64_t imported_ = 0, submitted_ = 0; uint32_t importedFrame_ = 0, importedW_ = 0, importedH_ = 0, importedLayers_ = 0; bool pendingSubmit_ = false;
     VkImageView view_ = VK_NULL_HANDLE; VkFormat fmt_ = VK_FORMAT_UNDEFINED;
     VkImageView predView_ = VK_NULL_HANDLE; fs::render::PredictionInfo pred_; bool predValid_ = false; uint64_t predBinds_ = 0;
-    CameraInput cam_[2]; StereoPairInput pair_; uint64_t stereoFrames_ = 0; uint64_t stereoTotals_[16] = {}; VkImageView camView_[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE}; bool camImported_[2] = {false, false}; uint32_t camImportedW_[2] = {0, 0}, camImportedH_[2] = {0, 0}; uint64_t camFrames_ = 0, camFramesUsed_ = 0;
+    CameraInput cam_[2]; StereoPairInput pair_; uint64_t stereoFrames_ = 0; uint64_t stereoTotals_[32] = {};
+    CameraInput key_[FS_MEAS_KEYFRAMES]; int32_t keySel_ = -1; uint64_t keySelSeq_ = 0; bool keyImported_ = false; VkImageView keyView_ = VK_NULL_HANDLE; uint64_t keyframesSet_ = 0, keyFramesUsed_ = 0; VkImageView camView_[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE}; bool camImported_[2] = {false, false}; uint32_t camImportedW_[2] = {0, 0}, camImportedH_[2] = {0, 0}; uint64_t camFrames_ = 0, camFramesUsed_ = 0;
     Pipeline pipes_[K_COUNT_]; Buffer score_, select_; bool scratchBound_ = false;
     RingSlot slots_[FS_MEAS_GPU_RING_SLOTS];
     bool jobInFlight_ = false; uint64_t handoffSeq_ = 0, binds_ = 0, observationSeq_ = 0;
@@ -444,5 +492,8 @@ FS_API int32_t FsMeas_SetParams(uint32_t budget, uint32_t maxOut, uint32_t flags
 FS_API int32_t FsMeas_SetCameraFrame(int32_t eye, void* unityTexture, uint32_t width, uint32_t height, uint32_t sensorWidth, uint32_t sensorHeight, const float worldFromCamera[16], float fx, float fy, float cx, float cy, int32_t rowFlip, int64_t xrTimeNs) {
     EnsureInit(); return M().SetCameraFrame(eye, unityTexture, width, height, sensorWidth, sensorHeight, worldFromCamera, fx, fy, cx, cy, rowFlip, xrTimeNs); }
 FS_API int32_t FsMeas_SetStereoPair(uint32_t observationId, int64_t xrTimeNsL, int64_t xrTimeNsR, uint32_t skewClass) { EnsureInit(); return M().SetStereoPair(observationId, xrTimeNsL, xrTimeNsR, skewClass); }
+FS_API int32_t FsMeas_SetKeyframe(uint32_t slotIndex, void* unityTexture, uint32_t width, uint32_t height, uint32_t sensorWidth, uint32_t sensorHeight, const float worldFromCamera[16], float fx, float fy, float cx, float cy, int32_t rowFlip, int64_t xrTimeNs) {
+    EnsureInit(); return M().SetKeyframe(slotIndex, unityTexture, width, height, sensorWidth, sensorHeight, worldFromCamera, fx, fy, cx, cy, rowFlip, xrTimeNs); }
+FS_API int32_t FsMeas_GetMultiviewStats(int64_t out[15]) { EnsureInit(); if (!out) return FS_ERR_INVALID; M().MultiviewStats(out); return FS_OK; }
 FS_API int32_t FsMeas_GetStereoStats(int64_t out[17]) { EnsureInit(); if (!out) return FS_ERR_INVALID; M().StereoStats(out); return FS_OK; }
 FS_API int32_t FsMeas_GetStats(int64_t out[8]) { EnsureInit(); if (!out) return FS_ERR_INVALID; M().Stats(out); return FS_OK; }

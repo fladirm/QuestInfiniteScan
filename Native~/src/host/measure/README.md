@@ -113,3 +113,23 @@ transform, push / frame block layouts.
   Env Depth sigma. Host twin `StereoSolve` (`TestStereoSolve`: synthetic Quest 3S rig, textured plane at 0.5–3 m within
   3σ, textureless keeps the prior, a prior outside the band never pulls a wrong match).
 
+## C11 temporal large-baseline multiview + planar path
+- **Keyframes:** `PcaKeyframeStore` copies the left PCA frame into one of 4 owned slots whenever the left camera moved
+  ≥ 12 cm (or turned ≥ 15°) from the newest keyframe, pushed with its located capture pose / intrinsics / time via
+  `FsMeas_SetKeyframe`. Per depth frame the native front-end selects the keyframe with baseline 20–50 cm to the current
+  left camera (closest to 30 cm, optical axes within 35°, age ≤ 8 s: `SelectKeyframe`) and binds it (`FS_MEAS_B_CAM_K`).
+- **Temporal solve:** the same homologous world-patch ZNCC solve against the keyframe camera (static scene, both poses
+  located at capture). Prior = the L/R stereo endpoint when valid, else the Env Depth point; band cap 12 px. A temporal
+  endpoint within 3 combined sigma of a valid L/R endpoint (or with no L/R endpoint) becomes the measurement
+  (`FS_MEAS_SRC_TEMPORAL`, sigma from the large baseline); disagreement keeps the L/R measurement (`disagree`).
+- **Planar path (low texture):** a flat Env Depth patch that no image match resolved gets a robust plane over its 5×5
+  window: `1/z = a·tx + b·ty + c` (linear in the ray tangents), Huber IRLS, centre depth and normal from the plane,
+  sigma = the Env Depth model / √(inliers / 4) (texels are correlated), `FS_MEAS_SRC_PLANAR`, the depth-prior bit (and its
+  systematic floor) kept. Rejected when inliers < 18 or the inlier RMS exceeds 0.4 % of depth. The multi-frame part is the
+  canonical fusion: one robust observation per frame into the same surfels and SurfaceGraph (Huber over observations,
+  sheet fit).
+- **Receipts:** `FS-MEAS multiview` log line and `multiview` telemetry (temporal tested / valid / reasons / sigma,
+  planar tested / valid / rejected / sigma / RMS, keyframes set, frames with a keyframe). Host twins:
+  `TestTemporalAndPlanar` (30 cm keyframe resolves 1.5 m with sigma 2.3 mm vs 10 mm for L/R, selection window / age /
+  angle, noisy tilted plane with a flying pixel).
+

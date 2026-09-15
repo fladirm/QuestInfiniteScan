@@ -3,6 +3,7 @@
 // provisional sigma model, decimation counts, workgroup ring reservation and the whole-dispatch CPU
 // reference (the kernel's twin) including anchor transforms and the maxOut cap.
 // HOST_TEST_SOURCES:
+#include <random>
 #include "../src/host/measure/fs_meas_math.h"
 #include <cmath>
 #include <cstdio>
@@ -426,17 +427,70 @@ static void TestStereoSolve() {
     { float d0, step; StereoBand(1.f, 0.03f, fx, b, d0, step); CHECK_NEAR(d0, fx * b, 1e-3); CHECK(step >= (float)FS_STEREO_STEP_MIN_PX - 1e-5f); }
 }
 
+// C11: temporal multiview against a keyframe 30 cm to the side (turned toward the plane) resolves depth with a lower sigma than
+// L/R stereo; keyframe selection honours the baseline window / angle / age; the planar fit recovers a noisy tilted plane.
+static void TestTemporalAndPlanar() {
+    FrameBlock blk{}; blk.camInfo[0] = 1280; blk.camInfo[1] = 960; blk.camInfo[2] = 1; blk.camInfo[3] = 0;
+    const float fx = 871.8f, cx = 640.f, cy = 480.f;
+    Mat4 cfwL = Identity(); memcpy(blk.camFromWorld[0], cfwL.m, 64);
+    for (int e = 0; e < 2; ++e) { blk.camIntrinsics[e][0] = fx; blk.camIntrinsics[e][1] = fx; blk.camIntrinsics[e][2] = cx; blk.camIntrinsics[e][3] = cy; }
+    // keyframe: centre (0.30, 0, 0), yawed by atan(0.3/1.5) toward the scene centre at z = 1.5; camFromWorld = R^T (p - c)
+    const float yaw = atan2f(0.30f, 1.5f), cs = cosf(yaw), sn = sinf(yaw);
+    // world-from-key rotation about +Y by -yaw (forward (0,0,1) -> (-sin, 0, cos)): columns
+    const float Rw[9] = {cs, 0, sn, 0, 1, 0, -sn, 0, cs};                        // column-major 3x3: x axis, y axis, z axis (world)
+    Mat4 wfk = Identity(); wfk.m[0] = Rw[0]; wfk.m[1] = Rw[1]; wfk.m[2] = Rw[2]; wfk.m[4] = Rw[3]; wfk.m[5] = Rw[4]; wfk.m[6] = Rw[5]; wfk.m[8] = Rw[6]; wfk.m[9] = Rw[7]; wfk.m[10] = Rw[8];
+    wfk.m[12] = 0.30f; Mat4 kfw; CHECK(Invert(wfk, kfw)); memcpy(blk.keyCamFromWorld, kfw.m, 64);
+    blk.keyIntrinsics[0] = fx; blk.keyIntrinsics[1] = fx; blk.keyIntrinsics[2] = cx; blk.keyIntrinsics[3] = cy;
+    blk.keyInfo[0] = 1280; blk.keyInfo[1] = 960; blk.keyInfo[2] = 1; blk.keyInfo[3] = 0;
+    CHECK_NEAR(Length(Sub(CamCentre(blk, 2), CamCentre(blk, 0))), 0.30, 1e-5);
+    float planeZ = 1.5f;
+    auto albedo = [&](float X, float Y) -> float {
+        const float c = 0.003f, gx = X / c + 1000.f, gy = Y / c + 1000.f; const int ix = (int)floorf(gx), iy = (int)floorf(gy); const float fxr = gx - ix, fyr = gy - iy;
+        auto h = [](int x, int y) { uint32_t k = (uint32_t)x * 73856093u ^ (uint32_t)y * 19349663u; k ^= k >> 13; k *= 0x5bd1e995u; k ^= k >> 15; return (float)(k & 1023u) / 1023.f; };
+        const float top = h(ix, iy) + (h(ix + 1, iy) - h(ix, iy)) * fxr, bot = h(ix, iy + 1) + (h(ix + 1, iy + 1) - h(ix, iy + 1)) * fxr;
+        return 0.2f + 0.6f * (top + (bot - top) * fyr);
+    };
+    auto bilinear = [&](uint32_t e, float u, float t) -> float {                   // ray cast of camera e onto the plane z = planeZ
+        Mat4 M; memcpy(M.m, CamM(blk, e), 64); Mat4 W; Invert(M, W);
+        const Vec3 dirC = V3((u - cx) / fx, (t - cy) / fx, 1.f), o = V3(W.m[12], W.m[13], W.m[14]), d = MulDir(W, dirC);
+        const float s = (planeZ - o.z) / d.z; return albedo(o.x + d.x * s, o.y + d.y * s);
+    };
+    Vec3 p; float sg, zn;
+    const Vec3 prior = V3(0.10f, 0.05f, planeZ + 0.012f);
+    StereoStatus st = StereoSolve(blk, prior, V3(0, 0, -1), 0.02f, bilinear, p, sg, zn, 2u, (float)FS_TEMPORAL_BAND_MAX_PX);
+    std::printf("temporal z=1.5 b=0.30: status %u z* %.4f err %.2f mm sigma %.3f mm zncc %.3f (L/R stereo sigma at 1.5 m %.2f mm)\n", (unsigned)st, p.z, (p.z - planeZ) * 1e3f, sg * 1e3f, zn, StereoSigmaZ(planeZ, fx, 0.0634f, 1.f) * 1e3f);
+    CHECK(st == STEREO_OK); CHECK(fabsf(p.z - planeZ) <= 3.f * sg + 0.0005f); CHECK(sg < StereoSigmaZ(planeZ, fx, 0.0634f, 1.f));
+    // keyframe selection: 0.1 m (too short), 0.28 m (best), 0.45 m, 0.29 m but turned 60 deg, 0.31 m but 10 s old
+    { float cur[16]; Mat4 I = Identity(); memcpy(cur, I.m, 64);
+      struct K { float x; float yawDeg; int64_t t; } ks[4] = {{0.10f, 0, 0}, {0.28f, 10, 0}, {0.45f, 0, 0}, {0.29f, 60, 0}};
+      auto get = [&](uint32_t i, const float*& wfc, int64_t& tt) { static float m[4][16]; Mat4 w = Identity(); const float y = ks[i].yawDeg * 3.14159265f / 180.f; w.m[0] = cosf(y); w.m[2] = -sinf(y); w.m[8] = sinf(y); w.m[10] = cosf(y); w.m[12] = ks[i].x; memcpy(m[i], w.m, 64); wfc = m[i]; tt = ks[i].t; return true; };
+      CHECK(SelectKeyframe(cur, 1000000000, get) == 1);
+      ks[1].t = -9000000000LL; CHECK(SelectKeyframe(cur, 1000000000, get) == 2);        // stale -> the 0.45 m one
+      ks[2].x = 0.6f; CHECK(SelectKeyframe(cur, 1000000000, get) == -1); }
+    // planar fit: plane tilted 30 deg about Y at 2 m, 1 % depth noise, one outlier
+    { const int R = FS_PLANAR_RADIUS, N = (2 * R + 1) * (2 * R + 1); float tx[25], ty[25], z[25]; std::mt19937 rng(3); std::normal_distribution<float> noise(0.f, 0.004f);
+      const Vec3 n = Normalize(V3(sinf(0.5236f), 0.f, -cosf(0.5236f))); const float d = Dot(n, V3(0, 0, 2.f));
+      for (int j = 0; j < N; ++j) { tx[j] = 0.01f * (float)(j % (2 * R + 1) - R); ty[j] = 0.01f * (float)(j / (2 * R + 1) - R); const float zt = d / Dot(n, V3(tx[j], ty[j], 1.f)); z[j] = zt + noise(rng); }
+      z[3] += 0.3f;                                                                    // flying pixel
+      float zc, rms; Vec3 ne; uint32_t inl;
+      bool ok = PlanarFit(tx, ty, z, (uint32_t)N, 0.f, 0.f, zc, ne, rms, inl);
+      std::printf("planar: ok %d zc %.4f n (%.3f %.3f %.3f) rms %.2f mm inliers %u\n", (int)ok, zc, ne.x, ne.y, ne.z, rms * 1e3f, inl);
+      CHECK(ok); CHECK_NEAR(zc, 2.0, 0.004); CHECK(Dot(ne, n) > 0.97f); CHECK(inl >= FS_PLANAR_MIN_INLIERS && inl < 25u);
+      for (int j = 0; j < N; ++j) z[j] = 2.f + 0.05f * (float)((j * 7) % 5);            // not a plane
+      CHECK(!PlanarFit(tx, ty, z, (uint32_t)N, 0.f, 0.f, zc, ne, rms, inl)); }
+}
+
 static void TestPushLayout() {
     CHECK_EQ(sizeof(PushCompact), 48u);
     CHECK_EQ(offsetof(PushCompact, layers), 16u); CHECK_EQ(offsetof(PushCompact, budget), 20u); CHECK_EQ(offsetof(PushCompact, obsId), 32u);
-    CHECK_EQ(sizeof(FrameBlock), (size_t)FS_MEAS_FB_BYTES); CHECK_EQ(offsetof(FrameBlock, anchorFromEye), 128u); CHECK_EQ(offsetof(FrameBlock, fov), 256u);
-    CHECK_EQ(offsetof(FrameBlock, worldFromEye), 288u); CHECK_EQ(offsetof(FrameBlock, predViewProj), 416u); CHECK_EQ(offsetof(FrameBlock, predInvViewProj), 544u); CHECK_EQ(offsetof(FrameBlock, predInfo), 672u);
+    CHECK_EQ(sizeof(FrameBlock), (size_t)FS_MEAS_FB_BYTES); CHECK_EQ(offsetof(FrameBlock, anchorFromEye), 192u); CHECK_EQ(offsetof(FrameBlock, fov), 320u);
+    CHECK_EQ(offsetof(FrameBlock, worldFromEye), 352u); CHECK_EQ(offsetof(FrameBlock, predViewProj), 480u); CHECK_EQ(offsetof(FrameBlock, predInvViewProj), 608u); CHECK_EQ(offsetof(FrameBlock, predInfo), 736u);
     { float k[4]; DeliveredIntrinsics(871.8f, 871.8f, 642.3f, 644.0f, 1280, 1280, 1280, 960, k);                  // Quest 3S: 1280x960 delivered = centre crop of the 1280x1280 sensor frame
       CHECK_NEAR(k[0], 871.8, 1e-3); CHECK_NEAR(k[1], 871.8, 1e-3); CHECK_NEAR(k[2], 642.3, 1e-3); CHECK_NEAR(k[3], 644.0 - 160.0, 1e-3);
       DeliveredIntrinsics(871.8f, 871.8f, 642.3f, 644.0f, 1280, 1280, 640, 480, k);                              // half resolution: scaled + cropped
       CHECK_NEAR(k[0], 435.9, 1e-3); CHECK_NEAR(k[2], 321.15, 1e-3); CHECK_NEAR(k[3], (644.0 - 160.0) * 0.5, 1e-3);
       DeliveredIntrinsics(800.f, 800.f, 400.f, 300.f, 0, 0, 800, 600, k); CHECK_NEAR(k[2], 400.0, 1e-6); }         // unknown sensor: pass-through
-    CHECK_EQ(offsetof(FrameBlock, camFromWorld), 688u); CHECK_EQ(offsetof(FrameBlock, camIntrinsics), 816u); CHECK_EQ(offsetof(FrameBlock, camInfo), 848u); CHECK_EQ(offsetof(FrameBlock, anchorFromWorld), 864u); CHECK_EQ(offsetof(FrameBlock, stereoInfo), 928u);
+    CHECK_EQ(offsetof(FrameBlock, camFromWorld), 752u); CHECK_EQ(offsetof(FrameBlock, camIntrinsics), 880u); CHECK_EQ(offsetof(FrameBlock, camInfo), 912u); CHECK_EQ(offsetof(FrameBlock, anchorFromWorld), 928u); CHECK_EQ(offsetof(FrameBlock, stereoInfo), 992u); CHECK_EQ(offsetof(FrameBlock, keyCamFromWorld), 1008u); CHECK_EQ(offsetof(FrameBlock, keyInfo), 1088u);
     CHECK((size_t)FS_MEAS_SEL_WORDS * 4 < 65536); CHECK(FS_MEAS_DEFAULT_BUDGET <= FS_MEAS_DEFAULT_MAX_OUT);
     CHECK_EQ(sizeof(FsSurfaceMeasurement), 48u);
     CHECK_EQ((uint32_t)FS_MEAS_SRC_DEPTH_PRIOR, 1u << 2); CHECK_EQ((uint32_t)FS_MEAS_SRC_EDGE, 1u << 8); CHECK_EQ((uint32_t)FS_MEAS_SRC_LOW_TEXTURE, 1u << 9);
@@ -445,7 +499,7 @@ static void TestPushLayout() {
 }
 
 int main() {
-    TestPushLayout(); TestStereoSolve(); TestLinearizeDepth(); TestRays(); TestDepthImageConvention(); TestSigmaModel(); TestEdgeAndFlat(); TestNormals(); TestReservation();
+    TestPushLayout(); TestStereoSolve(); TestTemporalAndPlanar(); TestLinearizeDepth(); TestRays(); TestDepthImageConvention(); TestSigmaModel(); TestEdgeAndFlat(); TestNormals(); TestReservation();
     TestFrontoParallelPlane(); TestTiltedPlaneNormalsAndFinitFar(); TestEdgeRejectionAndDetail(); TestBudgetSelection(); TestScoreAndPrediction(); TestAnchorTransform(); TestFlipY();
     if (g_failures) { std::printf("host_tests_measure: %d failure(s)\n", g_failures); return 1; }
     std::printf("host_tests_measure: all passed\n");
