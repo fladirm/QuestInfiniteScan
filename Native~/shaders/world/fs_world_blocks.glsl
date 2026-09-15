@@ -90,6 +90,12 @@ uint fsPoolAlloc(uint p) {
     if (h >= pool[hb + 1u]) { atomicAdd(pool[hb + 3u], 1u); return FS_INDEX_NONE; }
     return pool[pool[hb + 4u] + (h & pool[hb + 2u])];
 }
+// E9 canonical slot recycle region of page slot `page` (layout: FS_RECYCLE_PAGE_WORDS in fs_world_params.h)
+uint fsRecycleWord(uint page, uint w) { return FS_TK(FS_T_RECYCLE_BASE) + page * uint(FS_RECYCLE_PAGE_WORDS) + w; }
+void fsRecycleFree(uint page, uint h) {
+    uint k = atomicAdd(pool[fsRecycleWord(page, 2u)], 1u);
+    if (k < uint(FS_RECYCLE_PAGE_CAP)) { pool[fsRecycleWord(page, 4u + uint(FS_RECYCLE_PAGE_CAP) + k)] = h; atomicAdd(gctr[FS_GCTR_SLOTS_FREED], 1u); }
+}
 #endif
 #ifdef FS_USE_DIRTY_RO
 layout(std430, set = 0, binding = FS_B_DIRTY) readonly buffer DirtyBlockRO { uint dirty[]; };
@@ -145,7 +151,9 @@ layout(std430, set = 0, binding = FS_B_TOPO) buffer TopoBlock { uint topo[]; };
 layout(std430, set = 0, binding = FS_B_TOPO) readonly buffer TopoBlockRO { uint topo[]; };
 #endif
 #if defined(FS_USE_TOPO) || defined(FS_USE_TOPO_RO)
-// E6R topology buffer layout (twin: fs::world::TopoLayout in fs_world.cpp): vertex records | sheet records | batch deltas | released ids | temporal targets
+// E9 live layout of the B_TOPO binding: the temporal target list only (FS_TEMPORAL_TARGETS x FS_TEMPORAL_TARGET_WORDS; twin: CollectTargets)
+uint fsCanonTargetWord(uint i, uint w) { return i * uint(FS_TEMPORAL_TARGET_WORDS) + w; }
+// E6R topology buffer layout (legacy, unscheduled kernels only) (twin: fs::world::TopoLayout in fs_world.cpp): vertex records | sheet records | batch deltas | released ids | temporal targets
 uint fsTopoVertexWord(uint id, uint w) { return id * uint(FS_TOPO_VERTEX_WORDS) + w; }
 uint fsTopoFaceWord(uint id, uint f, uint w) { return id * uint(FS_TOPO_VERTEX_WORDS) + uint(FS_TOPO_HEADER_WORDS) + f * uint(FS_TOPO_FACE_WORDS) + w; }
 uint fsSheetRecWord(uint s, uint w) { return uint(FS_TOPO_VERTEX_CAP) * uint(FS_TOPO_VERTEX_WORDS) + s * uint(FS_SHEET_REC_WORDS) + w; }

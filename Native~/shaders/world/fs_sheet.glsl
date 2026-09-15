@@ -16,5 +16,8 @@ bool fsSheetEdge(FsPatch a, vec3 pa, FsPatch b, vec3 pb, out float dist) {
     return dist <= FS_SHEET_LINK_R_M;
 }
 // World grid helpers: global cell index along one axis -> page coordinate and page-local cell coordinate.
+#ifndef FS_FLOOR_DIV32_DEFINED
+#define FS_FLOOR_DIV32_DEFINED
 int fsFloorDiv32(int g) { return g >= 0 ? g / 32 : -((-g + 31) / 32); }
+#endif
 #endif

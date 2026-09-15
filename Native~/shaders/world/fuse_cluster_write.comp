@@ -36,15 +36,25 @@ void main() {
     uint prefix = sortw[FS_SORT_PREFIX + i] + sortw[FS_SORT_BLOCKSUM + i / 256u];
     uint idBase = FS_TK(FS_T_ID_BASE) + prefix;
     uint capacity = pages[page].slabCount * uint(FS_SLAB_SURFELS);
-    uint local0 = atomicAdd(pages[page].surfelCount, n);
+    // E9 slot recycling: disjoint atomic reservations from the page's available list first, the rest from the allocation cursor
+    uint rk = atomicAdd(pool[fsRecycleWord(page, 0u)], n);
+    uint avail = pool[fsRecycleWord(page, 1u)];
+    uint recycled = rk < avail ? min(n, avail - rk) : 0u;
+    uint local0 = n > recycled ? atomicAdd(pages[page].surfelCount, n - recycled) : 0u;
+    if (recycled != 0u) atomicAdd(gctr[FS_GCTR_SLOTS_RECYCLED], recycled);
     uint tick16 = FS_TK(FS_T_TICK) & 0xFFFFu;
     uint obs = meas[assocA[i].meas].observationId;
+    uint eyeIndex = (meas[assocA[i].meas].sourceFlags >> 16) & 1u;
     uint written = 0u;
     for (uint c = 0u; c < uint(FS_CELL_NEW_MAX); ++c) {
         if (c >= n) break;
-        uint local = local0 + c;
-        if (local >= capacity) { atomicAdd(pages[page].shortfall, 1u); continue; }
-        uint h = slabDir[page * uint(FS_PAGE_MAX_SLABS) + (local / uint(FS_SLAB_SURFELS))] * uint(FS_SLAB_SURFELS) + (local % uint(FS_SLAB_SURFELS));
+        uint h;
+        if (c < recycled) h = pool[fsRecycleWord(page, 4u + rk + c)];
+        else {
+            uint local = local0 + (c - recycled);
+            if (local >= capacity) { atomicAdd(pages[page].shortfall, 1u); continue; }
+            h = slabDir[page * uint(FS_PAGE_MAX_SLABS) + (local / uint(FS_SLAB_SURFELS))] * uint(FS_SLAB_SURFELS) + (local % uint(FS_SLAB_SURFELS));
+        }
         FsCand q = cands[c];
         vec3 nn = fsCandNormal(q);
         float mxx, myy, mxy, varNorm; fsCandMoments(q, mxx, myy, mxy, varNorm);
@@ -57,15 +67,17 @@ void main() {
         pt.surfaceId = idBase + c; pt.appearance = q.colW > 0.0 ? fsAppearanceWord(q.col / q.colW, 1u) : fsPreviewColorFromNormal(nn);
         surfels[h] = fsPack(pt);
         FsSurfelEvidence ev = fsEvidenceNew(tick16, fsEncodeLog(max(varNorm, 1e-3), FS_VAR_NORM_BASE), obs);
+        // E9: the birth is the first independent observation; its view sector is recorded so only a NEW sector counts again
+        fsSet_FsSurfelEvidence_viewDiversity(ev, fsViewSectorBit(nn, fsEpochEye(eyeIndex) - (origin + pt.p)));
+        fsIndependentSet(ev, (q.srcAnd & FS_SRC_PHOTOMETRIC_MASK) != 0u ? 2u : 1u);
         evidence[h] = ev;
         // the owner cell holds the entry (the mean lies in it up to the seed spread); a mean in a neighbour cell is relocated
         uint meanCell = fsCellOf(pt.p);
         if (meanCell != cell) fsPushRelocation(h, page, cell, meanCell, surfels[h]);
         if (fsIndexInsert(page, cell, pt.p, h)) written++;
-        else { FsSurfel dead = surfels[h]; fsSet_FsSurfel_evidenceFlags(dead, pt.flags | FS_FLAG_REMOVED); surfels[h] = dead; }
+        else { FsSurfel dead = surfels[h]; fsSet_FsSurfel_evidenceFlags(dead, pt.flags | FS_FLAG_REMOVED); surfels[h] = dead; fsRecycleFree(page, h); }   // never indexed: free at once
     }
-    // New sites are transient canonical hypotheses. They become renderable only when fuse_reduce promotes
-    // them after independent observations; promotion invalidates the extraction ball there.
+    // New sites are transient canonical hypotheses: never published. fuse_reduce marks the cell when it promotes them.
     if (written != 0u) atomicAdd(gctr[FS_GCTR_NEW_SURFELS], written);
     if (ov != 0u) atomicAdd(gctr[FS_GCTR_SEG_OVERFLOW], 1u);
 }

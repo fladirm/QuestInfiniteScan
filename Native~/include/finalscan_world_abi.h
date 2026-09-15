@@ -122,10 +122,6 @@ typedef struct FsSurfaceMeasurement {
 #define FS_APPEARANCE_OBS_SHIFT   24
 #define FS_APPEARANCE_OBS_MASK    0x0F000000u
 #define FS_APPEARANCE_CONFIRM_OBS 3
-// E6R shared surface mesh in the RENDER COPY (publish_leaves): sigmaTMinor == FS_RENDER_TRI_MARK marks a triangle of the persistent
-// topology owned by that vertex: position = the owner vertex, radiusMajor_radiusMinor / sigmaN_sigmaTMajor = offsets of the other
-// two vertices (3 x 10-bit signed, FS_TRI_OFFSET_RANGE_M), normal = face normal. Derived readout only: the canonical surfels stay.
-#define FS_RENDER_TRI_MARK        0xFFFEu
 
 // ---- Draw (contract §13) -----------------------------------------------------------------------
 // The native CULL pass writes compact draw records for the published FRONT of resident pages.
@@ -173,7 +169,7 @@ typedef struct FsSurfelEvidence {
     uint32_t lastDebtObs;         // observationId whose contradictions were last charged to the debt (one charge per observation)
     uint16_t viewDiversity;       // 16 view sectors (8 azimuth x 2 elevation) with positive observations
     uint16_t contradictionViews;  // view sectors of contradicting rays
-    uint16_t lifecycle;           // bits 0..1 state (FS_LIFE_*), bits 8..15 residual streak (persistent unexplained residual)
+    uint16_t lifecycle;           // bits 0..1 state (FS_LIFE_*), bits 2..7 independent observations (E9 promotion), bits 8..15 residual streak
     uint16_t suspectSince;        // low 16 bits of the tick the surfel became SUSPECT
 } FsSurfelEvidence;               // 32 B
 
@@ -223,6 +219,4 @@ typedef struct FsRenderNode {
 // bit 3 aggregate (coverage LOD; low 16 bits of colorOrHandle alpha carry coverage), bit 4 transient.
 #define FS_DRAW_FLAG_AGGREGATE (1u << 3)
 #define FS_DRAW_FLAG_TRANSIENT (1u << 4)
-#define FS_DRAW_FLAG_TRIANGLE (1u << 6)        // E6R mesh triangle: centre = vertex 0 (world), tangentAndRadii / surfaceId = world offsets of vertices 1 / 2
-                                               // (3 x 10-bit signed, FS_TRI_OFFSET_RANGE_M); drawn by the triangle bucket (3 vertices)
 #define FS_DRAW_FLAG_NO_APPEARANCE (1u << 5)   // geometry without a measured appearance: never in SCAN; XRAY / PLAN draw it neutral grey (E4.2)

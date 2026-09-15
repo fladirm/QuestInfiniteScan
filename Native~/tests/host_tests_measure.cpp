@@ -123,12 +123,20 @@ static void TestEdgeAndFlat() {
     CHECK(!IsEdge(2.f, 2.05f, 1.95f, 2.1f, 1.9f));        // 5 % steps: no edge
     CHECK(IsEdge(2.f, 2.25f, 2.f, 2.f, 2.f));             // 12.5 % step on one side: edge
     CHECK(IsEdge(2.f, 2.f, 2.f, 2.f, 1.7f));
+    // E9: a 6 cm foreground/background step at 2 m is an edge (the 10 % first-step gate accepted up to 20 cm) ...
+    CHECK(IsEdge(2.f, 2.06f, 2.f, 2.f, 2.f));
+    // ... while a steep planar ramp (15 cm per texel, second difference 0) is not
+    CHECK(!IsEdge(2.f, 1.85f, 2.15f, 2.f, 2.f));
     CHECK(IsFlat(2.f, 2.001f, 1.999f, 2.002f, 1.998f));   // laplacian 0
     CHECK(IsFlat(2.f, 2.004f, 2.004f, 2.f, 2.f));         // laplacian 0.008 < 0.01
     CHECK(!IsFlat(2.f, 2.01f, 2.01f, 2.f, 2.f));          // laplacian 0.02 > 0.01
 }
 
 static void TestNormals() {
+    // E9 edge-safe: a 3 cm step on the +x side (below the edge gate) must not tilt a fronto-parallel normal (one-sided -x difference)
+    { Vec3 c = V3(0.f, 0.f, 2.f);
+      Vec3 ne = NormalFromNeighbours(c, V3(-0.01f, 0.f, 2.f), V3(0.01f, 0.f, 2.03f), V3(0.f, 0.01f, 2.f), V3(0.f, -0.01f, 2.f));
+      CHECK_NEAR(ne.x, 0, 1e-5); CHECK_NEAR(ne.z, -1, 1e-5); }
     // fronto-parallel plane: every point has the same z -> normal (0,0,-1) (facing the camera at the origin)
     Vec3 p = V3(0.f, 0.f, 2.f);
     Vec3 n = NormalFromNeighbours(p, V3(-0.01f, 0.f, 2.f), V3(0.01f, 0.f, 2.f), V3(0.f, 0.01f, 2.f), V3(0.f, -0.01f, 2.f));

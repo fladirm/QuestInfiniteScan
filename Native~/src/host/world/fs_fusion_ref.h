@@ -80,28 +80,45 @@ inline float MeasFootprint(const FsSurfaceMeasurement& m) { return fminf(fmaxf(m
 
 // ---- F0 association scoring (twin of the candidate loop in fuse_associate.comp) -----------------------
 inline float PlaneGate(float sigmaA, float sigmaB) { return fminf((float)FS_ASSOC_SIGMA_GATE * sqrtf(sigmaA * sigmaA + sigmaB * sigmaB), (float)FS_ASSOC_PLANE_MAX_M); }
-// Returns true when the surfel is compatible with the measurement; `score` is the Mahalanobis-like rank.
-inline bool AssocCompatible(const FsSurfel& s, V3 local, V3 n, float sigmaNm, float footprint, float& score) {
+// E9 same-sheet association distance (twin: fsAssocPlaneCap / fsAssocDistance in fs_fusion.glsl).
+inline float AssocPlaneCap(uint32_t srcFlags) {
+    if (srcFlags & FS_SRC_PHOTOMETRIC_MASK) return (float)FS_ASSOC_PLANE_MAX_PHOTO_M;
+    if (srcFlags & FS_SRC_PLANAR_BIT) return (float)FS_ASSOC_PLANE_MAX_PLANAR_M;
+    return (float)FS_ASSOC_PLANE_MAX_M;
+}
+// Returns true when the surfel is compatible with the measurement; `score` = r^2/s^2 + w_t (u^2/R1^2 + v^2/R2^2) + (theta/s_theta)^2;
+// `planeBand` = the candidate was inside the widest plane band (a refusal there is a gate rejection).
+inline bool AssocCompatible(const FsSurfel& s, V3 local, V3 n, float sigmaNm, float footprint, float& score, uint32_t srcFlags = 4u, bool* planeBand = nullptr) {
+    if (planeBand) *planeBand = false;
+    score = 1e30f;
     if (s.evidenceFlags & kFlagRemoved) return false;
-    V3 sp = LocalPos(s), sn = Normal(s);
-    if (Dot(sn, n) < (float)FS_ASSOC_MIN_DOT) return false;
-    V3 delta = local - sp; float d = Dot(sn, delta);
-    float gate = PlaneGate(DecodeLogSigma(s.sigmaN), sigmaNm);
-    if (fabsf(d) > gate) return false;
-    V3 tv = delta - sn * d;
-    float reach = fmaxf((float)FS_ASSOC_TANGENT_K * (DecodeLogRadius(s.radiusMajor) + footprint), (float)FS_ASSOC_REACH_MIN_M);
-    float t2 = Dot(tv, tv);
-    if (t2 > reach * reach) return false;
-    score = (d * d) / fmaxf(gate * gate, 1e-12f) + t2 / fmaxf(reach * reach, 1e-12f);
+    const Patch q = Unpack(s);
+    const float nd = Dot(q.n, n);
+    if (nd < (float)FS_ASSOC_MIN_DOT) return false;
+    const V3 delta = local - q.p; const float r = Dot(q.n, delta);
+    const float sig2 = q.sigmaN * q.sigmaN + sigmaNm * sigmaNm + (float)(FS_ASSOC_POSE_SIGMA_M * FS_ASSOC_POSE_SIGMA_M);
+    if (fabsf(r) > (float)FS_ASSOC_PLANE_MAX_M) return false;
+    if (planeBand) *planeBand = true;
+    if (fabsf(r) > fminf((float)FS_ASSOC_SIGMA_GATE * sqrtf(sig2), AssocPlaneCap(srcFlags))) return false;
+    V3 t1, t2; Frame(q.n, t1, t2);
+    const V3 tM = t1 * cosf(q.angle) + t2 * sinf(q.angle), tm = Cross(q.n, tM);
+    const float u = Dot(delta, tM), v = Dot(delta, tm);
+    const float R1 = fmaxf((float)FS_ASSOC_TANGENT_K * (q.rM + footprint), (float)FS_ASSOC_REACH_MIN_M), R2 = fmaxf((float)FS_ASSOC_TANGENT_K * (q.rm + footprint), (float)FS_ASSOC_REACH_MIN_M);
+    const float tq = u * u / (R1 * R1) + v * v / (R2 * R2);
+    if (tq > 1.f) return false;
+    const float th = acosf(fminf(fmaxf(nd, -1.f), 1.f)) / (float)FS_ASSOC_NORMAL_SIGMA_RAD;
+    const float d2 = r * r / sig2 + (float)FS_ASSOC_TANGENT_WEIGHT * tq + th * th;
+    if (d2 > (float)FS_ASSOC_D2_MAX) return false;
+    score = d2;
     return true;
 }
 // Best candidate among `handles` (deterministic tie-break: lower handle). FS_INDEX_NONE when none.
-inline uint32_t AssocBest(const std::vector<FsSurfel>& surfels, const std::vector<uint32_t>& handles, V3 local, V3 n, float sigmaNm, float footprint, float* bestScoreOut = nullptr) {
+inline uint32_t AssocBest(const std::vector<FsSurfel>& surfels, const std::vector<uint32_t>& handles, V3 local, V3 n, float sigmaNm, float footprint, float* bestScoreOut = nullptr, uint32_t srcFlags = 4u) {
     uint32_t best = FS_INDEX_NONE; float bestScore = 1e30f; uint32_t examined = 0;
     for (uint32_t h : handles) {
         if (examined >= FS_ASSOC_CANDIDATE_MAX) break;
         examined++;
-        float sc; if (!AssocCompatible(surfels[h], local, n, sigmaNm, footprint, sc)) continue;
+        float sc; if (!AssocCompatible(surfels[h], local, n, sigmaNm, footprint, sc, srcFlags)) continue;
         if (sc < bestScore || (sc == bestScore && h < best)) { bestScore = sc; best = h; }
     }
     if (bestScoreOut) *bestScoreOut = bestScore;
@@ -122,7 +139,7 @@ inline void RadixSortAssoc(std::vector<FsAssociation>& a) {
 }
 
 // ---- F2 segmented reduce (twin: fs_fusion.glsl FsAccum + fuse_reduce.comp, C09R-E4) -----------------------
-struct Accum { float wN = 0, dN = 0; V3 nSum; float wT = 0; float tx = 0, ty = 0; float mxx = 0, myy = 0, mxy = 0, d2 = 0, s2 = 0, h = 0, fp = 0; V3 col; float colW = 0; uint32_t srcAnd = 0xFFFFFFFFu, obs = 0, n = 0;
+struct Accum { float wN = 0, dN = 0; V3 nSum; float wT = 0; float tx = 0, ty = 0; float mxx = 0, myy = 0, mxy = 0, d2 = 0, s2 = 0, h = 0, fp = 0; V3 col; float colW = 0; uint32_t srcAnd = 0xFFFFFFFFu, srcOr = 0, obs = 0, n = 0;
                uint32_t oCnt[2] = {0, 0}; V3 oP[2], oN[2]; float oFp[2] = {0, 0}, oS[2] = {0, 0}, worstD = 0; uint32_t worstSide = 0; };   // E4.1C unexplained surface per residual sign
 inline V3 ColorOf(uint32_t w) { return v3((float)(w & 0xFFu), (float)((w >> 8) & 0xFFu), (float)((w >> 16) & 0xFFu)) * (1.f / 255.f); }
 inline uint32_t ColorPack(V3 c) { auto q = [](float x) { x = x < 0.f ? 0.f : (x > 1.f ? 1.f : x); return (uint32_t)(x * 255.f + 0.5f); }; return q(c.x) | (q(c.y) << 8) | (q(c.z) << 16); }
@@ -152,8 +169,13 @@ inline void AccumAdd(Accum& a, const Patch& q, V3 t1, V3 t2, V3 pm, V3 nm, float
     float f2 = footprint * footprint;
     a.mxx += wT * (tvx * tvx + f2); a.myy += wT * (tvy * tvy + f2); a.mxy += wT * tvx * tvy;
     a.d2 += hw * d * d; a.s2 += hw * sigmaNm * sigmaNm; a.h += hw; a.fp = fmaxf(a.fp, footprint); a.n++;
-    a.srcAnd &= srcFlags; a.obs = obs;
+    a.srcAnd &= srcFlags; a.srcOr |= srcFlags; a.obs = obs;
     if (colorWord & FS_MEAS_COLOR_VALID) { a.col = a.col + ColorOf(colorWord); a.colW += 1.f; }
+}
+// ---- E9 independent observations (evidence.lifecycle bits 2..7; twin: fsIndependent / fsIndependentSet)
+inline uint32_t Independent(const FsSurfelEvidence& e) { return (e.lifecycle >> FS_EVIDENCE_INDEP_SHIFT) & FS_EVIDENCE_INDEP_MAX; }
+inline void SetIndependent(FsSurfelEvidence& e, uint32_t v) {
+    e.lifecycle = (uint16_t)((e.lifecycle & ~(FS_EVIDENCE_INDEP_MAX << FS_EVIDENCE_INDEP_SHIFT)) | (std::min<uint32_t>(v, FS_EVIDENCE_INDEP_MAX) << FS_EVIDENCE_INDEP_SHIFT));
 }
 // ---- E6R evidence hysteresis (twins: fsEvidencePositive / fsEvidenceCharge / maintenance + topology transitions) ----------------------
 inline uint32_t EvidencePositive(FsSurfelEvidence& e, uint16_t viewBit) {
@@ -162,8 +184,8 @@ inline uint32_t EvidencePositive(FsSurfelEvidence& e, uint16_t viewBit) {
     if (e.contradictionDebt > 0) { e.contradictionDebt = (uint16_t)(e.contradictionDebt > FS_DEBT_HEAL ? e.contradictionDebt - FS_DEBT_HEAL : 0); r |= 1u; }
     e.viewDiversity |= viewBit;
     const uint32_t st = e.lifecycle & 3u;
-    if (st == FS_LIFE_SUSPECT && e.contradictionDebt < FS_DEBT_SUSPECT / 2) { e.lifecycle = (uint16_t)((e.lifecycle & 0xFF00u) | FS_LIFE_ACTIVE); e.contradictionViews = 0; r |= 2u; }
-    else if (st == FS_LIFE_RETIRING && e.contradictionDebt < FS_DEBT_RETIRE / 2) { e.lifecycle = (uint16_t)((e.lifecycle & 0xFF00u) | FS_LIFE_SUSPECT); r |= 2u; }
+    if (st == FS_LIFE_SUSPECT && e.contradictionDebt < FS_DEBT_SUSPECT / 2) { e.lifecycle = (uint16_t)((e.lifecycle & 0xFFFCu) | FS_LIFE_ACTIVE); e.contradictionViews = 0; r |= 2u; }
+    else if (st == FS_LIFE_RETIRING && e.contradictionDebt < FS_DEBT_RETIRE / 2) { e.lifecycle = (uint16_t)((e.lifecycle & 0xFFFCu) | FS_LIFE_SUSPECT); r |= 2u; }
     return r;
 }
 // free-space narrow phase (one ray): weighted hit, observation id, ray sector
@@ -194,7 +216,7 @@ enum LifeOutcome : uint32_t { LIFE_NONE = 0, LIFE_SUSPECT, LIFE_REMOVED, LIFE_RE
 // maintenance transition of a promoted surfel after a charge (twin: fuse_maint_apply.comp)
 inline LifeOutcome MaintTransition(FsSurfelEvidence& e, uint16_t tick16) {
     const uint32_t st = e.lifecycle & 3u, debt = e.contradictionDebt;
-    if (st == FS_LIFE_ACTIVE && debt >= FS_DEBT_SUSPECT) { e.lifecycle = (uint16_t)((e.lifecycle & 0xFF00u) | FS_LIFE_SUSPECT); e.suspectSince = tick16; return LIFE_SUSPECT; }
+    if (st == FS_LIFE_ACTIVE && debt >= FS_DEBT_SUSPECT) { e.lifecycle = (uint16_t)((e.lifecycle & 0xFFFCu) | FS_LIFE_SUSPECT); e.suspectSince = tick16; return LIFE_SUSPECT; }
     if (st == FS_LIFE_SUSPECT && debt >= FS_DEBT_RETIRE) return LIFE_RETIRE_PENDING;
     if (st == FS_LIFE_RETIRING && debt >= FS_DEBT_REMOVE) return LIFE_REMOVED;
     return LIFE_NONE;
@@ -211,7 +233,8 @@ inline bool TopologyRetire(const FsSurfelEvidence& e, uint16_t tick16, const std
 struct ReduceResult { FsSurfel surfel; FsSurfelEvidence evidence; uint32_t folded = 0; bool overflow = false; bool changed = false; bool duplicate = false; bool relocated = false; uint32_t newCell = 0;
                       bool refine = false; V3 siteP, siteN; float siteFp = 0.f, siteSigma = 0.f; };   // E4.1C refinement request (twin: fuse_reduce.comp)
 // One matched segment = one surfel; `seg` in sorted order, all from ONE observation (one epoch ingests one frame).
-inline ReduceResult ReduceSegment(const FsSurfel& s, const FsSurfelEvidence& evIn, const std::vector<FsSurfaceMeasurement>& seg, V3 origin, uint32_t tick) {
+// `viewBit` = fsViewSectorBit of this observation seen from the surfel (0 = unknown view: never a new sector).
+inline ReduceResult ReduceSegment(const FsSurfel& s, const FsSurfelEvidence& evIn, const std::vector<FsSurfaceMeasurement>& seg, V3 origin, uint32_t tick, uint16_t viewBit = 0) {
     ReduceResult r; r.surfel = s; r.evidence = evIn;
     Patch q = Unpack(s);
     if (q.flags & kFlagRemoved) return r;
@@ -252,11 +275,13 @@ inline ReduceResult ReduceSegment(const FsSurfel& s, const FsSurfelEvidence& evI
     float var = DecodeLog(ev.varianceQ, varBase);
     float meanD2 = (acc.d2 / nEff) / fmaxf(acc.s2 / nEff, 1e-12f);
     var += (meanD2 - var) / (float)(cnt + 1);
-    EvidencePositive(ev, 0u);
+    const bool newView = viewBit != 0 && (ev.viewDiversity & viewBit) == 0;
+    EvidencePositive(ev, viewBit);
+    if (newView || (acc.srcOr & FS_SRC_PHOTOMETRIC_MASK)) SetIndependent(ev, Independent(ev) + 1u);
     uint32_t stat = ev.positiveSupport;
     uint32_t flags = q.flags;
     cnt = std::min<uint32_t>(cnt + 1, FS_EVIDENCE_COUNT_MAX);
-    if ((flags & kFlagTransient) && stat >= FS_PROMOTE_STATIC) flags = (flags & ~(uint32_t)kFlagTransient) | kFlagPromoted;
+    if ((flags & kFlagTransient) && stat >= FS_PROMOTE_STATIC && Independent(ev) >= FS_PROMOTE_INDEPENDENT) flags = (flags & ~(uint32_t)kFlagTransient) | kFlagPromoted;
     q.p = np; q.n = nn; q.angle = ang; q.rM = rM; q.rm = rm; q.sigmaN = newSigmaN; q.sigmaT = newSigmaT;
     q.flags = (flags & ~(uint32_t)kEvidenceCountMask) | cnt;
     if (acc.colW > 0.f) q.appearance = BlendAppearance(q.appearance, acc.col * (1.f / acc.colW), wPrior, 1.f);

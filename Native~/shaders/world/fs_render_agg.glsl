@@ -22,9 +22,7 @@ void fsAggLeaf(uint base, uint n, uint blockId, inout FsRenderNode r) {
         if (i >= n) break;
         FsSurfel s = rsurfels[base + i];
         vec3 p = fsSurfelLocalPos(s); vec3 nn = fsSurfelNormal(s);
-        float rM = fsGet_FsSurfel_sigmaTMinor(s) == uint(FS_RENDER_TRI_MARK)          // E6R triangle: bound by its farthest vertex
-                 ? max(length(fsTriOffsetDecode(s.radiusMajor_radiusMinor)), length(fsTriOffsetDecode(s.sigmaN_sigmaTMajor)))
-                 : fsDecodeLogRadius(fsGet_FsSurfel_radiusMajor(s));
+        float rM = fsDecodeLogRadius(fsGet_FsSurfel_radiusMajor(s));
         bmin = min(bmin, p - vec3(rM)); bmax = max(bmax, p + vec3(rM)); csum += p; nsum += nn;
         if ((s.appearanceHandle & FS_APPEARANCE_MEASURED) != 0u && ((s.appearanceHandle & FS_APPEARANCE_OBS_MASK) >> FS_APPEARANCE_OBS_SHIFT) >= uint(FS_APPEARANCE_CONFIRM_OBS)) { colsum += vec3(float(s.appearanceHandle & 0xFFu), float((s.appearanceHandle >> 8) & 0xFFu), float((s.appearanceHandle >> 16) & 0xFFu)); colN += 1.0; }
         rmax = max(rmax, rM); used++;

@@ -68,13 +68,14 @@ struct FsAccum {
     vec3  col;           // sum of measurement colours (0..1) carrying FS_MEAS_COLOR_VALID
     float colW;          // number of coloured contributions
     uint  srcAnd;        // AND of the contribution source flags (depth-prior-only observation keeps the systematic floor)
+    uint  srcOr;         // OR of the contribution source flags (E9: a stereo / temporal solve is independent information)
     uint  obs;           // observation id of the contributions (one epoch ingests one frame)
     // E4.1C unexplained surface: contributions beyond FS_REFINE_OUTLIER_K x the combined sigma, per residual sign
     // (index 0 = in front of the surfel plane, 1 = behind); the side holding the maximum |residual| is the refinement site.
     uint  oCnt[2]; vec3 oP[2]; vec3 oN[2]; float oFp[2]; float oS[2]; float worstD; uint worstSide;
     uint  n;
 };
-FsAccum fsAccumInit() { FsAccum a; a.wN = 0.0; a.dN = 0.0; a.nSum = vec3(0.0); a.wT = 0.0; a.tMean = vec2(0.0); a.mxx = 0.0; a.myy = 0.0; a.mxy = 0.0; a.d2 = 0.0; a.s2 = 0.0; a.h = 0.0; a.fp = 0.0; a.col = vec3(0.0); a.colW = 0.0; a.srcAnd = 0xFFFFFFFFu; a.obs = 0u; a.oCnt[0] = 0u; a.oCnt[1] = 0u; a.oP[0] = vec3(0.0); a.oP[1] = vec3(0.0); a.oN[0] = vec3(0.0); a.oN[1] = vec3(0.0); a.oFp[0] = 0.0; a.oFp[1] = 0.0; a.oS[0] = 0.0; a.oS[1] = 0.0; a.worstD = 0.0; a.worstSide = 0u; a.n = 0u; return a; }
+FsAccum fsAccumInit() { FsAccum a; a.wN = 0.0; a.dN = 0.0; a.nSum = vec3(0.0); a.wT = 0.0; a.tMean = vec2(0.0); a.mxx = 0.0; a.myy = 0.0; a.mxy = 0.0; a.d2 = 0.0; a.s2 = 0.0; a.h = 0.0; a.fp = 0.0; a.col = vec3(0.0); a.colW = 0.0; a.srcAnd = 0xFFFFFFFFu; a.srcOr = 0u; a.obs = 0u; a.oCnt[0] = 0u; a.oCnt[1] = 0u; a.oP[0] = vec3(0.0); a.oP[1] = vec3(0.0); a.oN[0] = vec3(0.0); a.oN[1] = vec3(0.0); a.oFp[0] = 0.0; a.oFp[1] = 0.0; a.oS[0] = 0.0; a.oS[1] = 0.0; a.worstD = 0.0; a.worstSide = 0u; a.n = 0u; return a; }
 vec3 fsColorOf(uint word) { return vec3(float(word & 0xFFu), float((word >> 8) & 0xFFu), float((word >> 16) & 0xFFu)) / 255.0; }
 uint fsColorPack(vec3 c) { uvec3 u = uvec3(clamp(c, 0.0, 1.0) * 255.0 + 0.5); return u.x | (u.y << 8) | (u.z << 16); }
 // Precision-weighted appearance blend (contract §14, C16a): prior weight = distinct observations, measurement weight = 1 observation.
@@ -95,7 +96,19 @@ FsSurfelEvidence fsEvidenceNew(uint tick16, uint varQ, uint obs) {
     return e;
 }
 uint fsLifeState(FsSurfelEvidence e) { return fsGet_FsSurfelEvidence_lifecycle(e) & 3u; }
-void fsLifeSet(inout FsSurfelEvidence e, uint st) { fsSet_FsSurfelEvidence_lifecycle(e, (fsGet_FsSurfelEvidence_lifecycle(e) & 0xFF00u) | st); }
+void fsLifeSet(inout FsSurfelEvidence e, uint st) { fsSet_FsSurfelEvidence_lifecycle(e, (fsGet_FsSurfelEvidence_lifecycle(e) & 0xFFFCu) | st); }
+uint fsIndependent(FsSurfelEvidence e) { return (fsGet_FsSurfelEvidence_lifecycle(e) >> uint(FS_EVIDENCE_INDEP_SHIFT)) & uint(FS_EVIDENCE_INDEP_MAX); }
+void fsIndependentSet(inout FsSurfelEvidence e, uint v) {
+    uint lc = fsGet_FsSurfelEvidence_lifecycle(e) & ~(uint(FS_EVIDENCE_INDEP_MAX) << uint(FS_EVIDENCE_INDEP_SHIFT));
+    fsSet_FsSurfelEvidence_lifecycle(e, lc | (min(v, uint(FS_EVIDENCE_INDEP_MAX)) << uint(FS_EVIDENCE_INDEP_SHIFT)));
+}
+#ifdef FS_USE_GCTR
+// eye origin (anchor frame) of the epoch's eye `eyeIndex` (host T words)
+vec3 fsEpochEye(uint eyeIndex) {
+    return eyeIndex == 0u ? vec3(uintBitsToFloat(FS_TK(FS_T_EYE0)), uintBitsToFloat(FS_TK(FS_T_EYE0 + 1)), uintBitsToFloat(FS_TK(FS_T_EYE0 + 2)))
+                          : vec3(uintBitsToFloat(FS_TK(FS_T_EYE1)), uintBitsToFloat(FS_TK(FS_T_EYE1 + 1)), uintBitsToFloat(FS_TK(FS_T_EYE1 + 2)));
+}
+#endif
 uint fsResidualStreak(FsSurfelEvidence e) { return fsGet_FsSurfelEvidence_lifecycle(e) >> 8; }
 void fsResidualStreakSet(inout FsSurfelEvidence e, uint v) { fsSet_FsSurfelEvidence_lifecycle(e, (fsGet_FsSurfelEvidence_lifecycle(e) & 0x00FFu) | (min(v, 255u) << 8)); }
 // 16 view sectors: 8 azimuth sectors in the surfel tangent frame x {steep, grazing} elevation
@@ -185,8 +198,36 @@ void fsAccumAdd(inout FsAccum a, FsPatch q, vec3 t1, vec3 t2, vec3 pm, vec3 nm, 
     float f2 = footprint * footprint;
     a.mxx += wT * (tv.x * tv.x + f2); a.myy += wT * (tv.y * tv.y + f2); a.mxy += wT * tv.x * tv.y;
     a.d2 += hw * d * d; a.s2 += hw * sigmaNm * sigmaNm; a.h += hw; a.fp = max(a.fp, footprint); a.n++;
-    a.srcAnd &= srcFlags; a.obs = obs;
+    a.srcAnd &= srcFlags; a.srcOr |= srcFlags; a.obs = obs;
     if ((colorWord & FS_MEAS_COLOR_VALID) != 0u) { a.col += fsColorOf(colorWord); a.colW += 1.0; }
+}
+// ---- E9 same-sheet association distance (twin: AssocCompatible) ---------------------------------------------------------
+// Normal residual r against sigma^2 = sigmaN_s^2 + sigmaN_m^2 + sigma_pose^2 with a source-specific hard bound (depth prior 4 cm,
+// planar tile 2.5 cm, photometric 1.5 cm); tangential offset (u, v) in the surfel's own ellipse axes against R_i = max(k (r_i +
+// footprint), reach); normal angle theta. Returns false outside any hard gate; `d2` = the Mahalanobis rank.
+float fsAssocPlaneCap(uint srcFlags) {
+    if ((srcFlags & FS_SRC_PHOTOMETRIC_MASK) != 0u) return FS_ASSOC_PLANE_MAX_PHOTO_M;
+    if ((srcFlags & FS_SRC_PLANAR_BIT) != 0u) return FS_ASSOC_PLANE_MAX_PLANAR_M;
+    return FS_ASSOC_PLANE_MAX_M;
+}
+bool fsAssocDistance(FsPatch s, vec3 local, vec3 n, float sigmaNm, float footprint, uint srcFlags, out float d2, out bool planeBand) {
+    d2 = 1e30; planeBand = false;
+    float nd = dot(s.n, n);
+    if (nd < FS_ASSOC_MIN_DOT) return false;
+    vec3 delta = local - s.p;
+    float r = dot(s.n, delta);
+    float sig2 = s.sigmaN * s.sigmaN + sigmaNm * sigmaNm + FS_ASSOC_POSE_SIGMA_M * FS_ASSOC_POSE_SIGMA_M;
+    if (abs(r) > FS_ASSOC_PLANE_MAX_M) return false;                                     // outside the widest band: not a candidate at all
+    planeBand = true;
+    if (abs(r) > min(FS_ASSOC_SIGMA_GATE * sqrt(sig2), fsAssocPlaneCap(srcFlags))) return false;
+    vec3 tM, tm; fsPatchFrame(s, tM, tm);
+    float u = dot(delta, tM), v = dot(delta, tm);
+    float R1 = max(FS_ASSOC_TANGENT_K * (s.rM + footprint), FS_ASSOC_REACH_MIN_M), R2 = max(FS_ASSOC_TANGENT_K * (s.rm + footprint), FS_ASSOC_REACH_MIN_M);
+    float tq = u * u / (R1 * R1) + v * v / (R2 * R2);
+    if (tq > 1.0) return false;
+    float th = acos(clamp(nd, -1.0, 1.0)) / FS_ASSOC_NORMAL_SIGMA_RAD;
+    d2 = r * r / sig2 + FS_ASSOC_TANGENT_WEIGHT * tq + th * th;
+    return d2 <= FS_ASSOC_D2_MAX;
 }
 float fsSigmaFloor(uint srcAnd) { return (srcAnd & 4u) != 0u ? max(FS_SIGMA_N_FLOOR_M, FS_DEPTH_PRIOR_SIGMA_FLOOR_M) : FS_SIGMA_N_FLOOR_M; }   // bit 2 = FS_MEAS_SRC_DEPTH_PRIOR
 #endif // FS_FUSION_GLSL

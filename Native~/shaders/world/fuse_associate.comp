@@ -1,11 +1,11 @@
 #version 450
 // F0 association (contract §8.3, §8.5; C09R-B): read-only against the epoch's immutable canonical/index
-// generation. Per measurement: page hash lookup, owner cell, the 2x2x2 cell neighbourhood (drifted surfels
-// near a boundary), bounded candidate scan through the leaf chains, best compatible surfel by Mahalanobis
-// score in the surfel frame. Compatible: |signed plane distance| <= gate * sqrt(sigmaN_s^2 + sigmaN_m^2),
-// normal dot >= FS_ASSOC_MIN_DOT (opposite-facing = the other sheet of a thin wall), tangent distance <=
-// k * (radius_s + footprint_m). Output: FsAssociation with key = handle (matched) or
-// FS_ASSOC_KEY_UNMATCHED | pageSlot << 15 | cell, or FS_ASSOC_KEY_NONE (rejected).
+// generation. Per measurement: page hash lookup, owner cell, the 2x2x2 global-grid cell neighbourhood (drifted surfels near a
+// boundary; E9: a neighbour cell beyond the page resolves through the page hash into the NEIGHBOURING logical page, so a surface
+// crossing a 4 m page seam associates instead of being born again), bounded candidate scan through the leaf chains, best
+// compatible surfel by the E9 Mahalanobis distance (fsAssocDistance: pose-aware normal residual with a source-specific hard
+// bound, tangential ellipse term, normal angle). Output: FsAssociation with key = handle and pageSlot = the surfel's page
+// (matched), or FS_ASSOC_KEY_UNMATCHED | pageSlot << 15 | cell of the measurement's own page, or FS_ASSOC_KEY_NONE.
 #extension GL_GOOGLE_include_directive : require
 #define FS_USE_MEAS
 #define FS_USE_HASH
@@ -16,20 +16,10 @@
 #define FS_USE_ASSOC_A
 #include "fs_world_blocks.glsl"
 #include "fs_index.glsl"
+#include "fs_fusion.glsl"
+#include "fs_global_cell.glsl"
 layout(local_size_x = FS_WG_SMALL) in;
 layout(push_constant) uniform Push { uint hashMask; int anchorId; } pc;
-
-bool fsPageHashLookup(FsPageKey key, out uint slot) {
-    uint i = fsHashPageKey(key) & pc.hashMask;
-    for (uint d = 0u; d < FS_PAGE_HASH_MAX_PROBE; ++d) {
-        FsPageHashEntry e = hash[i];
-        if (e.slot == FS_INDEX_NONE) return false;
-        if (e.probeDistance < d) return false;
-        if (fsKeyEq(e.key, key)) { slot = e.slot; return true; }
-        i = (i + 1u) & pc.hashMask;
-    }
-    return false;
-}
 
 void main() {
     uint t = gl_GlobalInvocationID.x;
@@ -44,25 +34,25 @@ void main() {
     FsPageKey key; key.anchorId = pc.anchorId; key.x = fsPageCoord(p.x); key.y = fsPageCoord(p.y); key.z = fsPageCoord(p.z);
     atomicAdd(gctr[FS_GCTR_PAGE_LOOKUPS], 1u);
     uint slot;
-    if (!fsPageHashLookup(key, slot)) { atomicAdd(gctr[FS_GCTR_PAGE_MISSES], 1u); assocA[t] = a; return; }
+    if (!fsPageHashLookup(pc.hashMask, key, slot)) { atomicAdd(gctr[FS_GCTR_PAGE_MISSES], 1u); assocA[t] = a; return; }
     vec3 local = p - fsPageOrigin3(key);
     if (any(greaterThan(abs(local), vec3(FS_PAGE_EXTENT_M * 0.5 + 0.001)))) { atomicAdd(gctr[FS_GCTR_MEAS_OUT_OF_RANGE], 1u); assocA[t] = a; return; }
     uint cell = fsCellOf(local);
     a.pageSlot = slot;
-    // 2x2x2 neighbourhood toward the nearer side of the cell centre
+    // 2x2x2 neighbourhood toward the nearer side of the cell centre, in global grid coordinates
     float halfE = FS_PAGE_EXTENT_M * 0.5;
     ivec3 c0 = ivec3(int(cell & 31u), int((cell >> 5) & 31u), int((cell >> 10) & 31u));
     vec3 f = (local + vec3(halfE)) / FS_CELL_EXTENT_M - vec3(c0);
     ivec3 dir = ivec3(f.x >= 0.5 ? 1 : -1, f.y >= 0.5 ? 1 : -1, f.z >= 0.5 ? 1 : -1);
-    uint best = FS_INDEX_NONE; float bestScore = 1e30; uint examined = 0u;
+    ivec3 g0 = ivec3(key.x, key.y, key.z) * 32 + c0;
+    uint best = FS_INDEX_NONE, bestSlot = slot; float bestScore = 1e30; uint examined = 0u, gateRejects = 0u;
     for (uint k = 0u; k < uint(FS_ASSOC_NEIGHBOURHOOD); ++k) {
-        ivec3 c = c0 + ivec3((k & 1u) != 0u ? dir.x : 0, (k & 2u) != 0u ? dir.y : 0, (k & 4u) != 0u ? dir.z : 0);
-        if (any(lessThan(c, ivec3(0))) || any(greaterThan(c, ivec3(31)))) continue;
-        uint nc = uint(c.x) | (uint(c.y) << 5) | (uint(c.z) << 10);
-        // Never veto a whole cell from a broad free-space trace. A cell can simultaneously contain an adjacent
-        // sheet, a thin-wall back side or a valid support beside the ray. Compatibility below is the authority;
-        // physical disappearance is handled by per-surfel narrow-phase contradiction evidence.
-        uint leaf = fsIndexFindLeaf(slot, nc, local);
+        ivec3 g = g0 + ivec3((k & 1u) != 0u ? dir.x : 0, (k & 2u) != 0u ? dir.y : 0, (k & 4u) != 0u ? dir.z : 0);
+        uint cs, nc;
+        if (!fsGlobalCell(pc.hashMask, g, slot, pc.anchorId, cs, nc)) continue;          // neighbouring page not resident
+        // Never veto a whole cell from a broad free-space trace; per-surfel narrow-phase evidence handles disappearance.
+        vec3 lc = p - fsPageOrigin3(pages[cs].key);                                      // measurement in the candidate page's frame
+        uint leaf = fsIndexFindLeaf(cs, nc, lc);
         for (uint ch = 0u; ch < uint(FS_INDEX_CHAIN_MAX); ++ch) {
             if (leaf == FS_INDEX_NONE) break;
             uint cnt = min(idx[fsIdxLeafWord(leaf, 0u)], uint(FS_INDEX_LEAF_CAP));
@@ -72,28 +62,20 @@ void main() {
                 examined++;
                 uint h = idx[fsIdxLeafWord(leaf, 2u + i)];
                 FsSurfel s = surfels[h];
-                uint flags = fsGet_FsSurfel_evidenceFlags(s);
-                if ((flags & FS_FLAG_REMOVED) != 0u) continue;
-                vec3 sp = fsSurfelLocalPos(s); vec3 sn = fsSurfelNormal(s);
-                if (dot(sn, n) < FS_ASSOC_MIN_DOT) continue;
-                vec3 delta = local - sp;
-                float d = dot(sn, delta);
-                float sigmaNs = fsDecodeLogSigma(fsGet_FsSurfel_sigmaN(s));
-                float gate = min(FS_ASSOC_SIGMA_GATE * sqrt(sigmaNs * sigmaNs + sigmaNm * sigmaNm), FS_ASSOC_PLANE_MAX_M);   // topological bound (E4)
-                if (abs(d) > gate) continue;
-                vec3 tv = delta - d * sn;
-                float rM = fsDecodeLogRadius(fsGet_FsSurfel_radiusMajor(s));
-                float reach = max(FS_ASSOC_TANGENT_K * (rM + footprint), FS_ASSOC_REACH_MIN_M);   // association tube (E3)
-                float t2 = dot(tv, tv);
-                if (t2 > reach * reach) continue;
-                float score = (d * d) / max(gate * gate, 1e-12) + t2 / max(reach * reach, 1e-12);
-                if (score < bestScore || (score == bestScore && h < best)) { bestScore = score; best = h; }
+                if ((fsGet_FsSurfel_evidenceFlags(s) & FS_FLAG_REMOVED) != 0u) continue;
+                float score; bool band;
+                if (!fsAssocDistance(fsUnpack(s), lc, n, sigmaNm, footprint, m.sourceFlags, score, band)) { if (band) gateRejects++; continue; }
+                if (score < bestScore || (score == bestScore && h < best)) { bestScore = score; best = h; bestSlot = cs; }
             }
             leaf = idx[fsIdxLeafWord(leaf, 1u)];
         }
     }
+    if (gateRejects != 0u) atomicAdd(gctr[FS_GCTR_ASSOC_GATE_REJECT], gateRejects);
     atomicAdd(gctr[FS_GCTR_ASSOC_RECORDS], 1u);
-    if (best != FS_INDEX_NONE) { a.key = best; a.score = bestScore; atomicAdd(gctr[FS_GCTR_ASSOC_MATCHED], 1u); }
-    else { a.key = FS_ASSOC_KEY_UNMATCHED | (slot << 15) | cell; atomicAdd(gctr[FS_GCTR_ASSOC_UNMATCHED], 1u); }
+    if (best != FS_INDEX_NONE) {
+        a.key = best; a.score = bestScore; a.pageSlot = bestSlot; atomicAdd(gctr[FS_GCTR_ASSOC_MATCHED], 1u);
+        if (bestSlot != slot) atomicAdd(gctr[FS_GCTR_ASSOC_CROSS_PAGE], 1u);
+    }
+    else { a.key = FS_ASSOC_KEY_UNMATCHED | (slot << 15) | cell; a.pageSlot = slot; atomicAdd(gctr[FS_GCTR_ASSOC_UNMATCHED], 1u); }
     assocA[t] = a;
 }

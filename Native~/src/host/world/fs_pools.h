@@ -54,5 +54,22 @@ private:
 
 inline uint32_t Pow2Ceil(uint32_t v) { uint32_t p = 1; while (p < v && p < (1u << 30)) p <<= 1; return p; }
 
+// E9 canonical slot recycle region of one page (twin: fsRecycleWord / fsRecycleFree in fs_world_blocks.glsl and the birth reservation
+// in fuse_cluster_write.comp). r[0] take (GPU, atomic), r[1] available, r[2] freed (GPU, atomic), r[4..4+cap) available handles,
+// r[4+cap..4+2cap) freed handles. At an epoch boundary (no job in flight) the untaken available handles and the freed ones become
+// the new available list; take / freed reset. Returns the freed handles that did not fit (their slots stay holes until page eviction).
+inline uint32_t RecycleMerge(uint32_t* r, uint32_t cap) {
+    const uint32_t avail = r[1] < cap ? r[1] : cap;
+    const uint32_t take = r[0] < avail ? r[0] : avail;
+    const uint32_t freed = r[2];
+    uint32_t n = 0;
+    for (uint32_t i = take; i < avail; ++i) r[4 + n++] = r[4 + i];
+    const uint32_t freedStored = freed < cap ? freed : cap;
+    uint32_t dropped = freed - freedStored;
+    for (uint32_t i = 0; i < freedStored; ++i) { if (n < cap) r[4 + n++] = r[4 + cap + i]; else dropped++; }
+    r[1] = n; r[0] = 0; r[2] = 0;
+    return dropped;
+}
+
 } // namespace world
 } // namespace fs

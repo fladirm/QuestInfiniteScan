@@ -76,9 +76,9 @@
 #define FS_SHEET_REC_WORDS      8        // sheetId, parent, vertices, faces, area mm2, refs, relabel generation, min label
 #define FS_TOPO_DELTA_WORDS     (2 + 2 * FS_TOPO_FACES) // flags, N x (b packed, c packed), hole receipt
 #define FS_TOPO_FREE_MAX        16384    // released ids per topology job (host-visible)
-#define FS_TEMPORAL_TARGETS     256      // C11R2 targets per topology job
+#define FS_TEMPORAL_TARGETS     256      // C11R2 / E9 temporal refinement targets per fusion epoch (canonical uncertainty)
 #define FS_TEMPORAL_TARGET_WORDS 8       // world xyz, normal oct, sigmaN, SurfaceID, positive support, pad
-#define FS_TEMPORAL_SIGMA_TARGET_M 0.004 // a face vertex whose sigmaN is above this still needs precision (temporal target)
+#define FS_TEMPORAL_SIGMA_TARGET_M 0.004 // a promoted ACTIVE surfel whose sigmaN is above this still needs precision (temporal target)
 #define FS_FACE_MAX_GAP_RAD     2.618    // a fan gap wider than 150 deg is a boundary (no face across it)
 #define FS_FACE_MAX_CIRCUM_M    0.05     // no face with a circumradius beyond 5 cm (openings, leaf gaps)
 #define FS_FACE_LIFT_M2         1e-7     // in-circle predicate: deterministic SurfaceID lift (m^2) breaks cocircular ties identically for every owner
@@ -97,10 +97,25 @@
 #define FS_FACE_MISS_RETIRE     12       // distinct evidence observations missing the face before retirement
 #define FS_TOPO_FLAG_INTERIOR   1u       // vertex flags: fan closed
 #define FS_TOPO_FLAG_BOUNDARY   2u
-#define FS_TRI_OFFSET_RANGE_M   0.128    // render copy: triangle vertex offsets from the owner vertex, 10 bits signed per axis
 #define FS_PROMOTE_STATIC     3         // DISTINCT consistent observations (frames, not pixels) before a transient candidate becomes canonical
+// E9 promotion by independent information: a repeated Environment Depth prior from the same view repeats its own systematic error, so
+// support alone never promotes. The independent-observation count (evidence.lifecycle bits 2..7) grows with the birth, with every
+// observation from a NEW view sector (fsViewSectorBit: 8 azimuth x 2 elevation sectors in the surfel frame) and with every observation
+// carrying a stereo / temporal photometric solve. Promotion needs FS_PROMOTE_STATIC support AND FS_PROMOTE_INDEPENDENT.
+#define FS_PROMOTE_INDEPENDENT 2
+#define FS_EVIDENCE_INDEP_SHIFT 2
+#define FS_EVIDENCE_INDEP_MAX   63
+#define FS_SRC_PHOTOMETRIC_MASK 3u      // FS_MEAS_SRC_STEREO | FS_MEAS_SRC_TEMPORAL (fs_meas_params.h bits 0, 1): a photometric solve
 #define FS_HUBER_K            1.345     // C09R-E4 robust update: contribution weight min(1, k * gate_sigma / |plane residual|)
-#define FS_ASSOC_PLANE_MAX_M  0.08      // C09R-E4 topological bound of the plane gate: a broad depth-prior sigma never joins sheets farther apart (provisional)
+#define FS_ASSOC_PLANE_MAX_M  0.04      // E9 hard topological plane bound of a DEPTH-PRIOR measurement (was 8 cm: a surfel several cm off
+                                        // the wall kept collecting "confirmations"); also the birth-cluster / merge bound (PlaneGate)
+#define FS_ASSOC_PLANE_MAX_PLANAR_M 0.025 // E9 bound of a robust planar-tile measurement
+#define FS_ASSOC_PLANE_MAX_PHOTO_M  0.015 // E9 bound of a stereo / temporal photometric solve
+#define FS_ASSOC_POSE_SIGMA_M  0.004    // E9 pose / time-alignment uncertainty added to the normal residual variance
+#define FS_ASSOC_NORMAL_SIGMA_RAD 0.25  // E9 normal-angle scale of the association distance
+#define FS_ASSOC_TANGENT_WEIGHT 4.0     // E9 weight of the normalised tangential ellipse term (1 = tube boundary)
+#define FS_ASSOC_D2_MAX        16.0     // E9 same-sheet Mahalanobis bound: r^2/s^2 + w_t (u^2/R1^2 + v^2/R2^2) + (theta/s_theta)^2
+#define FS_SRC_PLANAR_BIT      1024u    // FS_MEAS_SRC_PLANAR (fs_meas_params.h bit 10)
 #define FS_DEPTH_PRIOR_SIGMA_FLOOR_M 0.005  // C09R-E4 systematic floor of a depth-prior-only surfel (random noise averages, bias does not; C01 characterises it)
 // ---- C09R-E4.1R surface complex core (provisional numbers). Canonical rM/rm = statistical support only; the SurfaceGraph is
 // derived and persistent per surfel handle; coverage (readout) is derived from mutual edges, never grown into the canonical.
@@ -119,6 +134,7 @@
 #define FS_RENDER_POS_EPS_M       0.001   // FRONT does not republish sub-mm canonical convergence
 #define FS_RENDER_NORMAL_COS      0.99985 // ~1 degree
 #define FS_RENDER_RADIUS_EPS_M    0.001
+#define FS_RENDER_COLOR_EPS       0.04    // E9: appearance drift below this (unit RGB distance) is not republished
 #define FS_SHEET_RING_CAP     262144    // graph-dirty ring (power of two; dedupe bit per handle)
 #define FS_SHEET_BATCH_MAX    4096      // graph-dirty surfels processed per publication (bounded work)
 // ---- C09R-E4.1C adaptive coarsen / refine (provisional numbers)
@@ -155,28 +171,27 @@
 #define FS_FREE_WALK_MAX      128       // 8 m at half-cell steps; bounded by the measurement range
 #define FS_FREE_MAX_RANGE_M   6.0
 #define FS_FREE_PAGE_HOPS_MAX 4         // page transitions (hash lookups) per ray; a 6 m ray crosses <= 3 page boundaries
-// Negative evidence is intentionally lower-rate than positive construction. It may retire stale geometry,
-// but it is never allowed to set the positive-fusion cadence.
-#define FS_FREE_RAYS_PER_EPOCH  16
-#define FS_FREE_OBS_STRIDE      4
+// Negative evidence: a bounded, rotating subset of the observation's rays per epoch (narrow phase against the surfel support only).
+// Retirement stays slower than construction through the debt hysteresis, not by starving the evidence itself.
+#define FS_FREE_RAYS_PER_EPOCH  48
+#define FS_FREE_OBS_STRIDE      1       // E9: every observation (E8 sampled 16 rays on every 4th: 2 retirements for 21 k promotions)
 
 // One coherent compact observation normally maps to one world fusion job.
 #define FS_EPOCH_MEAS_MIN       256
 #define FS_EPOCH_MEAS_MAX       1024
 #define FS_EPOCH_MEAS_INITIAL   512
 
-// QuestRoomScan-style derived surface extraction over sparse canonical cells.
-// No persistent Edge/Face/Sheet authority exists in the live path.
-#define FS_EXTRACT_K                 8
-#define FS_EXTRACT_CAND_MAX          192
-#define FS_EXTRACT_LINK_R_M          0.070
-#define FS_EXTRACT_MIN_DOT           0.90
-#define FS_EXTRACT_PLANE_MAX_M       0.020
-#define FS_EXTRACT_MAX_GAP_RAD       2.618       // 150 deg: larger gap = real boundary / unresolved region
-#define FS_EXTRACT_MAX_EDGE_M        0.085
-#define FS_EXTRACT_CELL_FALLBACK     1           // unresolved/boundary sites retain an opaque surfel
+// E9 publication: copy-only (no live extraction). Maintenance takes a bounded batch of dirty cells; leaves chunks come from the
+// linear cost model inside [FS_PUB_LEAVES_MIN, FS_PUB_LEAVES_MAX].
 #define FS_PUB_MAINT_BATCH           128
-#define FS_PUB_EXTRACT_BATCH         16
+
+// E9 canonical slot recycling (pools buffer tail, T word FS_T_RECYCLE_BASE; twin: fs::world::RecycleMerge). Per resident page slot:
+// [0] take (GPU birth, atomic) [1] available (host) [2] freed (GPU maintenance, atomic) [3] reserved,
+// [4, 4 + CAP) available handles, [4 + CAP, 4 + 2 CAP) handles freed by leaf compaction since the last merge.
+// A handle is freed only after the maintenance job that removed it from the index retired; the host merges freed into available at
+// an epoch boundary (no job in flight). Births reuse available slots before advancing the allocation cursor.
+#define FS_RECYCLE_PAGE_CAP          1024
+#define FS_RECYCLE_PAGE_WORDS        (4 + 2 * FS_RECYCLE_PAGE_CAP)
 // ---- C09R-E5R deadline / deficit scheduler and cost-model floors ------------------------------------------------------------------
 #define FS_SCHED_FUSE_DEADLINE_MS    60    // E6R: newest usable depth observation waiting longer than this: fusion is overdue (15-20 fused observations/s)
 #define FS_SCHED_PUBLISH_DEADLINE_MS 75    // oldest pending dirty cell older than this: publication work is overdue (acceptance p95 < 100 ms)
@@ -306,7 +321,13 @@
 #define FS_GCTR_FACE_OVERFLOW      70     // owned faces beyond FS_TOPO_FACES (counted)
 #define FS_GCTR_TEMPORAL_TARGETS   71     // uncertain surface vertices exported for C11R2 refinement
 #define FS_GCTR_CONTRACT_UNMATCHED 72     // contraction proposals refused by the matching (vertex already used this generation)
-#define FS_GCTR_COUNT              73
+#define FS_GCTR_PUBLISH_GEOMETRY   73     // E9: promoted surfels whose material geometry change republished their own cell
+#define FS_GCTR_PUBLISH_APPEARANCE 74     // E9: appearance-only republications (confirmation or colour beyond FS_RENDER_COLOR_EPS)
+#define FS_GCTR_ASSOC_CROSS_PAGE   75     // E9: measurements associated with a surfel of the neighbouring logical page
+#define FS_GCTR_ASSOC_GATE_REJECT  76     // E9: candidates inside the plane band refused by the Mahalanobis / source-specific gate
+#define FS_GCTR_SLOTS_RECYCLED     77     // E9: canonical slots reused from the page free list instead of the allocation cursor
+#define FS_GCTR_SLOTS_FREED        78     // E9: dead canonical handles returned to the page free list (index entry already compacted)
+#define FS_GCTR_COUNT              79
 
 // ---- fusion scratch layout (u32 words in the `tick` buffer; per epoch) -------------------------------------
 #define FS_T_COUNT           0          // measurements in the epoch (GPU-written from the ring counters)
@@ -329,7 +350,8 @@
 #define FS_T_EYE0            81         // E6R: 3 words float bits, anchor-local eye origins of the fuse epoch (view sectors)
 #define FS_T_EYE1            84
 #define FS_T_TOPO_GEN        87         // E6R topology generation (one per topology job): contraction matching stamps
-#define FS_T_TARGET_COUNT    88         // E6R temporal refinement targets written by the commit pass (host-visible)
+#define FS_T_TARGET_COUNT    88         // E9 temporal refinement targets appended by fuse_reduce this epoch (host-visible; >= cap = dropped)
+#define FS_T_RECYCLE_BASE    90         // E9 pools-buffer word offset of the per-page slot recycle region
 #define FS_T_TOPO_FREE_COUNT 89         // E6R topology / sheet ids released by the commit pass (host-visible list)
 #define FS_T_DIRTY_TAIL      79         //   producer tail (atomic, fsMarkDirtyCell)
 #define FS_T_REFINE_BIRTHS   77         // E4.1C refinement births of the epoch (deterministic ids after the candidates)

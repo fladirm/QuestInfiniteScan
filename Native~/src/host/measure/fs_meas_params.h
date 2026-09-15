@@ -13,7 +13,15 @@
 // ---- geometry gates ------------------------------------------------------------------------------------
 #define FS_MEAS_MAX_DEPTH_M          6.0       // provisional far gate for the depth prior (contract §6)
 #define FS_MEAS_MIN_DEPTH_M          0.5       // contract §6 invariant: closer texels (hands, cables, controllers) are never measurements
-#define FS_MEAS_EDGE_RATIO           0.10      // neighbour depth step > 10 % of depth = discontinuity (edge, bit 8)
+#define FS_MEAS_EDGE_RATIO           0.10      // hard cap: neighbour depth step > 10 % of depth = discontinuity (grazing / missing neighbour)
+// E9 edge-safe geometry: a depth discontinuity is a SECOND-difference event. A planar oblique surface has a linear depth ramp
+// (second difference ~0 at any slope); a foreground/background step has a second difference ~ the step. A texel whose second
+// difference exceeds FS_MEAS_EDGE_CURV_RATIO * d (2 cm at 1 m, 4 cm at 2 m) is an edge (bit 8, skipped unless DETAIL): the
+// old 10 % first-step gate accepted 20 cm steps at 2 m and central differences across them built planes through empty space.
+#define FS_MEAS_EDGE_CURV_RATIO      0.02
+// Below the edge gate but above this ratio the normal of that axis uses the one-sided difference towards the smaller step
+// (never a chord across the step).
+#define FS_MEAS_NORMAL_ONESIDED_RATIO 0.005
 #define FS_MEAS_FLAT_LAPLACIAN_RATIO 0.005     // |laplacian| < 0.5 % of depth = flat region (lowTexture, bit 9)
 
 // ---- provisional Env Depth uncertainty model (contract §6 / §7.4): sigmaN = 0.02 d^2 + 0.01 m -------------

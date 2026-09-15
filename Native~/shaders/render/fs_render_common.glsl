@@ -21,9 +21,6 @@
 #define FS_RB_DEPTH   2      // hzb scatter: combined image samplers, binding 2 = previous own depth, 3 = Environment Depth
 #define FS_OPAQUE_VERTS 24   // circumscribed 8-gon fan per opaque surfel (no discard, LRZ friendly)
 #define FS_AGG_VERTS    6    // quad per aggregate (hashed alpha / alpha-to-coverage)
-#define FS_TRI_VERTS    3    // E6R shared surface mesh: one triangle per record
-#define FS_RB_TRISCRATCH 8   // blocks kernel: native triangle scratch
-#define FS_RB_TRISRC    7    // compact kernel: native triangle scratch (read)
 
 // ---- per-frame block (twin: fs::render::CullFrame) ---------------------------------------------------
 struct FsCullFrame {
@@ -67,8 +64,7 @@ layout(std430, set = 0, binding = FS_RB_NODES) readonly buffer RenderNodeBlockR 
 #define FS_WK_CACHE_STATE  (FS_WK_CACHE_ROOT + FS_MAX_PAGES)
 #define FS_WK_FRONTIER     (FS_WK_CACHE_STATE + FS_MAX_PAGES)          // 2 x FS_CULL_FRONTIER_CAP x uvec2 {node, slot}
 #define FS_WK_BLOCK_LIST   (FS_WK_FRONTIER + 2 * 2 * FS_CULL_FRONTIER_CAP) // FS_CULL_BLOCK_LIST_CAP x uvec2 {node, slot}
-#define FS_WK_TRI          (FS_WK_BLOCK_LIST + 2 * FS_CULL_BLOCK_LIST_CAP)   // E6R triangle records of the cut
-#define FS_WK_WORDS        (FS_WK_TRI + 1)
+#define FS_WK_WORDS        (FS_WK_BLOCK_LIST + 2 * FS_CULL_BLOCK_LIST_CAP)
 #define FS_PAGE_STATE_OUTSIDE 1u
 #define FS_PAGE_STATE_VISIBLE 2u
 uint fsFrontierWord(uint parity, uint i) { return uint(FS_WK_FRONTIER) + (parity * uint(FS_CULL_FRONTIER_CAP) + i) * 2u; }
@@ -90,12 +86,6 @@ FsDrawRecord fsDrawRecordOf(FsSurfel s, mat4 A, vec3 origin) {
     r.colorOrHandle = (s.appearanceHandle & 0x00FFFFFFu) | 0xFF000000u;
     r.surfaceId = s.surfaceId;
     r.flags = ((flags & FS_FLAG_DETAIL) != 0u ? 1u : 0u) | ((flags & FS_FLAG_TRANSIENT) != 0u ? uint(FS_DRAW_FLAG_TRANSIENT) : 0u);
-    if (fsGet_FsSurfel_sigmaTMinor(s) == uint(FS_RENDER_TRI_MARK)) {
-        // E6R mesh triangle: world offsets of vertices 1 / 2 (anchor rotation applied), re-encoded in tangentAndRadii / surfaceId
-        r.tangentAndRadii = fsTriOffsetEncode(mat3(A) * fsTriOffsetDecode(s.radiusMajor_radiusMinor));
-        r.surfaceId = fsTriOffsetEncode(mat3(A) * fsTriOffsetDecode(s.sigmaN_sigmaTMajor));
-        r.flags |= uint(FS_DRAW_FLAG_TRIANGLE);
-    }
     return r;
 }
 // ---- HZB buffer (u32 words: float bits; 0 = no occluder) -----------------------------------------------

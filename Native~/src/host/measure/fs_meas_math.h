@@ -140,8 +140,9 @@ inline void RayTangents(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const fl
 }
 inline Vec3 EyePoint(float tx, float ty, float z) { return V3(tx * z, ty * z, z); }
 inline bool IsEdge(float d, float dxm, float dxp, float dym, float dyp) {
-    float t = (float)FS_MEAS_EDGE_RATIO * d;
-    return fabsf(dxm - d) > t || fabsf(dxp - d) > t || fabsf(dym - d) > t || fabsf(dyp - d) > t;
+    float t = (float)FS_MEAS_EDGE_RATIO * d, c = (float)FS_MEAS_EDGE_CURV_RATIO * d;
+    return fabsf(dxm - d) > t || fabsf(dxp - d) > t || fabsf(dym - d) > t || fabsf(dyp - d) > t
+        || fabsf(dxp + dxm - 2.f * d) > c || fabsf(dyp + dym - 2.f * d) > c;
 }
 inline bool IsFlat(float d, float dxm, float dxp, float dym, float dyp) {
     return fabsf(dxm + dxp + dym + dyp - 4.f * d) < (float)FS_MEAS_FLAT_LAPLACIAN_RATIO * d;
@@ -231,9 +232,14 @@ inline bool PredictResidual(const FrameBlock& blk, uint32_t layer, Vec3 pEye, fl
     residualSigma = fabsf(dm - dp) / SigmaN(z);
     return true;
 }
-// Central-difference normal from the four neighbour points (eye space), oriented towards the camera (origin).
+// E9 edge-safe normal (twin: fsMeasNormal): per axis the central difference on a smooth depth ramp, the one-sided difference towards
+// the smaller depth step when the second difference exceeds FS_MEAS_NORMAL_ONESIDED_RATIO * z; oriented towards the camera (origin).
+inline Vec3 AxisTangent(Vec3 p, Vec3 pm, Vec3 pp) {
+    if (fabsf(pp.z + pm.z - 2.f * p.z) <= (float)FS_MEAS_NORMAL_ONESIDED_RATIO * p.z) return Sub(pp, pm);
+    return fabsf(pp.z - p.z) <= fabsf(p.z - pm.z) ? Sub(pp, p) : Sub(p, pm);
+}
 inline Vec3 NormalFromNeighbours(Vec3 p, Vec3 pxm, Vec3 pxp, Vec3 pym, Vec3 pyp) {
-    Vec3 n = Normalize(Cross(Sub(pxp, pxm), Sub(pyp, pym)));
+    Vec3 n = Normalize(Cross(AxisTangent(p, pxm, pxp), AxisTangent(p, pym, pyp)));
     if (Dot(n, p) > 0.f) n = V3(-n.x, -n.y, -n.z);
     return n;
 }

@@ -238,18 +238,25 @@ static void TestFusionDeterminism() {
     SurfelSample smp{{0.31f, 0.52f, 0.73f}, {0, 0, 1}, 0.01f, 0.002f, 0.004f, 7};
     FsSurfel s = MakeSurfel(smp, key); s.evidenceFlags = (uint16_t)(2 | kFlagTransient);   // transient candidate, 2 observations
     FsSurfelEvidence ev{}; ev.positiveSupport = 2; ev.varianceQ = EncodeLog(1.f, (float)FS_VAR_NORM_BASE); ev.lastObservationId = 99;
+    ev.viewDiversity = 1u; SetIndependent(ev, 1u);                                                    // born in view sector 0
+    const uint16_t kNewView = 1u << 3;
     std::mt19937 rng(11); std::normal_distribution<float> nz(0.f, 0.001f), nt(0.f, 0.004f);
     std::vector<FsSurfaceMeasurement> seq;                                                            // 40 pixels of ONE depth frame (observation 100)
     for (int i = 0; i < 40; ++i) seq.push_back(Meas(v3(0.31f + nt(rng), 0.52f + nt(rng), 0.73f + 0.0015f + nz(rng)), Norm(v3(0.02f * nz(rng) * 100.f, 0.f, 1.f)), 0.002f, 0.004f, 0.006f, 100u));
-    ReduceResult r1 = ReduceSegment(s, ev, seq, origin, 5);
-    ReduceResult r2 = ReduceSegment(s, ev, seq, origin, 5);
+    ReduceResult r1 = ReduceSegment(s, ev, seq, origin, 5, kNewView);
+    ReduceResult r2 = ReduceSegment(s, ev, seq, origin, 5, kNewView);
     CHECK(r1.changed && r1.folded == 40 && !r1.overflow);
     CHECK(SameSurfel(r1.surfel, r2.surfel) && memcmp(&r1.evidence, &r2.evidence, sizeof ev) == 0);   // replay: bit-identical
     Patch q0 = Unpack(s), q1 = Unpack(r1.surfel);
     CHECK(q1.sigmaN < q0.sigmaN && q1.sigmaT < q0.sigmaT);                                           // precision grows ...
     CHECK(q1.sigmaN > 0.7f * q0.sigmaN);                                                              // ... by ONE measurement, not by 40 correlated pixels (E4)
     CHECK((q1.flags & kEvidenceCountMask) == 3);                                                      // one observation of support
-    CHECK((q1.flags & kFlagPromoted) && !(q1.flags & kFlagTransient));                                // 2 + 1 distinct observations >= FS_PROMOTE_STATIC
+    CHECK((q1.flags & kFlagPromoted) && !(q1.flags & kFlagTransient));                                // 3 distinct observations, 2 independent (new sector)
+    // E9: the same support from the SAME view sector (a repeated depth prior) never promotes ...
+    { ReduceResult same = ReduceSegment(s, ev, seq, origin, 5, 1u); CHECK(!(Unpack(same.surfel).flags & kFlagPromoted) && Independent(same.evidence) == 1u && same.evidence.positiveSupport == 3); }
+    // ... while a photometric (stereo / temporal) solve is independent information from any view
+    { std::vector<FsSurfaceMeasurement> st = seq; for (auto& m : st) m.sourceFlags = 1u;
+      ReduceResult ph = ReduceSegment(s, ev, st, origin, 5, 1u); CHECK((Unpack(ph.surfel).flags & kFlagPromoted) && Independent(ph.evidence) == 2u); }
     CHECK(r1.evidence.positiveSupport == 3 && r1.evidence.lastSeenFrame == 5 && r1.evidence.lastObservationId == 100u);
     CHECK(q1.p.z > q0.p.z && q1.p.z < q0.p.z + 0.0016f);                                              // moved toward the measured plane
     // the same observation again (a later slice of the frame) is not new evidence
@@ -261,7 +268,7 @@ static void TestFusionDeterminism() {
     CHECK((Unpack(rF.surfel).flags & kFlagTransient) && rF.evidence.positiveSupport == 2);
     // permutation of the same set: identical associations (all match the same surfel) and equal within fp order
     std::vector<FsSurfaceMeasurement> perm = seq; std::shuffle(perm.begin(), perm.end(), rng);
-    ReduceResult r3 = ReduceSegment(s, ev, perm, origin, 5);
+    ReduceResult r3 = ReduceSegment(s, ev, perm, origin, 5, kNewView);
     Patch q3 = Unpack(r3.surfel);
     CHECK_NEAR(q3.p.x, q1.p.x, 0.0003); CHECK_NEAR(q3.p.y, q1.p.y, 0.0003); CHECK_NEAR(q3.p.z, q1.p.z, 0.0003);
     CHECK_NEAR(q3.sigmaN, q1.sigmaN, 1e-5); CHECK(Dot(q3.n, q1.n) > 0.9999f);
@@ -280,6 +287,18 @@ static void TestFusionDeterminism() {
     FsSurfaceMeasurement broad = Meas(v3(0.31f, 0.52f, 0.83f), v3(0, 0, 1), 0.19f, 0.02f, 0.02f, 1);
     CHECK(AssocBest(pool, hs, MeasPos(broad) - origin, MeasNormal(broad), MeasSigmaN(broad), MeasFootprint(broad)) == FS_INDEX_NONE);
     CHECK_NEAR(PlaneGate(0.19f, 0.19f), FS_ASSOC_PLANE_MAX_M, 1e-6);
+    // E9 source-specific hard bound: 2.5 cm off the plane with a broad sigma joins a depth-prior sheet but never as a photometric solve
+    { FsSurfaceMeasurement m25 = Meas(v3(0.31f, 0.52f, 0.755f), v3(0, 0, 1), 0.05f, 0.004f, 0.006f, 1);
+      CHECK(AssocBest(pool, hs, MeasPos(m25) - origin, MeasNormal(m25), MeasSigmaN(m25), MeasFootprint(m25), nullptr, 4u) == 0u);
+      CHECK(AssocBest(pool, hs, MeasPos(m25) - origin, MeasNormal(m25), MeasSigmaN(m25), MeasFootprint(m25), nullptr, 1u) == FS_INDEX_NONE); }
+    // E9 Mahalanobis: a tilted normal (30 deg) at the edge of the plane band is refused although each hard gate alone passes
+    { const V3 at = v3(0.31f + 0.026f, 0.52f, 0.73f + 0.03f);   // r^2/s^2 7.5 + 4 (u/R1)^2 2.6 + (theta/s)^2 6.3 > 16
+      FsSurfaceMeasurement aligned = Meas(at, v3(0, 0, 1), 0.01f, 0.004f, 0.006f, 1);
+      FsSurfaceMeasurement tilt = Meas(at, Norm(v3(0.58f, 0.f, 0.81f)), 0.01f, 0.004f, 0.006f, 1);
+      float sa = 0, st = 0; bool bandA = false, bandT = false;
+      const bool okA = AssocCompatible(pool[0], MeasPos(aligned) - origin, MeasNormal(aligned), 0.01f, 0.006f, sa, 4u, &bandA);
+      const bool okT = AssocCompatible(pool[0], MeasPos(tilt) - origin, MeasNormal(tilt), 0.01f, 0.006f, st, 4u, &bandT);
+      CHECK(okA && bandA); CHECK(!okT && bandT); CHECK(Dot(MeasNormal(tilt), v3(0, 0, 1)) >= (float)FS_ASSOC_MIN_DOT); }
     // the anti-parallel sheet of a thin wall is a different surfel (normal dot < FS_ASSOC_MIN_DOT)
     FsSurfaceMeasurement back = Meas(v3(0.31f, 0.52f, 0.73f), v3(0, 0, -1), 0.002f, 0.004f, 0.006f, 1);
     CHECK(AssocBest(pool, hs, MeasPos(back) - origin, MeasNormal(back), MeasSigmaN(back), MeasFootprint(back)) == FS_INDEX_NONE);
@@ -585,6 +604,23 @@ static void TestCostModel() {
     CHECK_NEAR(w.Quantile(0.5f), 51, 1.01); CHECK_NEAR(w.Quantile(0.95f), 95, 1.01);
 }
 
+static void TestSlotRecycle() {
+    // E9: births take disjoint ranges from the available list; the merge keeps the untaken ones, appends the freed handles and caps
+    const uint32_t cap = 8; std::vector<uint32_t> r(4 + 2 * cap, 0u);
+    r[1] = 5; for (uint32_t i = 0; i < 5; ++i) r[4 + i] = 100 + i;       // available 100..104
+    r[0] = 3;                                                            // births took 100..102
+    r[2] = 7; for (uint32_t i = 0; i < 7; ++i) r[4 + cap + i] = 200 + i; // maintenance freed 200..206
+    const uint32_t dropped = RecycleMerge(r.data(), cap);
+    CHECK(r[0] == 0 && r[2] == 0 && r[1] == cap && dropped == 1);
+    CHECK(r[4] == 103 && r[5] == 104 && r[6] == 200 && r[11] == 205);
+    // take beyond the available count (births reserved more than there was) keeps nothing and loses nothing freed
+    std::vector<uint32_t> q(4 + 2 * cap, 0u); q[1] = 2; q[4] = 7; q[5] = 8; q[0] = 9; q[2] = 1; q[4 + cap] = 55;
+    CHECK(RecycleMerge(q.data(), cap) == 0 && q[1] == 1 && q[4] == 55);
+    // freed overflow counter above the stored staging entries is counted as dropped
+    std::vector<uint32_t> o(4 + 2 * cap, 0u); o[2] = cap + 3; for (uint32_t i = 0; i < cap; ++i) o[4 + cap + i] = i;
+    CHECK(RecycleMerge(o.data(), cap) == 3 && o[1] == cap);
+}
+
 static void TestSchedulerNoStarvation() {
     // E6R: FUSE / PUBLISH / TOPOLOGY always runnable, continuous arrivals (a new observation every 50 ms, dirty cells and graph marks after
     // every job); one job per 14 ms tick. Every class must keep being served and its lateness must stay bounded.
@@ -652,7 +688,7 @@ static void TestEvidenceHysteresis() {
     CHECK(!TopologyRetire(e, (uint16_t)(tick + FS_SUSPECT_MIN_TICKS), healthy));
     CHECK(!TopologyRetire(e, (uint16_t)(tick + 1), std::vector<uint32_t>(6, FS_LIFE_SUSPECT)));          // not persistent yet
     CHECK(TopologyRetire(e, (uint16_t)(e.suspectSince + FS_SUSPECT_MIN_TICKS), std::vector<uint32_t>(6, FS_LIFE_SUSPECT)));   // consistent contradicted band
-    e.lifecycle = (uint16_t)((e.lifecycle & 0xFF00u) | FS_LIFE_RETIRING);
+    e.lifecycle = (uint16_t)((e.lifecycle & 0xFFFCu) | FS_LIFE_RETIRING);
     LifeOutcome out = LIFE_NONE;
     for (int k = 0; k < 20 && out != LIFE_REMOVED; ++k) { out = MaintTransition(e, ++tick); if (out != LIFE_REMOVED) { EvidenceRay(e, true, ++obs, 1); EvidenceCharge(e); } }
     CHECK(out == LIFE_REMOVED && e.contradictionDebt >= FS_DEBT_REMOVE);
@@ -895,7 +931,7 @@ static void TestIndexGeneration() {
 
 int main() {
     TestPageHash(); TestEncodings(); TestSynthetic(); TestResidency(); TestHzbBand(); TestHzbDisagreement(); TestCullMath();
-    TestFusionDeterminism(); TestRelocationAcrossCell(); TestSurfaceComplex(); TestCoarsenRefine(); TestAppearanceState(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCostModel(); TestSchedulerNoStarvation(); TestEvidenceHysteresis(); TestTopology(); TestCrossPageFreeRay(); TestIndexGeneration();
+    TestFusionDeterminism(); TestRelocationAcrossCell(); TestSurfaceComplex(); TestCoarsenRefine(); TestAppearanceState(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCostModel(); TestSlotRecycle(); TestSchedulerNoStarvation(); TestEvidenceHysteresis(); TestTopology(); TestCrossPageFreeRay(); TestIndexGeneration();
     std::printf("finalscan host world tests: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

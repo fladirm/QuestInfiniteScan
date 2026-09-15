@@ -15,10 +15,10 @@ namespace render {
 
 // Binding ids are the contract with fs_render_common.glsl (FS_RB_*): world pools bound read-only.
 enum : uint32_t { RB_FRAME = 0, RB_PAGES = 1, RB_RBLOCKS = 2, RB_RNODES = 3, RB_AGGSCRATCH = 4, RB_WORK = 5, RB_DRAW = 6, RB_HZB = 7,
-                  RB_ARGS = 3, RB_STATS = 4, RB_AGGSRC = 2, RB_DEPTH_PREV = 2, RB_DEPTH_ENV = 3, RB_TRISCRATCH = 8, RB_TRISRC = 7 };
+                  RB_ARGS = 3, RB_STATS = 4, RB_AGGSRC = 2, RB_DEPTH_PREV = 2, RB_DEPTH_ENV = 3 };
 struct PushFrame  { uint32_t frameSlot; };
 struct PushPages  { uint32_t frameSlot, pageCount; };
-struct PushCull   { uint32_t frameSlot, aggBase, aggCapacity, opaqueCapacity, parity, triCapacity; };
+struct PushCull   { uint32_t frameSlot, aggBase, aggCapacity, opaqueCapacity, parity; };
 
 enum RenderKernel : uint32_t { R_HZB_SCATTER = 0, R_HZB_COMBINE, R_HZB_MIPS, R_CULL_PAGES, R_CULL_EXPAND, R_CULL_BLOCKS, R_CULL_COMPACT, R_COUNT };
 struct KernelSpec { const char* name; const uint32_t* spirv; size_t words; uint32_t pushBytes; uint32_t bindings[8]; uint32_t bindingCount; uint32_t samplerBindings; };
@@ -29,8 +29,8 @@ static const KernelSpec kRenderKernels[R_COUNT] = {
     {"render_hzb_mips",    FS_KS(kRenderHzbMipsSpirv),    0,                 {RB_WORK, RB_HZB}, 2, 0},
     {"render_cull_pages",  FS_KS(kRenderCullPagesSpirv),  sizeof(PushPages), {RB_FRAME, RB_PAGES, RB_WORK}, 3, 0},
     {"render_cull_expand", FS_KS(kRenderCullExpandSpirv), sizeof(PushCull),  {RB_FRAME, RB_PAGES, RB_RNODES, RB_WORK, RB_DRAW, RB_HZB}, 6, 0},
-    {"render_cull_blocks", FS_KS(kRenderCullBlocksSpirv), sizeof(PushCull),  {RB_FRAME, RB_PAGES, RB_RBLOCKS, RB_RNODES, RB_AGGSCRATCH, RB_WORK, RB_DRAW, RB_TRISCRATCH}, 8, 0},
-    {"render_cull_compact",FS_KS(kRenderCullCompactSpirv),sizeof(PushCull),  {RB_FRAME, RB_AGGSRC, RB_ARGS, RB_STATS, RB_WORK, RB_DRAW, RB_TRISRC}, 7, 0},
+    {"render_cull_blocks", FS_KS(kRenderCullBlocksSpirv), sizeof(PushCull),  {RB_FRAME, RB_PAGES, RB_RBLOCKS, RB_RNODES, RB_AGGSCRATCH, RB_WORK, RB_DRAW}, 7, 0},
+    {"render_cull_compact",FS_KS(kRenderCullCompactSpirv),sizeof(PushCull),  {RB_FRAME, RB_AGGSRC, RB_ARGS, RB_STATS, RB_WORK, RB_DRAW}, 6, 0},
 };
 #undef FS_KS
 
@@ -38,7 +38,7 @@ static const KernelSpec kRenderKernels[R_COUNT] = {
 enum : uint32_t {
     WK_OPAQUE = 0, WK_AGG = 1, WK_FINISHED = 2, WK_BLOCKS = 3, WK_EXPAND_ARGS = 4, WK_EMIT_ARGS = 12, WK_COMPACT_ARGS = 16, WK_STAT = 32,
     WK_CACHE_ROOT = 64, WK_CACHE_STATE = WK_CACHE_ROOT + FS_MAX_PAGES, WK_FRONTIER = WK_CACHE_STATE + FS_MAX_PAGES,
-    WK_BLOCK_LIST = WK_FRONTIER + 2 * 2 * FS_CULL_FRONTIER_CAP, WK_TRI = WK_BLOCK_LIST + 2 * FS_CULL_BLOCK_LIST_CAP, WK_WORDS = WK_TRI + 1,
+    WK_BLOCK_LIST = WK_FRONTIER + 2 * 2 * FS_CULL_FRONTIER_CAP, WK_WORDS = WK_BLOCK_LIST + 2 * FS_CULL_BLOCK_LIST_CAP,
 };
 static_assert(WK_STAT + FS_CULL_STATS_WORDS <= WK_CACHE_ROOT, "stats overlap page cache");
 

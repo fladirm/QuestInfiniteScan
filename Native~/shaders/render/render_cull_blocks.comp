@@ -13,9 +13,8 @@
 #define FS_USE_DRAW
 #include "fs_render_common.glsl"
 layout(std430, set = 0, binding = FS_RB_AGGSCRATCH) writeonly buffer AggScratchBlock { FsDrawRecord aggScratch[]; };
-layout(std430, set = 0, binding = FS_RB_TRISCRATCH) writeonly buffer TriScratchBlock { FsDrawRecord triScratch[]; };   // E6R mesh triangles
 layout(local_size_x = FS_WG_SMALL) in;
-layout(push_constant) uniform Push { uint frameSlot; uint aggBase; uint aggCapacity; uint opaqueCapacity; uint parity; uint triCapacity; } pc;
+layout(push_constant) uniform Push { uint frameSlot; uint aggBase; uint aggCapacity; uint opaqueCapacity; uint parity; } pc;
 #define F frames[pc.frameSlot]
 shared uint sBase; shared uint sRank[FS_WG_SMALL];
 void main() {
@@ -36,8 +35,7 @@ void main() {
     bool measured = (s.appearanceHandle & FS_APPEARANCE_MEASURED) != 0u && ((s.appearanceHandle & FS_APPEARANCE_OBS_MASK) >> FS_APPEARANCE_OBS_SHIFT) >= uint(FS_APPEARANCE_CONFIRM_OBS);
     if (live && !measured && F.misc.x == uint(FS_RENDER_MODE_SCAN)) live = false;
     if (F.misc.x == uint(FS_RENDER_MODE_GEOMETRY)) measured = false;                // E4.1R GEOMETRY debug: every promoted surface neutral grey
-    bool triangle = live && fsGet_FsSurfel_sigmaTMinor(s) == uint(FS_RENDER_TRI_MARK);
-    bool opaque = live && !transient && !triangle;
+    bool opaque = live && !transient;
     sRank[lane] = opaque ? 1u : 0u;
     barrier();
     for (uint o = 1u; o < uint(FS_WG_SMALL); o <<= 1u) { uint v = lane >= o ? sRank[lane - o] : 0u; barrier(); sRank[lane] += v; barrier(); }
@@ -48,13 +46,6 @@ void main() {
     mat4 A = F.anchors[min(uint(max(d.key.anchorId, 0)), uint(FS_MAX_ANCHORS - 1))];
     FsDrawRecord r = fsDrawRecordOf(s, A, fsPageOrigin3(d.key));
     if (!measured) r.flags |= uint(FS_DRAW_FLAG_NO_APPEARANCE);
-    if (triangle) {                                                             // E6R shared surface mesh: triangle bucket
-        uint ti = atomicAdd(work[FS_WK_TRI], 1u);
-        if (ti >= pc.triCapacity) { atomicAdd(work[FS_WK_STAT + FS_CSTAT_BUDGET_DROPPED], 1u); return; }
-        triScratch[ti] = r;
-        atomicMax(work[FS_WK_COMPACT_ARGS], ti / uint(FS_WG_SMALL) + 1u);
-        return;
-    }
     if (opaque) {
         uint dst = sBase + sRank[lane] - 1u;
         if (dst < pc.opaqueCapacity) draws[dst] = r;                            // over budget: counted by the compact pass

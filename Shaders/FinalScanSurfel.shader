@@ -25,7 +25,6 @@
 //   normalOct32       oct u16|u16 → [-1,1]; tangentAndRadii angle u16 | rMajor u8 log | rMinor u8 log (r = 0.5 mm * 2^(v/16));
 //   colorOrHandle     RGBA8 (R low byte); alpha byte = coverage when FS_DRAW_FLAG_AGGREGATE (bit 3);
 //   flags             bit0 detail, bit1 selected, bit2 erased-preview, bit3 aggregate, bit4 transient, bit5 no confirmed appearance,
-//                     bit6 E6R mesh triangle: centre = vertex 0, tangentAndRadii / surfaceId = world offsets of vertices 1 / 2 (3-vertex bucket).
 Shader "FinalScan/Surfel"
 {
     Properties
@@ -54,7 +53,7 @@ Shader "FinalScan/Surfel"
         uint   flags;
     };
     StructuredBuffer<FsDrawRecord> _DrawRecords;
-    StructuredBuffer<uint> _DrawArgs;      // 3 x FsIndirectDrawArgs = 12 uints (opaque, aggregate, E6R triangles)
+    StructuredBuffer<uint> _DrawArgs;      // 2 x FsIndirectDrawArgs = 8 uints (opaque, aggregate)
 
     CBUFFER_START(FsSurfelParams)
         int    _Mode;
@@ -70,10 +69,8 @@ Shader "FinalScan/Surfel"
     #define FS_FLAG_AGGREGATE  8u
     #define FS_FLAG_TRANSIENT  16u
     #define FS_FLAG_NO_APPEARANCE 32u   // E4.2: geometry without measured appearance (XRAY / PLAN only): neutral grey, never normal pseudo-colour
-    #define FS_FLAG_TRIANGLE   64u      // E6R shared surface mesh triangle
 
     #define FS_RADIUS_BASE_M   0.0005
-    #define FS_TRI_OFFSET_RANGE_M 0.128   // twin: FS_TRI_OFFSET_RANGE_M
     #define FS_TWO_PI          6.28318530718
 
     float3 FsDecodeNormal(uint packed)
@@ -178,7 +175,6 @@ Shader "FinalScan/Surfel"
         uint vertexCount = _DrawArgs[slot + 0];
         uint base = 0u;
         if (_ArgsSlot == 1) base = _AggregateRecordBase >= 0 ? (uint)_AggregateRecordBase : (_DrawArgs[1] >> 1);
-        else if (_ArgsSlot == 2) base = (_DrawArgs[1] >> 1) + (_DrawArgs[5] >> 1);   // E6R triangles follow opaque + aggregates
         uint record = base + local;
 
         FsDrawRecord r = _DrawRecords[record];
@@ -191,16 +187,6 @@ Shader "FinalScan/Surfel"
 
         float2 q = FsEllipseVertex(input.vertexID, vertexCount);
         float3 posWS = r.center + tMajor * (rMajor * q.x) + tMinor * (rMinor * q.y);
-        if ((r.flags & FS_FLAG_TRIANGLE) != 0u)
-        {
-            // E6R shared surface mesh: vertex 0 = centre, vertices 1 / 2 = centre + decoded world offsets (3 x 10-bit signed)
-            uint corner = input.vertexID % 3u;
-            uint w = corner == 1u ? r.tangentAndRadii : r.surfaceId;
-            int3 qi = int3((int)(w & 1023u), (int)((w >> 10) & 1023u), (int)((w >> 20) & 1023u));
-            qi = int3(qi.x >= 512 ? qi.x - 1024 : qi.x, qi.y >= 512 ? qi.y - 1024 : qi.y, qi.z >= 512 ? qi.z - 1024 : qi.z);
-            posWS = corner == 0u ? r.center : r.center + (float3)qi / 511.0 * FS_TRI_OFFSET_RANGE_M;
-            q = float2(0, 0);
-        }
         if (collapse || ((r.flags & FS_FLAG_ERASED) != 0u && _Mode == 0)) posWS = r.center;   // degenerate: rasterizes nothing
 
         o.positionWS = posWS;

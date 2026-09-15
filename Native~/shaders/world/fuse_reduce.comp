@@ -6,35 +6,17 @@
 // Deterministic for a given sorted stream. The centre moves freely; crossing the index cell emits a relocation record.
 #extension GL_GOOGLE_include_directive : require
 #define FS_USE_MEAS
-#define FS_USE_HASH
 #define FS_USE_PAGES_RO
 #define FS_USE_SURFELS
 #define FS_USE_EVIDENCE
 #define FS_USE_GCTR
 #define FS_USE_ASSOC_A_RO
 #define FS_USE_DIRTY
+#define FS_USE_TOPO                // E9: temporal target list
 #include "fs_world_blocks.glsl"
 #include "fs_fusion.glsl"
-#include "fs_sheet.glsl"          // fsFloorDiv32 (fs_global_cell.glsl requirement)
-#include "fs_global_cell.glsl"
 layout(local_size_x = FS_WG_SMALL) in;
-layout(push_constant) uniform Push { uint hashMask; } pc;
 
-// Derived mesh ownership can live in an adjacent cell. A material canonical change invalidates only the
-// bounded cells intersecting its extraction ball; dirty bits dedupe the fan-out.
-void fsInvalidateExtractBall(uint page, vec3 localP) {
-    vec3 worldP = fsPageOrigin3(pages[page].key) + localP;
-    ivec3 g0 = ivec3(floor((worldP - vec3(FS_EXTRACT_LINK_R_M)) / FS_CELL_EXTENT_M));
-    ivec3 g1 = ivec3(floor((worldP + vec3(FS_EXTRACT_LINK_R_M)) / FS_CELL_EXTENT_M));
-    int anchorId = pages[page].key.anchorId;
-    for (int z = g0.z; z <= g1.z; ++z)
-    for (int y = g0.y; y <= g1.y; ++y)
-    for (int x = g0.x; x <= g1.x; ++x) {
-        uint slot, cell;
-        if (fsGlobalCell(pc.hashMask, ivec3(x,y,z), page, anchorId, slot, cell))
-            fsMarkDirtyCell(slot, cell);
-    }
-}
 void main() {
     uint i = gl_GlobalInvocationID.x;
     uint count = FS_TK(FS_T_COUNT);
@@ -102,35 +84,39 @@ void main() {
     float meanD2 = (acc.d2 / nEff) / max(acc.s2 / nEff, 1e-12);
     var += (meanD2 - var) / float(cnt + 1u);
     // E6R positive observation: support, healed debt, view sector (the eye of this observation seen from the surfel), recovery
-    vec3 eyeW = eyeIndex == 0u ? vec3(uintBitsToFloat(FS_TK(FS_T_EYE0)), uintBitsToFloat(FS_TK(FS_T_EYE0 + 1)), uintBitsToFloat(FS_TK(FS_T_EYE0 + 2)))
-                               : vec3(uintBitsToFloat(FS_TK(FS_T_EYE1)), uintBitsToFloat(FS_TK(FS_T_EYE1 + 1)), uintBitsToFloat(FS_TK(FS_T_EYE1 + 2)));
-    uint pos = fsEvidencePositive(ev, fsViewSectorBit(q.n, eyeW - (origin + q.p)));
+    uint viewBit = fsViewSectorBit(q.n, fsEpochEye(eyeIndex) - (origin + q.p));
+    bool newView = viewBit != 0u && (fsGet_FsSurfelEvidence_viewDiversity(ev) & viewBit) == 0u;
+    uint pos = fsEvidencePositive(ev, viewBit);
     atomicAdd(gctr[FS_GCTR_POSITIVE_EVIDENCE], 1u);
     if ((pos & 1u) != 0u) atomicAdd(gctr[FS_GCTR_CONTRA_HEALED], 1u);
-    if ((pos & 2u) != 0u) atomicAdd(gctr[FS_GCTR_SURFEL_RECOVERED], 1u);   // E8: no topology queue; a render-material change republishes below
+    if ((pos & 2u) != 0u) atomicAdd(gctr[FS_GCTR_SURFEL_RECOVERED], 1u);
+    // E9 independent information: a new view sector or a photometric (stereo / temporal) solve; a repeated same-view depth prior is not
+    if (newView || (acc.srcOr & FS_SRC_PHOTOMETRIC_MASK) != 0u) fsIndependentSet(ev, fsIndependent(ev) + 1u);
     uint stat = fsGet_FsSurfelEvidence_positiveSupport(ev);
     uint flags = q.flags;
     cnt = min(cnt + 1u, uint(FS_EVIDENCE_COUNT_MAX));
-    if ((flags & FS_FLAG_TRANSIENT) != 0u && stat >= uint(FS_PROMOTE_STATIC)) flags = (flags & ~FS_FLAG_TRANSIENT) | FS_FLAG_PROMOTED;
+    if ((flags & FS_FLAG_TRANSIENT) != 0u && stat >= uint(FS_PROMOTE_STATIC) && fsIndependent(ev) >= uint(FS_PROMOTE_INDEPENDENT))
+        flags = (flags & ~FS_FLAG_TRANSIENT) | FS_FLAG_PROMOTED;
     bool promotedNow = (flags & FS_FLAG_PROMOTED) != 0u && (q.flags & FS_FLAG_PROMOTED) == 0u;
     if (promotedNow) atomicAdd(gctr[FS_GCTR_PROMOTIONS], 1u);
 
-    const uint oldAppearance = q.appearance;
+    uint oldAppearance = q.appearance;
     uint newAppearance = oldAppearance;
     if (acc.colW > 0.0) newAppearance = fsBlendAppearance(oldAppearance, acc.col / acc.colW, wPrior, 1.0);
-    const bool oldConfirmed = fsAppearanceConfirmed(oldAppearance);
-    const bool newConfirmed = fsAppearanceConfirmed(newAppearance);
-    const bool appearanceChanged = oldConfirmed != newConfirmed ||
-        (oldConfirmed && newConfirmed && length(fsColorOf(oldAppearance) - fsColorOf(newAppearance)) > 0.01);
+    bool oldConfirmed = fsAppearanceConfirmed(oldAppearance);
+    bool newConfirmed = fsAppearanceConfirmed(newAppearance);
 
-    // FRONT publication has its own materiality threshold. Canonical convergence may continue below it without
-    // rebuilding immutable render trees every observation.
-    const bool renderChanged = promotedNow || ((flags & FS_FLAG_PROMOTED) != 0u &&
+    // E9 publication materiality, geometry and appearance kept apart. FRONT is a copy of the canonical record, so either change
+    // republishes exactly this surfel's own cell (a relocation marks the new cell): no neighbourhood fan-out, no remesh. Canonical
+    // convergence below the geometry thresholds and colour drift below FS_RENDER_COLOR_EPS never enqueue publication work.
+    bool promoted = (flags & FS_FLAG_PROMOTED) != 0u;
+    bool geometryChanged = promotedNow || (promoted &&
         (length(np - q.p) >= FS_RENDER_POS_EPS_M ||
          dot(nn, q.n) < FS_RENDER_NORMAL_COS ||
          abs(rM - q.rM) >= FS_RENDER_RADIUS_EPS_M ||
-         abs(rm - q.rm) >= FS_RENDER_RADIUS_EPS_M ||
-         appearanceChanged));
+         abs(rm - q.rm) >= FS_RENDER_RADIUS_EPS_M));
+    bool appearanceChanged = promoted && !geometryChanged && (oldConfirmed != newConfirmed ||
+        (newConfirmed && length(fsColorOf(oldAppearance) - fsColorOf(newAppearance)) > FS_RENDER_COLOR_EPS));
 
     q.p = np; q.n = nn; q.angle = ang; q.rM = rM; q.rm = rm; q.sigmaN = newSigmaN; q.sigmaT = newSigmaT;
     q.flags = (flags & ~FS_EVIDENCE_COUNT_MASK) | cnt;
@@ -143,8 +129,18 @@ void main() {
     atomicAdd(gctr[FS_GCTR_SEGMENTS_MATCHED], 1u);
     atomicAdd(gctr[FS_GCTR_CONTRIBUTIONS], acc.n);
 
-    if (renderChanged) {
-        fsInvalidateExtractBall(page, q.p);
-        fsInvalidateExtractBall(page, np);
+    // E9 temporal refinement target straight from canonical uncertainty (C11R2 no longer depends on a topology pass): a promoted ACTIVE
+    // surfel that is still imprecise after this observation and got no photometric solve in it. First FS_TEMPORAL_TARGETS of the epoch.
+    if (promoted && fsLifeState(ev) == FS_LIFE_ACTIVE && newSigmaN > FS_TEMPORAL_SIGMA_TARGET_M && (acc.srcOr & FS_SRC_PHOTOMETRIC_MASK) == 0u) {
+        uint k = atomicAdd(FS_TK(FS_T_TARGET_COUNT), 1u);
+        if (k < uint(FS_TEMPORAL_TARGETS)) {
+            vec3 pw = origin + np; uint tw = fsCanonTargetWord(k, 0u);
+            topo[tw] = floatBitsToUint(pw.x); topo[tw + 1u] = floatBitsToUint(pw.y); topo[tw + 2u] = floatBitsToUint(pw.z);
+            topo[tw + 3u] = fsEncodeOct32(nn); topo[tw + 4u] = floatBitsToUint(newSigmaN); topo[tw + 5u] = q.surfaceId;
+            topo[tw + 6u] = stat; topo[tw + 7u] = 0u;
+            atomicAdd(gctr[FS_GCTR_TEMPORAL_TARGETS], 1u);
+        }
     }
+    if (geometryChanged) { fsMarkDirtyCell(page, cell); atomicAdd(gctr[FS_GCTR_PUBLISH_GEOMETRY], 1u); }
+    else if (appearanceChanged) { fsMarkDirtyCell(page, cell); atomicAdd(gctr[FS_GCTR_PUBLISH_APPEARANCE], 1u); }
 }

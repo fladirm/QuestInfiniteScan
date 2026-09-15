@@ -9,11 +9,10 @@
 #define FS_USE_DRAW
 #include "fs_render_common.glsl"
 layout(std430, set = 0, binding = FS_RB_AGGSRC) readonly buffer AggScratchBlock { FsDrawRecord aggScratch[]; };
-layout(std430, set = 0, binding = FS_RB_ARGS) writeonly buffer ArgsBlock { FsIndirectDrawArgs args[3]; };
-layout(std430, set = 0, binding = FS_RB_TRISRC) readonly buffer TriScratchBlock { FsDrawRecord triScratch[]; };   // E6R mesh triangles
+layout(std430, set = 0, binding = FS_RB_ARGS) writeonly buffer ArgsBlock { FsIndirectDrawArgs args[2]; };
 layout(std430, set = 0, binding = FS_RB_STATS) writeonly buffer StatsBlock { uint stats[]; };
 layout(local_size_x = FS_WG_SMALL) in;
-layout(push_constant) uniform Push { uint frameSlot; uint aggBase; uint aggCapacity; uint opaqueCapacity; uint parity; uint triCapacity; } pc;
+layout(push_constant) uniform Push { uint frameSlot; uint aggBase; uint aggCapacity; uint opaqueCapacity; uint parity; } pc;
 shared uint sDone;
 void main() {
     uint lane = gl_LocalInvocationID.x;
@@ -21,9 +20,7 @@ void main() {
     uint opaque = min(work[FS_WK_OPAQUE], pc.opaqueCapacity);
     uint agg = min(work[FS_WK_AGG], pc.aggCapacity);
     uint i = gl_GlobalInvocationID.x;
-    uint tri = min(work[FS_WK_TRI], pc.triCapacity);
     if (i < agg) draws[opaque + i] = aggScratch[i];
-    if (i < tri) draws[opaque + agg + i] = triScratch[i];                          // E6R: triangles behind the aggregates
     memoryBarrierBuffer(); barrier();
     if (lane == 0u) sDone = atomicAdd(work[FS_WK_FINISHED], 1u);
     barrier();
@@ -32,15 +29,14 @@ void main() {
     if (lane != 0u) return;
     args[0].vertexCountPerInstance = uint(FS_OPAQUE_VERTS); args[0].instanceCount = opaque * 2u; args[0].startVertex = 0u; args[0].startInstance = 0u;
     args[1].vertexCountPerInstance = uint(FS_AGG_VERTS);    args[1].instanceCount = agg * 2u;    args[1].startVertex = 0u; args[1].startInstance = 0u;
-    args[2].vertexCountPerInstance = uint(FS_TRI_VERTS);    args[2].instanceCount = tri * 2u;    args[2].startVertex = 0u; args[2].startInstance = 0u;
     uint frame = frames[pc.frameSlot].misc.y;
     uint ring = (frame % uint(FS_CULL_FRAME_RING)) * uint(FS_CULL_STATS_WORDS);
     for (uint k = 1u; k < uint(FS_CULL_STATS_WORDS); ++k) stats[ring + k] = work[FS_WK_STAT + k];
-    stats[ring + FS_CSTAT_DRAW_RECORDS] = opaque + agg + tri;
+    stats[ring + FS_CSTAT_DRAW_RECORDS] = opaque + agg;
     stats[ring + FS_CSTAT_AGGREGATES] = agg;
     stats[ring + FS_CSTAT_BUDGET_DROPPED] = work[FS_WK_STAT + FS_CSTAT_BUDGET_DROPPED] + (work[FS_WK_OPAQUE] > pc.opaqueCapacity ? work[FS_WK_OPAQUE] - pc.opaqueCapacity : 0u);
     stats[ring + FS_CSTAT_FRAME] = frame;
-    work[FS_WK_OPAQUE] = 0u; work[FS_WK_AGG] = 0u; work[FS_WK_TRI] = 0u; work[FS_WK_FINISHED] = 0u; work[FS_WK_BLOCKS] = 0u;
+    work[FS_WK_OPAQUE] = 0u; work[FS_WK_AGG] = 0u; work[FS_WK_FINISHED] = 0u; work[FS_WK_BLOCKS] = 0u;
     for (uint p = 0u; p < 2u; ++p) { work[FS_WK_EXPAND_ARGS + 4u * p + 0u] = 0u; work[FS_WK_EXPAND_ARGS + 4u * p + 1u] = 1u; work[FS_WK_EXPAND_ARGS + 4u * p + 2u] = 1u; work[FS_WK_EXPAND_ARGS + 4u * p + 3u] = 0u; }
     work[FS_WK_EMIT_ARGS + 0] = 0u; work[FS_WK_EMIT_ARGS + 1] = 1u; work[FS_WK_EMIT_ARGS + 2] = 1u;
     work[FS_WK_COMPACT_ARGS + 0] = 1u; work[FS_WK_COMPACT_ARGS + 1] = 1u; work[FS_WK_COMPACT_ARGS + 2] = 1u;

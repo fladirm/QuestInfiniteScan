@@ -16,6 +16,7 @@
 #include "fs_world.h"
 #include "fs_world_kernels.h"
 #include <cstring>
+#include <array>
 #include "fs_page_hash.h"
 #include "fs_pools.h"
 #include "fs_residency_math.h"
@@ -123,7 +124,8 @@ public:
         idxLeafBase_ = (uint32_t)pageCount_ * FS_CELLS_PER_PAGE;
         idxNodeBase_ = idxLeafBase_ + leafCap_ * 16;
         const VkDeviceSize indexWords = (VkDeviceSize)idxNodeBase_ + (VkDeviceSize)nodeCap_ * 8;
-        const VkDeviceSize poolWords = FS_POOL_COUNT * FS_POOL_HEADER_WORDS + (VkDeviceSize)leafCap_ + nodeCap_ + rblockCap_ + rnodeCap_ + FS_TOPO_VERTEX_CAP + FS_SHEET_REC_CAP;
+        const VkDeviceSize poolWords = FS_POOL_COUNT * FS_POOL_HEADER_WORDS + (VkDeviceSize)leafCap_ + nodeCap_ + rblockCap_ + rnodeCap_ + FS_TOPO_VERTEX_CAP + FS_SHEET_REC_CAP
+                                     + (VkDeviceSize)pageCount_ * FS_RECYCLE_PAGE_WORDS;   // E9 slot recycle region (tail)
         const VkDeviceSize dirtyWords = (VkDeviceSize)FS_MAX_PAGES * 1024 + (VkDeviceSize)FS_MAX_PAGES * 160 + (VkDeviceSize)7 * FS_DIRTY_NODES_MAX + (VkDeviceSize)4 * FS_RELOC_MAX + (VkDeviceSize)2 * FS_DIRTY_RING_CAP;
         const VkDeviceSize sortWords = (VkDeviceSize)FS_SORT_BLOCKS_MAX * 256 + 256 + 2 * FS_TICK_MEAS_MAX + FS_SORT_BLOCKS_MAX + 64;
         bool ok = true;
@@ -149,7 +151,7 @@ public:
         // Legacy E4/E6 buffers are quarantined for ABI/source compatibility only. No live kernel is scheduled
         // against them; keep a tiny valid binding until the obsolete shaders are physically removed from history.
         ok &= Make(buf_.sheet, 4096, true, "world.legacySheet");
-        ok &= Make(buf_.topo, 4096, true, "world.legacyTopology");
+        ok &= Make(buf_.topo, (VkDeviceSize)FS_TEMPORAL_TARGETS * FS_TEMPORAL_TARGET_WORDS * 4, true, "world.temporalTargets");   // E9 B_TOPO = target list
         ok &= Make(cpuRecords_, (VkDeviceSize)FS_TICK_MEAS_MAX * sizeof(FsSurfaceMeasurement), true, "world.cpuRecords");
         ok &= Make(cpuCounters_, 64, true, "world.cpuCounters");
         if (!ok) return false;
@@ -165,12 +167,14 @@ public:
         rdir_ = (uint32_t*)buf_.rdir.mapped; memset(rdir_, 0xFF, (size_t)pageCount_ * 37449 * 4);
         retire_ = (uint32_t*)buf_.retire.mapped; pending_ = (FsPendingPublish*)buf_.pending.mapped; publishRing_ = (FsPendingPublish*)buf_.publishRing.mapped;
         memset(buf_.sheet.mapped, 0, 4096);
-        memset(buf_.topo.mapped, 0, 4096);
+        memset(buf_.topo.mapped, 0, (size_t)FS_TEMPORAL_TARGETS * FS_TEMPORAL_TARGET_WORDS * 4);
         hashMirror_ = (FsPageHashEntry*)buf_.hash.mapped; hash_.Init(hashCap_); memcpy(hashMirror_, hash_.Data(), hash_.Bytes()); hashDirty_ = false;
         uint32_t* pools = (uint32_t*)buf_.pools.mapped;
         uint32_t ringBase = FS_POOL_COUNT * FS_POOL_HEADER_WORDS;
         const uint32_t caps[6] = {leafCap_, nodeCap_, rblockCap_, rnodeCap_, FS_TOPO_VERTEX_CAP, FS_SHEET_REC_CAP};
         for (uint32_t p = 0; p < 6; ++p) { rings_[p].Init(caps[p], pools + p * FS_POOL_HEADER_WORDS, pools + ringBase, ringBase); ringBase += caps[p]; }
+        recycleBase_ = ringBase; recycle_ = pools + ringBase;
+        memset(recycle_, 0, (size_t)pageCount_ * FS_RECYCLE_PAGE_WORDS * 4);
         cpuRec_ = (FsSurfaceMeasurement*)cpuRecords_.mapped; cpuCtr_ = (uint32_t*)cpuCounters_.mapped; memset(cpuCtr_, 0, 64);
         fuseInFlight_ = publishInFlight_ = releaseInFlight_ = sheetInFlight_ = 0; pubStage_ = PUB_IDLE; publishWanted_ = false; cpuSlotReady_ = false; cpuSlotBusy_ = false; liveLease_ = 0;
         idBase_ = kSurfaceIdBase; tick_ = 0; toPublish_.clear(); publishSeq_ = 0;
@@ -278,6 +282,7 @@ public:
         memset(index_ + (size_t)slot * FS_CELLS_PER_PAGE, 0, FS_CELLS_PER_PAGE * 4);
         memset(rdir_ + (size_t)slot * 37449, 0xFF, 37449 * 4);
         memset((uint8_t*)buf_.freeSpace.mapped + (size_t)slot * FS_CELLS_PER_PAGE, 0, FS_CELLS_PER_PAGE);
+        if (recycle_) memset(recycle_ + (size_t)slot * FS_RECYCLE_PAGE_WORDS, 0, 4 * 4);   // E9: no recycled handle of a previous tenant
         pagesGpu_[slot] = d;
         std::atomic_thread_fence(std::memory_order_release);
         AddSlabs(slot, initialSlabs);
@@ -339,10 +344,10 @@ public:
         if (slot >= pages_.size() || pages_[slot].generation != generation) return;
         PageState& s = pages_[slot];
         for (uint32_t slab : s.slabs) {
-            // E8: no per-handle graph state exists in the live path (the legacy sheet buffer is a quarantined 4 KiB binding)
             slabs_.Free(slab);
         }
         s.slabs.clear(); s.life = PAGE_FREE; s.generation++;
+        if (recycle_) memset(recycle_ + (size_t)slot * FS_RECYCLE_PAGE_WORDS, 0, 4 * 4);      // E9: the slabs (and their recycled handles) are gone
         // C09R-E5R: pending dirty-ring entries of the released page die with its dedupe bits (dirty_take skips them)
         if (buf_.dirty.mapped) { uint32_t* dw = (uint32_t*)buf_.dirty.mapped; for (uint32_t w = 0; w < 1024u; ++w) AtomicStoreU32(dw + (size_t)slot * 1024u + w, 0u); }
         if (pagesGpu_) { FsPageDesc d{}; d.generation = 0; d.renderRoot = FS_INDEX_NONE; d.pendingRoot = FS_INDEX_NONE; pagesGpu_[slot] = d; }
@@ -365,16 +370,22 @@ public:
         T[FS_T_IDX_LEAF_BASE] = idxLeafBase_; T[FS_T_IDX_NODE_BASE] = idxNodeBase_; T[FS_T_ID_BASE] = idBase_; T[FS_T_TICK] = tick; T[FS_T_PAGE_COUNT] = pageCount_;
         std::atomic_thread_fence(std::memory_order_release);
     }
-    // E4.1R sheet buffer: nodes[surfelCap x 8] | dirty mask[surfelCap / 32] | dirty ring[FS_SHEET_RING_CAP] | batch deltas[FS_SHEET_BATCH_MAX x 4]
-    VkDeviceSize TopoWords() const { return (VkDeviceSize)FS_TOPO_VERTEX_CAP * FS_TOPO_VERTEX_WORDS + (VkDeviceSize)FS_SHEET_REC_CAP * FS_SHEET_REC_WORDS + (VkDeviceSize)FS_SHEET_BATCH_MAX * FS_TOPO_DELTA_WORDS + FS_TOPO_FREE_MAX + (VkDeviceSize)FS_TEMPORAL_TARGETS * FS_TEMPORAL_TARGET_WORDS; }
-    uint64_t TopoFreeBase() const { return (uint64_t)FS_TOPO_VERTEX_CAP * FS_TOPO_VERTEX_WORDS + (uint64_t)FS_SHEET_REC_CAP * FS_SHEET_REC_WORDS + (uint64_t)FS_SHEET_BATCH_MAX * FS_TOPO_DELTA_WORDS; }
-    VkDeviceSize SheetWords() const { return (VkDeviceSize)surfelCap_ * FS_SHEET_NODE_WORDS + (surfelCap_ / 32 + 1) + FS_SHEET_RING_CAP + (VkDeviceSize)FS_SHEET_BATCH_MAX * 8 + (VkDeviceSize)FS_TICK_MEAS_MAX * 8 + FS_SHEET_RING_CAP; }   // + C09R-E5R sheet ring enqueue ticks
+    // E9 canonical slot recycling (no job in flight): per active page, the untaken available handles + the handles freed by leaf
+    // compaction since the last merge become the new available list (twin: RecycleMerge).
+    void MergeRecycle() {
+        if (!recycle_) return;
+        for (uint32_t i = 0; i < pages_.size() && i < pageCount_; ++i) {
+            if (pages_[i].life != PAGE_ACTIVE) continue;
+            uint32_t* r = recycle_ + (size_t)i * FS_RECYCLE_PAGE_WORDS;
+            recycleOverflow_ += RecycleMerge(r, FS_RECYCLE_PAGE_CAP);
+        }
+    }
     void BeforeJobs() {                              // epoch boundary: slabs, rings, hash mirror (no job in flight)
         TopUpSlabs();
         for (IdRing& r : rings_) r.Refill();
         if (hashDirty_) { memcpy(hashMirror_, hash_.Data(), hash_.Bytes()); hashDirty_ = false; }
-        gctr_[FS_GCTR_COUNT + FS_T_SHEET_MASK_BASE] = surfelCap_ * FS_SHEET_NODE_WORDS;
-        gctr_[FS_GCTR_COUNT + FS_T_SHEET_RING_BASE] = surfelCap_ * FS_SHEET_NODE_WORDS + surfelCap_ / 32 + 1;
+        MergeRecycle();
+        gctr_[FS_GCTR_COUNT + FS_T_RECYCLE_BASE] = recycleBase_;
         std::atomic_thread_fence(std::memory_order_release);
     }
     // Fuse job: ingest -> associate -> free space -> 4 x (hist, scan, scatter) -> reduce -> cluster count -> prefix -> carry -> cluster write -> refinement sites.
@@ -388,10 +399,10 @@ public:
         {   // E6R: eye origins of the epoch for view-sector evidence (host-visible T words, written before submit)
             uint32_t* T = gctr_ + FS_GCTR_COUNT;
             for (int k = 0; k < 3; ++k) { memcpy(&T[FS_T_EYE0 + k], &eye0[k], 4); memcpy(&T[FS_T_EYE1 + k], &eye1[k], 4); }
+            T[FS_T_TARGET_COUNT] = 0;                                                     // E9: this epoch's temporal targets
             std::atomic_thread_fence(std::memory_order_release);
         }
         PushShift sh[4] = {{0}, {8}, {16}, {24}};
-        PushHash phr{hashCap_ - 1};
         AddDispatch(*js, ingest, (std::min<uint32_t>(maxCount, FS_TICK_MEAS_MAX) + FS_WG_SMALL - 1) / FS_WG_SMALL, 1, &pin, sizeof pin);
         AddDispatch(*js, pipes_[K_ASSOC], 1, 1, &pa, sizeof pa, G, FS_GCTR_COUNT + FS_T_ARGS_MEAS);
         if (freeSpace) AddDispatch(*js, pipes_[K_FREESPACE], 1, 1, &pf, sizeof pf, G, FS_GCTR_COUNT + FS_T_ARGS_MEAS);
@@ -401,7 +412,7 @@ public:
             AddDispatch(*js, pipes_[K_SORT_SCAN], 1, 1, nullptr, 0);
             AddDispatch(*js, fromA ? pipes_[K_SORT_SCATTER] : scatterB_, 1, 1, &sh[p], sizeof sh[p], G, FS_GCTR_COUNT + FS_T_ARGS_SORTBLK);
         }
-        AddDispatch(*js, pipes_[K_REDUCE], 1, 1, &phr, sizeof phr, G, FS_GCTR_COUNT + FS_T_ARGS_MEAS);
+        AddDispatch(*js, pipes_[K_REDUCE], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_MEAS);
         // C09R-E5R dispatch domain = the epoch's real size: whole 256-entry blocks covering maxCount (cluster count writes 0 past
         // the count inside them), the carry sums only those blocks. No kernel after ingest walks the 65 536 ABI capacity.
         const uint32_t blocks = std::max<uint32_t>(1u, (std::min<uint32_t>(maxCount, FS_TICK_MEAS_MAX) + 255u) / 256u);
@@ -414,18 +425,24 @@ public:
         FixPushPointers(*js);
         JobDesc jd; jd.cls = FS_JOB_SCAN; jd.name = "world.fuse"; jd.dispatches = js->d.data(); jd.dispatchCount = (uint32_t)js->d.size(); jd.waitFrameEndValue = waitFrameEnd;
         jd.onRetired = [this, js, onDone](bool ok, uint64_t s, uint64_t e) {
-            std::lock_guard<std::recursive_mutex> g(m_);
-            fuseInFlight_--;
-            if (ok) {
-                stats_.fuseUs = e > s ? (int64_t)((e - s) / 1000) : 0;
-                const uint32_t items = AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_COUNT);
-                AfterJob(false);
-                fuseCost_.Add(items, stats_.fuseUs); Charge(ST_FUSE, stats_.fuseUs);
-                epochMeasCap_ = std::min<uint32_t>(FS_EPOCH_MEAS_MAX,
-                    std::max<uint32_t>(FS_EPOCH_MEAS_MIN, fuseCost_.Batch(ClassQuantumUs(FS_JOB_SCAN),
-                    FS_EPOCH_MEAS_MIN, FS_EPOCH_MEAS_MAX, FS_EPOCH_MEAS_INITIAL)));
+            std::vector<meas::RefineTarget> targets;
+            {
+                std::lock_guard<std::recursive_mutex> g(m_);
+                fuseInFlight_--;
+                if (ok) {
+                    stats_.fuseUs = e > s ? (int64_t)((e - s) / 1000) : 0;
+                    const uint32_t items = AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_COUNT);
+                    AfterJob(false);
+                    fuseCost_.Add(items, stats_.fuseUs); Charge(ST_FUSE, stats_.fuseUs);
+                    epochMeasCap_ = std::min<uint32_t>(FS_EPOCH_MEAS_MAX,
+                        std::max<uint32_t>(FS_EPOCH_MEAS_MIN, fuseCost_.Batch(ClassQuantumUs(FS_JOB_SCAN),
+                        FS_EPOCH_MEAS_MIN, FS_EPOCH_MEAS_MAX, FS_EPOCH_MEAS_INITIAL)));
+                    CollectTargets(targets);
+                }
+                onDone(ok);
             }
-            onDone(ok);
+            // cross-module handoff OUTSIDE World::m_ (the measurement mailbox has its own lock)
+            if (!targets.empty()) meas::MeasGpu_SetRefineTargets(targets.data(), (uint32_t)targets.size());
         };
         if (!SubmitWorldJob(jd)) { tick_--; return false; }
         fuseInFlight_++;
@@ -463,9 +480,8 @@ public:
         std::atomic_thread_fence(std::memory_order_release);
         PushTake pt{head, take, pageCount_};
         for (auto& l : loads) { PushPage pp{l.first}; AddDispatch(*js, pipes_[K_PAGE_LOAD], FS_CELLS_PER_PAGE / FS_WG_SMALL, 1, &pp, sizeof pp); }
-        PushHash ph{hashCap_ - 1};
         AddDispatch(*js, pipes_[K_DIRTY_TAKE], 1, 1, &pt, sizeof pt);
-        AddDispatch(*js, pipes_[K_MAINT_APPLY], 1, 1, &ph, sizeof ph, G, FS_GCTR_COUNT + FS_T_ARGS_DIRTY);
+        AddDispatch(*js, pipes_[K_MAINT_APPLY], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_DIRTY);
         AddDispatch(*js, pipes_[K_RELOCATE], 1, 1, nullptr, 0);
         FixPushPointers(*js);
         JobDesc jd; jd.cls = FS_JOB_PUBLISH; jd.name = "world.publish.maint"; jd.dispatches = js->d.data(); jd.dispatchCount = (uint32_t)js->d.size();
@@ -489,8 +505,10 @@ public:
     }
     bool SubmitPubLeaves() {
         auto js = std::make_shared<JobStorage>();
-        const uint32_t count = std::min<uint32_t>(uint32_t(FS_PUB_EXTRACT_BATCH), pubTotal_ - pubDone_);
-        PushExtract pr{pubDone_, count, hashCap_ - 1, 0};
+        // E9 copy-only leaves: linear in the live surfels of the chunk, so the cost model is identifiable and bounded
+        const uint32_t chunk = leavesCost_.Batch(ClassQuantumUs(FS_JOB_PUBLISH), FS_PUB_LEAVES_MIN, FS_PUB_LEAVES_MAX, 32u);
+        const uint32_t count = std::min<uint32_t>(chunk, pubTotal_ - pubDone_);
+        PushRange pr{pubDone_, count};
         AddDispatch(*js, pipes_[K_PUBLISH_LEAVES], (count + FS_WG_SMALL - 1) / FS_WG_SMALL, 1, &pr, sizeof pr);
         FixPushPointers(*js);
         JobDesc jd; jd.cls = FS_JOB_PUBLISH; jd.name = "world.publish.leaves"; jd.dispatches = js->d.data(); jd.dispatchCount = (uint32_t)js->d.size();
@@ -535,83 +553,24 @@ public:
         pubAgeTicks_.clear();
         pubChainMs_.Add((float)((now - pubStartNs_) / 1e6));
     }
-    // C09R-E5R surface complex: its own bounded job (graph -> fit -> apply -> contraction -> relocation) chosen by the deadline scheduler;
-    // batch from its cost model (SCAN class quantum).
-    bool SubmitSheet() {
-        auto js = std::make_shared<JobStorage>();
-        const Buffer* G = &buf_.gctr;
-        const uint32_t head = AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_SHEET_HEAD), pending = AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_SHEET_TAIL) - head;
-        const uint32_t batch = sheetCost_.Batch(ClassQuantumUs(FS_JOB_SCAN),
-                                                FS_SHEET_BATCH_MIN, FS_SHEET_JOB_MAX, 64u);
-        const uint32_t n = std::min(pending, batch);
-        sheetAgeTicks_.clear();
-        for (uint32_t k = 0; k < std::min<uint32_t>(n, 32u); ++k) sheetAgeTicks_.push_back(SheetEntryTick(head + (uint32_t)((uint64_t)k * n / std::min<uint32_t>(n, 32u))));
-        PushHash ph{hashCap_ - 1}; PushBatch pb{batch};
-        AddDispatch(*js, pipes_[K_SHEET_BEGIN], 1, 1, &pb, sizeof pb);
-        AddDispatch(*js, pipes_[K_SHEET_GRAPH], 1, 1, &ph, sizeof ph, G, FS_GCTR_COUNT + FS_T_ARGS_SHEET);
-        AddDispatch(*js, pipes_[K_SHEET_FIT], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_SHEET);
-        AddDispatch(*js, pipes_[K_SHEET_APPLY], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_SHEET);
-        AddDispatch(*js, pipes_[K_SHEET_CONTRACT], 1, 1, nullptr, 0);   // E4.1C coarsen: sequential edge contraction of the batch (E6R matching)
-        AddDispatch(*js, pipes_[K_TOPO_FACES], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_SHEET);   // E6R shared faces (owner derivation)
-        AddDispatch(*js, pipes_[K_TOPO_COMMIT], 1, 1, nullptr, 0);      // E6R persistent topology commit (sheets, unions, cuts, targets)
-        AddDispatch(*js, pipes_[K_RELOCATE], 1, 1, nullptr, 0);
-        FixPushPointers(*js);
-        { uint32_t* T = gctr_ + FS_GCTR_COUNT; T[FS_T_TOPO_GEN] = ++topoGen_; T[FS_T_TARGET_COUNT] = 0; T[FS_T_TOPO_FREE_COUNT] = 0; std::atomic_thread_fence(std::memory_order_release); }
-        JobDesc jd; jd.cls = FS_JOB_SCAN; jd.name = "world.sheet"; jd.dispatches = js->d.data(); jd.dispatchCount = (uint32_t)js->d.size();
-        jd.onRetired = [this, js](bool ok, uint64_t s, uint64_t e) {
-            std::vector<meas::RefineTarget> targets;
-            {
-                std::lock_guard<std::recursive_mutex> g(m_);
-                sheetInFlight_--;
-                if (!ok) return;
-                stats_.sheetUs = e > s ? (int64_t)((e - s) / 1000) : 0;
-                const uint32_t items = AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_SHEET_COUNT);
-                sheetCost_.Add(items, stats_.sheetUs); Charge(ST_SHEET, stats_.sheetUs);
-                FoldGpuCounters();
-                const int64_t now = NowNs();
-                for (uint32_t t : sheetAgeTicks_) { const float a = WorkAgeMs(t, now); sheetAge_.Add(a); if (a > (float)FS_SCHED_SHEET_DEADLINE_MS) deadlineMiss_[ST_SHEET]++; }
-                sheetAgeTicks_.clear();
-                sheetJobs_++; lastSheetBatch_ = items;
-                targets = CollectTopology();
-            }
-            // Cross-module handoff OUTSIDE World::m_. The measurement mailbox has its own lock.
-            if (!targets.empty()) meas::MeasGpu_SetRefineTargets(targets.data(), (uint32_t)targets.size());
-        };
-        if (!SubmitWorldJob(jd)) return false;
-        sheetInFlight_++;
-        return true;
-    }
-    // E6R: released topology / sheet ids back to their rings (canonical side, scanner-only).
-    // Returns the C11R2 target snapshot; the caller publishes it to Measure only AFTER releasing World::m_.
-    std::vector<meas::RefineTarget> CollectTopology() {
-        std::vector<meas::RefineTarget> targets;
-        const uint32_t* tp = (uint32_t*)buf_.topo.mapped;
-        const uint32_t nFree = std::min<uint32_t>(AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_TOPO_FREE_COUNT), FS_TOPO_FREE_MAX);
-        const uint64_t fb = TopoFreeBase();
-        for (uint32_t k = 0; k < nFree; ++k) { const uint32_t v = tp[fb + k]; rings_[(v >> 30) == 0 ? 4 : 5].Free(v & 0x3FFFFFFFu); }
+    // E9 temporal refinement targets written by fuse_reduce this epoch (canonical uncertainty; host-visible, after the fence).
+    void CollectTargets(std::vector<meas::RefineTarget>& targets) {
         const uint32_t nT = std::min<uint32_t>(AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_TARGET_COUNT), FS_TEMPORAL_TARGETS);
-        if (nT) {
-            targets.resize(nT);
-            const uint64_t tb = fb + FS_TOPO_FREE_MAX;
-            float worldFromAnchor[16]; memcpy(worldFromAnchor, anchors_[std::max(0, std::min(scanAnchor_, (int32_t)FS_MAX_ANCHORS - 1))], 64);
-            for (uint32_t k = 0; k < nT; ++k) {
-                const uint32_t* w = tp + tb + (uint64_t)k * FS_TEMPORAL_TARGET_WORDS;
-                float p[3]; memcpy(p, w, 12);
-                float n[3]; { float oct[2] = {((w[3] & 0xFFFFu) / 65535.f) * 2.f - 1.f, (((w[3] >> 16) & 0xFFFFu) / 65535.f) * 2.f - 1.f}; float z = 1.f - fabsf(oct[0]) - fabsf(oct[1]);
-                    if (z < 0) { float ox = (1.f - fabsf(oct[1])) * (oct[0] >= 0 ? 1.f : -1.f), oy = (1.f - fabsf(oct[0])) * (oct[1] >= 0 ? 1.f : -1.f); oct[0] = ox; oct[1] = oy; }
-                    float l = sqrtf(oct[0] * oct[0] + oct[1] * oct[1] + z * z); n[0] = oct[0] / l; n[1] = oct[1] / l; n[2] = z / l; }
-                meas::RefineTarget& t = targets[k];
-                for (int c = 0; c < 3; ++c) { t.pos[c] = worldFromAnchor[c] * p[0] + worldFromAnchor[4 + c] * p[1] + worldFromAnchor[8 + c] * p[2] + worldFromAnchor[12 + c]; t.normal[c] = worldFromAnchor[c] * n[0] + worldFromAnchor[4 + c] * n[1] + worldFromAnchor[8 + c] * n[2]; }
-                memcpy(&t.sigmaN, w + 4, 4); t.surfaceId = w[5]; t.support = w[6];
-            }
+        if (!nT || !buf_.topo.mapped) return;
+        const uint32_t* tp = (uint32_t*)buf_.topo.mapped;
+        targets.resize(nT);
+        float worldFromAnchor[16]; memcpy(worldFromAnchor, anchors_[std::max(0, std::min(scanAnchor_, (int32_t)FS_MAX_ANCHORS - 1))], 64);
+        for (uint32_t k = 0; k < nT; ++k) {
+            const uint32_t* w = tp + (uint64_t)k * FS_TEMPORAL_TARGET_WORDS;
+            float p[3]; memcpy(p, w, 12);
+            float n[3]; { float oct[2] = {((w[3] & 0xFFFFu) / 65535.f) * 2.f - 1.f, (((w[3] >> 16) & 0xFFFFu) / 65535.f) * 2.f - 1.f}; float z = 1.f - fabsf(oct[0]) - fabsf(oct[1]);
+                if (z < 0) { float ox = (1.f - fabsf(oct[1])) * (oct[0] >= 0 ? 1.f : -1.f), oy = (1.f - fabsf(oct[0])) * (oct[1] >= 0 ? 1.f : -1.f); oct[0] = ox; oct[1] = oy; }
+                float l = sqrtf(oct[0] * oct[0] + oct[1] * oct[1] + z * z); n[0] = oct[0] / l; n[1] = oct[1] / l; n[2] = z / l; }
+            meas::RefineTarget& t = targets[k];
+            for (int c = 0; c < 3; ++c) { t.pos[c] = worldFromAnchor[c] * p[0] + worldFromAnchor[4 + c] * p[1] + worldFromAnchor[8 + c] * p[2] + worldFromAnchor[12 + c]; t.normal[c] = worldFromAnchor[c] * n[0] + worldFromAnchor[4 + c] * n[1] + worldFromAnchor[8 + c] * n[2]; }
+            memcpy(&t.sigmaN, w + 4, 4); t.surfaceId = w[5]; t.support = w[6];
         }
-        return targets;
     }
-    uint32_t SheetEntryTick(uint32_t t) const {
-        const uint64_t base = (uint64_t)AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_SHEET_RING_BASE) + FS_SHEET_RING_CAP + (uint64_t)FS_SHEET_BATCH_MAX * 8 + (uint64_t)FS_TICK_MEAS_MAX * 8;
-        return ((uint32_t*)buf_.sheet.mapped)[base + (t & (FS_SHEET_RING_CAP - 1u))];
-    }
-    uint32_t SheetPendingCount() const { return AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_SHEET_TAIL) - AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_SHEET_HEAD); }
     // ---- C09R-E5R deadline / deficit scheduler bookkeeping -----------------------------------------------------------------------
     enum SchedStage : uint32_t { ST_FUSE = 0, ST_PUB, ST_SHEET, ST_COUNT };
     static int64_t NowNs() { return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
@@ -706,8 +665,15 @@ public:
             }
             gctrTotal_[i] += (uint64_t)(v - gctrLast_[i]); gctrLast_[i] = v;
         }
-        static const int32_t map[FS_GCTR_COUNT] = { FS_CTR_PAGE_LOOKUPS, FS_CTR_PAGE_MISSES, -1, -1, -1, FS_CTR_SURFEL_UPDATE, -1, -1, FS_CTR_SURFEL_CREATE, -1,
-            FS_CTR_SURFEL_SPLIT, FS_CTR_SURFEL_MERGE, FS_CTR_SURFEL_DELETE, -1, -1, FS_CTR_INDEX_OVERFLOW, -1, -1, -1, FS_CTR_PUBLISH, FS_CTR_MEASUREMENTS_DROPPED, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+        // GPU counter -> host FsCounter; every other word is world-only telemetry (-1). Built explicitly: a partial aggregate
+        // initializer zero-fills the tail, and 0 is FS_CTR_PCA_FRAMES_L (world counters were folded into pcaFramesL on device).
+        static const auto map = [] {
+            std::array<int32_t, FS_GCTR_COUNT> m; m.fill(-1);
+            m[FS_GCTR_PAGE_LOOKUPS] = FS_CTR_PAGE_LOOKUPS; m[FS_GCTR_PAGE_MISSES] = FS_CTR_PAGE_MISSES; m[FS_GCTR_SEGMENTS_MATCHED] = FS_CTR_SURFEL_UPDATE;
+            m[FS_GCTR_NEW_SURFELS] = FS_CTR_SURFEL_CREATE; m[FS_GCTR_SPLITS] = FS_CTR_SURFEL_SPLIT; m[FS_GCTR_MERGES] = FS_CTR_SURFEL_MERGE;
+            m[FS_GCTR_GHOSTS] = FS_CTR_SURFEL_DELETE; m[FS_GCTR_INDEX_OVERFLOW] = FS_CTR_INDEX_OVERFLOW; m[FS_GCTR_ROOTS_PENDING] = FS_CTR_PUBLISH; m[FS_GCTR_MEAS_OUT_OF_RANGE] = FS_CTR_MEASUREMENTS_DROPPED;
+            return m;
+        }();
         for (uint32_t i = 0; i < FS_GCTR_COUNT; ++i) if (map[i] >= 0 && gctrTotal_[i] != gctrFolded_[i]) { CounterAdd((FsCounter)map[i], (int64_t)(gctrTotal_[i] - gctrFolded_[i])); gctrFolded_[i] = gctrTotal_[i]; }
     }
 
@@ -889,7 +855,7 @@ public:
         const uint32_t n = (slice_.count - slice_.phase + slice_.stride - 1) / slice_.stride;
         const bool last = slice_.phase + 1 >= slice_.stride;
         const bool live = slice_.live; const uint64_t seq = slice_.seq;
-        const bool doFreeSpace = live && last && slice_.eyeValid && ((seq % uint64_t(FS_FREE_OBS_STRIDE)) == 0u);
+        const bool doFreeSpace = live && last && slice_.eyeValid && ((seq % uint64_t(FS_FREE_OBS_STRIDE)) == 0u);   // E9: stride 1 = every observation
         bool ok = SubmitFuse(live ? ingestLive_[slice_.slot] : ingestCpu_, slice_.phase, slice_.stride, n, slice_.anchor, doFreeSpace, slice_.eye[0], slice_.eye[1], live ? slice_.importFrameEnd : 0,
                              [this, live, seq, last](bool) { if (!last) return; if (live) meas::MeasGpu_ReleaseFrame(seq); else cpuSlotBusy_ = false; });
         // deferred by the executor (ring / budget): retried next tick, same slice. E6R: the measurement front-end shares the SCAN budget and
@@ -1008,7 +974,7 @@ public:
         w.KV("shortfallTotal", shortfallTotal_); w.KV("slabStalls", slabStalls_); w.KV("resets", resets_);
         w.KV("epochMeasCap", epochMeasCap_); w.KV("epochDirtyCap", epochDirtyCap_); w.KV("slices", slices_); w.KV("capHalvings", capHalvings_);
         w.KV("leavesChunk", lastLeavesChunk_); w.KV("publishChunks", pubChunks_); w.KV("sheetBatch", lastSheetBatch_); w.KV("sheetJobs", sheetJobs_);
-        w.KV("dirtyRingPending", (uint64_t)DirtyPending()); w.KV("sheetRingPending", (uint64_t)SheetPendingCount());
+        w.KV("dirtyRingPending", (uint64_t)DirtyPending()); w.KV("recycleOverflow", recycleOverflow_);
         w.KV("publicationAgeP50Ms", pubAge_.Quantile(0.5f)); w.KV("publicationAgeP95Ms", pubAge_.Quantile(0.95f)); w.KV("publicationAgeSamples", pubAge_.total);
         w.KV("publicationChainP95Ms", pubChainMs_.Quantile(0.95f));
         w.KV("sheetAgeP50Ms", sheetAge_.Quantile(0.5f)); w.KV("sheetAgeP95Ms", sheetAge_.Quantile(0.95f)); w.KV("sheetAgeSamples", sheetAge_.total);
@@ -1033,7 +999,7 @@ public:
         w.KV("sheetGpuUsLast", stats_.sheetUs); w.KV("publishMaintUsLast", stats_.publishMaintUs); w.KV("publishLeavesUsLast", stats_.publishLeavesUs); w.KV("publishLevelsUsLast", stats_.publishLevelsUs);
         w.KV("framesAbandoned", framesAbandoned_); w.KV("measurementsAbandoned", measAbandoned_);
         w.Key("fusion"); w.BeginObject();
-        static const char* names[FS_GCTR_COUNT] = {"pageLookups","pageMisses","assocRecords","assocMatched","assocUnmatched","segmentsMatched","contributions","segOverflow","newSurfels","newShortfall","splits","merges","ghosts","candidateOverflow","indexLeafSplits","indexOverflow","dirtyCells","cowNodes","renderBlocks","rootsPending","measOutOfRange","dirtyOverflow","poolLeafEmpty","poolNodeEmpty","poolRBlockEmpty","poolRNodeEmpty","freeStamps","segmentsUnmatched","freeHopOverflow","relocations","nextSurfaceId","relocDeferred","sheetEdges","sheetNodes","crossPageEdges","coverageOverlapMm2","coverageHoleMm2","planeRmsUmSum","normalRmsMdegSum","sheetFrontierDropped","sheetSmoothed","edgeContractions","refinementBirths","sheetCandOverflow","promotions","promotedRemoved","dirtyRingDrop","positiveEvidence","contradictions","contradictionsHealed","surfelSuspect","surfelRecovered","surfelRetired","freeNarrowHits","activeSheets","sheetUnions","sheetSplits","activeFaces","facesCreated","facesRetired","facesSuspect","facesRecovered","boundaryVertices","faceDuplicateRefused","faceOwnerViolations","meshHoleMm2","meshOverlapMm2","topologyVertices","topologyPoolEmpty","bridgesPending","faceOverflow","temporalTargets","contractUnmatched"};
+        static const char* names[FS_GCTR_COUNT] = {"pageLookups","pageMisses","assocRecords","assocMatched","assocUnmatched","segmentsMatched","contributions","segOverflow","newSurfels","newShortfall","splits","merges","ghosts","candidateOverflow","indexLeafSplits","indexOverflow","dirtyCells","cowNodes","renderBlocks","rootsPending","measOutOfRange","dirtyOverflow","poolLeafEmpty","poolNodeEmpty","poolRBlockEmpty","poolRNodeEmpty","freeStamps","segmentsUnmatched","freeHopOverflow","relocations","nextSurfaceId","relocDeferred","sheetEdges","sheetNodes","crossPageEdges","coverageOverlapMm2","coverageHoleMm2","planeRmsUmSum","normalRmsMdegSum","sheetFrontierDropped","sheetSmoothed","edgeContractions","refinementBirths","sheetCandOverflow","promotions","promotedRemoved","dirtyRingDrop","positiveEvidence","contradictions","contradictionsHealed","surfelSuspect","surfelRecovered","surfelRetired","freeNarrowHits","activeSheets","sheetUnions","sheetSplits","activeFaces","facesCreated","facesRetired","facesSuspect","facesRecovered","boundaryVertices","faceDuplicateRefused","faceOwnerViolations","meshHoleMm2","meshOverlapMm2","topologyVertices","topologyPoolEmpty","bridgesPending","faceOverflow","temporalTargets","contractUnmatched","publishGeometry","publishAppearance","assocCrossPage","assocGateReject","slotsRecycled","slotsFreed"};
         for (uint32_t i = 0; i < FS_GCTR_COUNT; ++i) if (names[i][0] != '_') w.KV(names[i], gctrTotal_[i]);
         w.EndObject();
         w.Key("memory"); w.BeginObject();
@@ -1077,6 +1043,7 @@ private:
     uint32_t workSerial_ = 0; std::vector<int64_t> workTimeNs_ = std::vector<int64_t>(FS_SCHED_SERIAL_WINDOW, 0); std::vector<uint32_t> workTimeSerial_ = std::vector<uint32_t>(FS_SCHED_SERIAL_WINDOW, 0u); int64_t pubStartNs_ = 0;
     AgeWindow fuseAge_; float fusePendingAgeMs_ = 0; uint64_t fuseDeferred_ = 0; uint64_t deadlineMiss_[3] = {0, 0, 0}, observationsLeased_ = 0, observationsFused_ = 0;
     int64_t lastServiceNs_[3] = {0, 0, 0};
+    uint32_t* recycle_ = nullptr; uint32_t recycleBase_ = 0; uint64_t recycleOverflow_ = 0;   // E9 slot recycle region (pools tail)
     std::vector<uint32_t> pubAgeTicks_, sheetAgeTicks_; AgeWindow pubAge_, sheetAge_, pubChainMs_;
     double deficit_[3] = {0, 0, 0}; uint64_t schedJobs_[3] = {0, 0, 0}, schedOverdue_[3] = {0, 0, 0}; float pubPendingAgeMs_ = 0, sheetPendingAgeMs_ = 0;
     uint64_t pubChunks_ = 0, sheetJobs_ = 0, framesAbandoned_ = 0, measAbandoned_ = 0; std::vector<uint32_t> chainRenderRetire_;

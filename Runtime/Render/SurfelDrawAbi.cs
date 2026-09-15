@@ -29,7 +29,6 @@ namespace FinalScan.Render
         public const uint FlagErasedPreview = 1u << 2;
         public const uint FlagAggregate = (uint)WorldAbi.DrawFlagAggregate;   // 1 << 3
         public const uint FlagTransient = (uint)WorldAbi.DrawFlagTransient;   // 1 << 4
-        public const uint FlagTriangle = (uint)WorldAbi.DrawFlagTriangle;     // 1 << 6, E6R shared surface mesh triangle (3-vertex bucket)
 
         public const float RadiusBaseM = 0.0005f;        // 0.5 mm
         public const float RadiusLogStepsU16 = 4096f;     // FsSurfel u16: r = base * 2^(v/4096)

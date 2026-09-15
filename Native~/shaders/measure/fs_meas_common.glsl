@@ -27,8 +27,9 @@ vec2 fsMeasRayTangents(uint x, uint y, uint w, uint h, vec4 fov, uint flags) {
 }
 vec3 fsMeasEyePoint(vec2 t, float z) { return vec3(t.x * z, t.y * z, z); }
 bool fsMeasIsEdge(float d, float dxm, float dxp, float dym, float dyp) {
-    float t = float(FS_MEAS_EDGE_RATIO) * d;
-    return abs(dxm - d) > t || abs(dxp - d) > t || abs(dym - d) > t || abs(dyp - d) > t;
+    float t = float(FS_MEAS_EDGE_RATIO) * d, c = float(FS_MEAS_EDGE_CURV_RATIO) * d;
+    return abs(dxm - d) > t || abs(dxp - d) > t || abs(dym - d) > t || abs(dyp - d) > t
+        || abs(dxp + dxm - 2.0 * d) > c || abs(dyp + dym - 2.0 * d) > c;
 }
 bool fsMeasIsFlat(float d, float dxm, float dxp, float dym, float dyp) {
     return abs(dxm + dxp + dym + dyp - 4.0 * d) < float(FS_MEAS_FLAT_LAPLACIAN_RATIO) * d;
@@ -71,8 +72,14 @@ void fsMeasThreadToTexel(uint t, uint layers, uint w, uint h, uint frame, out ui
     x = texel % w; y = texel / w;
 }
 // Central-difference normal oriented towards the camera (eye origin).
+// E9 edge-safe normal (twin: NormalFromNeighbours): per axis the central difference on a smooth ramp, the one-sided difference
+// towards the smaller depth step when the second difference exceeds FS_MEAS_NORMAL_ONESIDED_RATIO * z (eye z = depth).
+vec3 fsMeasAxisTangent(vec3 p, vec3 pm, vec3 pp) {
+    if (abs(pp.z + pm.z - 2.0 * p.z) <= float(FS_MEAS_NORMAL_ONESIDED_RATIO) * p.z) return pp - pm;
+    return abs(pp.z - p.z) <= abs(p.z - pm.z) ? pp - p : p - pm;
+}
 vec3 fsMeasNormal(vec3 p, vec3 pxm, vec3 pxp, vec3 pym, vec3 pyp) {
-    vec3 c = cross(pxp - pxm, pyp - pym);
+    vec3 c = cross(fsMeasAxisTangent(p, pxm, pxp), fsMeasAxisTangent(p, pym, pyp));
     float l = length(c);
     vec3 n = l < 1e-20 ? vec3(0.0) : c / l;
     return dot(n, p) > 0.0 ? -n : n;

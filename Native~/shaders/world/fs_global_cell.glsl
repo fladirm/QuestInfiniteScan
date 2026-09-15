@@ -1,7 +1,11 @@
 // Global world grid cell -> (resident page slot, page-local cell) through the page hash (shared by sheet_graph and sheet_refine).
-// Requires FS_USE_HASH, FS_USE_PAGES(_RO) and fs_sheet.glsl (fsFloorDiv32).
+// Requires FS_USE_HASH and FS_USE_PAGES(_RO).
 #ifndef FS_GLOBAL_CELL_GLSL
 #define FS_GLOBAL_CELL_GLSL
+#ifndef FS_FLOOR_DIV32_DEFINED
+#define FS_FLOOR_DIV32_DEFINED
+int fsFloorDiv32(int g) { return g >= 0 ? g / 32 : -((-g + 31) / 32); }
+#endif
 bool fsPageHashLookup(uint hashMask, FsPageKey key, out uint slot) {
     uint i = fsHashPageKey(key) & hashMask;
     for (uint d = 0u; d < FS_PAGE_HASH_MAX_PROBE; ++d) {

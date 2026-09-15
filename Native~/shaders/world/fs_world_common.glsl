@@ -50,16 +50,6 @@ float fsDecodeLogRadius(uint v) { return fsDecodeLog(v, FS_RADIUS_BASE_M); }
 uint fsEncodeLogSigma(float m) { return fsEncodeLog(m, FS_SIGMA_BASE_M); }
 float fsDecodeLogSigma(uint v) { return fsDecodeLog(v, FS_SIGMA_BASE_M); }
 uint fsRadius8FromLog16(uint v) { return min((v + 128u) >> 8, 255u); }
-// E6R triangle offsets: 3 x 10-bit signed over +-FS_TRI_OFFSET_RANGE_M (twin: fs::world::TriOffsetEncode)
-uint fsTriOffsetEncode(vec3 v) {
-    ivec3 q = ivec3(clamp(round(v / float(FS_TRI_OFFSET_RANGE_M) * 511.0), vec3(-511.0), vec3(511.0)));
-    return (uint(q.x) & 1023u) | ((uint(q.y) & 1023u) << 10) | ((uint(q.z) & 1023u) << 20);
-}
-vec3 fsTriOffsetDecode(uint w) {
-    ivec3 q = ivec3(int(w & 1023u), int((w >> 10) & 1023u), int((w >> 20) & 1023u));
-    q = ivec3(q.x >= 512 ? q.x - 1024 : q.x, q.y >= 512 ? q.y - 1024 : q.y, q.z >= 512 ? q.z - 1024 : q.z);
-    return vec3(q) / 511.0 * float(FS_TRI_OFFSET_RANGE_M);
-}
 uint fsPreviewColorFromNormal(vec3 n) {
     uvec3 c = uvec3(clamp(n * 0.5 + 0.5, 0.0, 1.0) * 255.0);
     return c.x | (c.y << 8) | (c.z << 16);
