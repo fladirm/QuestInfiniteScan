@@ -874,7 +874,10 @@ public:
         const bool live = slice_.live; const uint64_t seq = slice_.seq;
         bool ok = SubmitFuse(live ? ingestLive_[slice_.slot] : ingestCpu_, slice_.phase, slice_.stride, n, slice_.anchor, slice_.eyeValid, slice_.eye[0], slice_.eye[1], live ? slice_.importFrameEnd : 0,
                              [this, live, seq, last](bool) { if (!last) return; if (live) meas::MeasGpu_ReleaseFrame(seq); else cpuSlotBusy_ = false; });
-        if (!ok) return;                                   // deferred by the executor (ring/budget): retried next tick, same slice
+        // deferred by the executor (ring / budget): retried next tick, same slice. E6R: the measurement front-end shares the SCAN budget and
+        // would take it again every frame (compaction + refine chunks), starving fusion forever (device run 15:09: 0 fuse jobs) -> backpressure
+        fuseBackpressure_.store(!ok, std::memory_order_relaxed);
+        if (!ok) { fuseDeferred_++; return; }
         slice_.phase++; slices_++;
         if (last) { slice_.count = 0; observationsFused_++; }
         CounterAdd(FS_CTR_SCAN_TICK, 1);
@@ -940,6 +943,8 @@ public:
     int32_t SetAnchor(int32_t id, const float m[16]) { if (id < 0 || id >= FS_MAX_ANCHORS || !m) return kResultInvalid; std::lock_guard<std::recursive_mutex> g(m_); memcpy(anchors_[id], m, 64); anchorSeq_++; return kResultOk; }
     uint64_t CopyAnchors(float* out) { std::lock_guard<std::recursive_mutex> g(m_); memcpy(out, anchors_, sizeof anchors_); return anchorSeq_; }
     uint64_t FrontSequence() const { return frontSeq_.load(std::memory_order_relaxed); }   // lock-free: render recut trigger
+    bool FuseBackpressure() const { return fuseBackpressure_.load(std::memory_order_relaxed); }
+    std::atomic<bool> fuseBackpressure_{false};
     std::atomic<uint64_t> frontSeq_{0};
     int32_t Erase(const float c[3], float radius, int32_t anchorId) {
         std::lock_guard<std::recursive_mutex> g(m_);
@@ -995,7 +1000,7 @@ public:
         w.KV("publishAgeMaxMs", pubAge_.Max()); w.KV("topologyAgeP50Ms", sheetAge_.Quantile(0.5f)); w.KV("topologyAgeP95Ms", sheetAge_.Quantile(0.95f)); w.KV("topologyAgeMaxMs", sheetAge_.Max());
         w.KV("pendingFuseAgeMs", fusePendingAgeMs_);
         { uint64_t ready = 0, sup = 0; meas::MeasGpu_FrameTotals(ready, sup); w.KV("observationsReceived", ready); w.KV("observationsSuperseded", sup + framesAbandoned_); }
-        w.KV("observationsLeased", observationsLeased_); w.KV("observationsFused", observationsFused_); w.KV("workSerial", (uint64_t)workSerial_);
+        w.KV("fuseDeferred", fuseDeferred_); w.KV("observationsLeased", observationsLeased_); w.KV("observationsFused", observationsFused_); w.KV("workSerial", (uint64_t)workSerial_);
         w.KV("promotedLive", (int64_t)gctrTotal_[FS_GCTR_PROMOTIONS] - (int64_t)gctrTotal_[FS_GCTR_PROMOTED_REMOVED]);
         auto cm = [&](const char* name, const CostModel& c) { w.KV((std::string(name) + "FixedUs").c_str(), (int64_t)c.fixedUs); w.KV((std::string(name) + "PerItemUs1000").c_str(), (int64_t)(c.perItemUs * 1000.0)); w.KV((std::string(name) + "Structural").c_str(), c.structural); w.KV((std::string(name) + "Learned").c_str(), c.samples); w.KV((std::string(name) + "Skipped").c_str(), c.skipped); };
         cm("costFuse", fuseCost_); cm("costMaint", maintCost_); cm("costLeaves", leavesCost_); cm("costSheet", sheetCost_);
@@ -1044,7 +1049,7 @@ private:
     uint32_t pubStage_ = 0, pubTotal_ = 0, pubDone_ = 0, lastLeavesChunk_ = 0, lastSheetBatch_ = 0, topoGen_ = 0;
     CostModel fuseCost_, maintCost_, leavesCost_, sheetCost_;
     uint32_t workSerial_ = 0; std::vector<int64_t> workTimeNs_ = std::vector<int64_t>(FS_SCHED_SERIAL_WINDOW, 0); std::vector<uint32_t> workTimeSerial_ = std::vector<uint32_t>(FS_SCHED_SERIAL_WINDOW, 0u); int64_t pubStartNs_ = 0;
-    AgeWindow fuseAge_; float fusePendingAgeMs_ = 0; uint64_t deadlineMiss_[3] = {0, 0, 0}, observationsLeased_ = 0, observationsFused_ = 0;
+    AgeWindow fuseAge_; float fusePendingAgeMs_ = 0; uint64_t fuseDeferred_ = 0; uint64_t deadlineMiss_[3] = {0, 0, 0}, observationsLeased_ = 0, observationsFused_ = 0;
     std::vector<uint32_t> pubAgeTicks_, sheetAgeTicks_; AgeWindow pubAge_, sheetAge_, pubChainMs_;
     double deficit_[3] = {0, 0, 0}; uint64_t schedJobs_[3] = {0, 0, 0}, schedOverdue_[3] = {0, 0, 0}; float pubPendingAgeMs_ = 0, sheetPendingAgeMs_ = 0;
     uint64_t pubChunks_ = 0, sheetJobs_ = 0, framesAbandoned_ = 0, measAbandoned_ = 0; std::vector<uint32_t> chainRenderRetire_;
@@ -1074,6 +1079,7 @@ const WorldBuffers* Buffers() { return W().BuffersIf(); }
 uint32_t PageCount() { return W().Pages(); }
 uint64_t CopyAnchors(float* out) { return W().CopyAnchors(out); }
 uint64_t FrontSequence() { return W().FrontSequence(); }
+bool FuseBackpressure() { return W().FuseBackpressure(); }
 
 } // namespace world
 } // namespace fs

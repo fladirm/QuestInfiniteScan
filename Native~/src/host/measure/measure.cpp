@@ -313,6 +313,8 @@ public:
     void Tick(uint32_t budgetUs) {
         std::lock_guard<std::mutex> g(m_);
         if (!deviceUp_ || !pipeReady_ || jobInFlight_ || budgetUs == 0) return;
+        // E6R backpressure: fusion could not get SCAN budget -> this frame's budget is left to it (a newer depth frame just waits / supersedes)
+        if (fs::world::FuseBackpressure()) { yieldedToFusion_++; return; }
         // C10R: a frame whose cheap pass admitted stereo / temporal candidates is refined (bounded chunks) before a new frame is compacted
         for (uint32_t s = 0; s < FS_MEAS_GPU_RING_SLOTS; ++s) if (slots_[s].state == SLOT_REFINING) { SubmitRefineLocked(s); return; }
         if (!pendingSubmit_) return;
@@ -574,7 +576,7 @@ private:
     VkImageView view_ = VK_NULL_HANDLE; VkFormat fmt_ = VK_FORMAT_UNDEFINED;
     VkImageView predView_ = VK_NULL_HANDLE; fs::render::PredictionInfo pred_; bool predValid_ = false; uint64_t predBinds_ = 0;
     CameraInput cam_[2]; StereoPairInput pair_; uint64_t stereoFrames_ = 0; uint64_t stereoTotals_[48] = {};
-    uint64_t framesReady_ = 0;
+    uint64_t framesReady_ = 0, yieldedToFusion_ = 0;
     Buffer tiles_, targetsBuf_; std::vector<RefineTarget> refineTargets_; CostModel refineCost_; AgeWindow refineFrameUs_; uint64_t refineJobs_ = 0, pairsGeometryRejected_ = 0; int64_t lastRefineUs_ = 0;
     CameraInput key_[FS_MEAS_KEYFRAMES]; int32_t keySel_ = -1; uint64_t keySelSeq_ = 0; bool keyImported_ = false; VkImageView keyView_ = VK_NULL_HANDLE; uint64_t keyframesSet_ = 0, keyFramesUsed_ = 0; VkImageView camView_[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE}; bool camImported_[2] = {false, false}; uint32_t camImportedW_[2] = {0, 0}, camImportedH_[2] = {0, 0}; uint64_t camFrames_ = 0, camFramesUsed_ = 0;
     Pipeline pipes_[K_COUNT_]; Buffer score_, select_; bool scratchBound_ = false;
