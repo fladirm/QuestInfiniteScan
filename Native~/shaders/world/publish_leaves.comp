@@ -4,6 +4,7 @@
 // internal nodes over 8 blocks (<= 2 levels). The old cell subtree is retired (freed after graphics
 // retirement). The cell's level-1 parent is marked dirty for publish_level. Unchanged cells keep their nodes.
 #extension GL_GOOGLE_include_directive : require
+#define FS_USE_HASH
 #define FS_USE_SURFELS_RO
 #define FS_USE_INDEX_RO
 #define FS_USE_GCTR
@@ -13,17 +14,18 @@
 #define FS_USE_RBLOCKS
 #define FS_USE_RDIR
 #define FS_USE_RETIRE
-#define FS_USE_SHEET_RO
-#define FS_USE_TOPO_RO
 #define FS_USE_PAGES_RO
 #include "fs_world_blocks.glsl"
 #include "fs_fusion.glsl"
 #include "fs_render_agg.glsl"
+#include "fs_sheet.glsl"          // fsFloorDiv32 (fs_global_cell.glsl requirement)
+#include "fs_global_cell.glsl"
 #define FS_MAINT_LEAVES_MAX 64
 #define FS_MAINT_STACK 32
 layout(local_size_x = FS_WG_SMALL) in;
-// C09R-E5 continuation: one chunk [offset, offset + count) of the publication's dirty-cell list per job (FRONT stays immutable until the levels job)
-layout(push_constant) uniform Push { uint offset; uint count; } pc;
+// Sparse local remesh. Canonical surfels are the authority; this kernel derives a complete immutable cell render block.
+// No persistent face/edge/sheet state is read or written.
+layout(push_constant) uniform Push { uint offset; uint count; uint hashMask; uint pad; } pc;
 
 uint fsCollectLeaves(uint page, uint cell, out uint leaves[FS_MAINT_LEAVES_MAX]) {
     uint n = 0u; uint stack[FS_MAINT_STACK]; uint sp = 0u;
@@ -72,6 +74,107 @@ uint fsMakeInternal(uint children[8]) {
     fsAggInternal(r);
     rnodes[id] = r; return id;
 }
+
+bool fsExtractCompatible(FsPatch a, vec3 pa, FsPatch b, vec3 pb) {
+    float nd = dot(a.n, b.n);
+    if (nd < FS_EXTRACT_MIN_DOT) return false;                          // front/back thin-wall sheets never join
+    vec3 n = normalize(a.n + b.n);
+    if (abs(dot(pb - pa, n)) > FS_EXTRACT_PLANE_MAX_M) return false;    // corner/depth discontinuity
+    if (length(pb - pa) > FS_EXTRACT_LINK_R_M) return false;
+    return true;
+}
+
+uint fsExtractRing(uint page, uint h, FsPatch a, out uint refs[FS_EXTRACT_K], out float ang[FS_EXTRACT_K]) {
+    vec3 pa = fsPageOrigin3(pages[page].key) + a.p;
+    ivec3 g0 = ivec3(floor((pa - vec3(FS_EXTRACT_LINK_R_M)) / FS_CELL_EXTENT_M));
+    ivec3 g1 = ivec3(floor((pa + vec3(FS_EXTRACT_LINK_R_M)) / FS_CELL_EXTENT_M));
+    int anchorId = pages[page].key.anchorId;
+    uint best[FS_EXTRACT_K]; float bd[FS_EXTRACT_K]; uint n = 0u, examined = 0u;
+    for (uint k=0u;k<uint(FS_EXTRACT_K);++k) { best[k]=FS_INDEX_NONE; bd[k]=1e30; }
+
+    for (int z=g0.z; z<=g1.z; ++z)
+    for (int y=g0.y; y<=g1.y; ++y)
+    for (int x=g0.x; x<=g1.x; ++x) {
+        uint slot, cell;
+        if (!fsGlobalCell(pc.hashMask, ivec3(x,y,z), page, anchorId, slot, cell)) continue;
+        uint ls[FS_MAINT_LEAVES_MAX]; uint nl = fsCollectLeaves(slot, cell, ls);
+        vec3 org = fsPageOrigin3(pages[slot].key);
+        for (uint li=0u; li<uint(FS_MAINT_LEAVES_MAX) && li<nl; ++li) {
+            uint cnt=min(idx[fsIdxLeafWord(ls[li],0u)],uint(FS_INDEX_LEAF_CAP));
+            for (uint j=0u;j<uint(FS_INDEX_LEAF_CAP) && j<cnt;++j) {
+                uint hb=idx[fsIdxLeafWord(ls[li],2u+j)]; if (hb==h) continue;
+                FsSurfel sb=surfels[hb]; uint fl=fsGet_FsSurfel_evidenceFlags(sb);
+                if ((fl&(FS_FLAG_REMOVED|FS_FLAG_TRANSIENT))!=0u || (fl&FS_FLAG_PROMOTED)==0u) continue;
+                if (++examined > uint(FS_EXTRACT_CAND_MAX)) continue;
+                FsPatch b=fsUnpack(sb); vec3 pb=org+b.p;
+                if (!fsExtractCompatible(a,pa,b,pb)) continue;
+                float d=length(pb-pa); uint ref=(slot<<22)|hb;
+                if (n==uint(FS_EXTRACT_K) && (d>bd[FS_EXTRACT_K-1] || (d==bd[FS_EXTRACT_K-1] && ref>=best[FS_EXTRACT_K-1]))) continue;
+                uint pos=min(n,uint(FS_EXTRACT_K)-1u);
+                while(pos>0u && (d<bd[pos-1u] || (d==bd[pos-1u] && ref<best[pos-1u]))) {
+                    bd[pos]=bd[pos-1u]; best[pos]=best[pos-1u]; --pos;
+                }
+                bd[pos]=d; best[pos]=ref; if(n<uint(FS_EXTRACT_K)) ++n;
+            }
+        }
+    }
+
+    vec3 t1,t2; fsTangentFrame(a.n,t1,t2);
+    for(uint k=0u;k<uint(FS_EXTRACT_K);++k) {
+        refs[k]=k<n?best[k]:FS_INDEX_NONE;
+        if(k<n) {
+            uint r=best[k]; FsPatch b=fsUnpack(surfels[r&0x3FFFFFu]);
+            vec3 d=fsPageOrigin3(pages[r>>22].key)+b.p-pa;
+            ang[k]=atan(dot(d,t2),dot(d,t1));
+        } else ang[k]=0.0;
+    }
+    // angle order gives a deterministic local fan; SurfaceID tie-breaking below gives unique face ownership.
+    for(uint i=1u;i<uint(FS_EXTRACT_K) && i<n;++i) {
+        uint rr=refs[i]; float aa=ang[i]; uint j=i;
+        while(j>0u && (ang[j-1u]>aa || (ang[j-1u]==aa && surfels[refs[j-1u]&0x3FFFFFu].surfaceId>surfels[rr&0x3FFFFFu].surfaceId))) {
+            refs[j]=refs[j-1u]; ang[j]=ang[j-1u]; --j;
+        }
+        refs[j]=rr; ang[j]=aa;
+    }
+    return n;
+}
+
+bool fsMakeTriangle(FsSurfel sa, uint pageA, uint bE, uint cE, out FsSurfel tri) {
+    FsSurfel sb=surfels[bE&0x3FFFFFu], sc=surfels[cE&0x3FFFFFu];
+    uint fa=fsGet_FsSurfel_evidenceFlags(sa), fb=fsGet_FsSurfel_evidenceFlags(sb), fc=fsGet_FsSurfel_evidenceFlags(sc);
+    if (((fa|fb|fc)&(FS_FLAG_REMOVED|FS_FLAG_TRANSIENT))!=0u) return false;
+    if (((fa&fb&fc)&FS_FLAG_PROMOTED)==0u) return false;
+    if (sa.surfaceId>=sb.surfaceId || sa.surfaceId>=sc.surfaceId) return false; // exactly one owner
+
+    FsPatch a=fsUnpack(sa), b=fsUnpack(sb), c=fsUnpack(sc);
+    vec3 oa=fsPageOrigin3(pages[pageA].key);
+    vec3 pa=oa+a.p, pb=fsPageOrigin3(pages[bE>>22].key)+b.p, pcw=fsPageOrigin3(pages[cE>>22].key)+c.p;
+    if (!fsExtractCompatible(a,pa,b,pb) || !fsExtractCompatible(a,pa,c,pcw) || !fsExtractCompatible(b,pb,c,pcw)) return false;
+    if (length(pb-pcw)>FS_EXTRACT_MAX_EDGE_M) return false;
+
+    vec3 ob=pb-pa, oc=pcw-pa;
+    if(any(greaterThan(abs(ob),vec3(FS_TRI_OFFSET_RANGE_M))) || any(greaterThan(abs(oc),vec3(FS_TRI_OFFSET_RANGE_M)))) return false;
+    vec3 nf=cross(ob,oc); float nl=length(nf); if(nl<1e-7) return false;
+    nf/=nl; if(dot(nf,a.n)<0.0) { vec3 tmp=ob; ob=oc; oc=tmp; nf=-nf; }
+    if(dot(nf,a.n)<FS_EXTRACT_MIN_DOT || dot(nf,b.n)<FS_EXTRACT_MIN_DOT || dot(nf,c.n)<FS_EXTRACT_MIN_DOT) return false;
+
+    tri=sa;
+    uint o,oh; fsSplitOct32(fsEncodeOct32(nf),o,oh); fsSet_FsSurfel_normalOct(tri,o); fsSet_FsSurfel_normalOctHi(tri,oh);
+    tri.radiusMajor_radiusMinor=fsTriOffsetEncode(ob);
+    tri.sigmaN_sigmaTMajor=fsTriOffsetEncode(oc);
+    fsSet_FsSurfel_sigmaTMinor(tri,FS_RENDER_TRI_MARK);
+
+    uint ca=sa.appearanceHandle, cb=sb.appearanceHandle, cc=sc.appearanceHandle;
+    uint obsMin=min(min(ca&FS_APPEARANCE_OBS_MASK,cb&FS_APPEARANCE_OBS_MASK),cc&FS_APPEARANCE_OBS_MASK);
+    if((ca&cb&cc&FS_APPEARANCE_MEASURED)!=0u) {
+        vec3 col=(vec3(float(ca&255u),float((ca>>8)&255u),float((ca>>16)&255u))+
+                  vec3(float(cb&255u),float((cb>>8)&255u),float((cb>>16)&255u))+
+                  vec3(float(cc&255u),float((cc>>8)&255u),float((cc>>16)&255u)))/3.0;
+        uvec3 q=uvec3(clamp(col+0.5,vec3(0),vec3(255)));
+        tri.appearanceHandle=FS_APPEARANCE_MEASURED|obsMin|q.x|(q.y<<8)|(q.z<<16);
+    } else tri.appearanceHandle=sa.appearanceHandle&0x00FFFFFFu;
+    return true;
+}
 void main() {
     if (gl_GlobalInvocationID.x >= pc.count) return;
     uint i = pc.offset + gl_GlobalInvocationID.x;
@@ -92,45 +195,50 @@ void main() {
             // C09R-E4 authoritative FRONT: only PROMOTED geometry is published (it feeds the canonical prediction, the HZB and
             // persistence); transient candidates never reach the render tree, so a wrong depth pixel cannot confirm itself.
             if ((fsGet_FsSurfel_evidenceFlags(s) & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) != 0u) continue;
-            // E6R shared surface mesh: a vertex of the persistent topology publishes the faces it OWNS as triangle render records.
-            // Ellipse fallback is ONLY for an unresolved vertex with no incident face. A mesh boundary is represented by an open shared
-            // edge; painting an ellipse over it reintroduces overlap/dot-cloud artefacts.
-            uint tid = sheet[fsSheetNodeWord(h, 9u)];
-            if (tid != FS_INDEX_NONE && topo[fsTopoVertexWord(tid, 4u)] != s.surfaceId) tid = FS_INDEX_NONE;
-            bool meshMember = tid != FS_INDEX_NONE && topo[fsTopoVertexWord(tid, 5u)] > 0u;
-            uint emitCount = meshMember ? 0u : 1u;
-            FsSurfel records[1 + FS_TOPO_FACES];
-            if (!meshMember) { FsSurfel e0 = s; fsSet_FsSurfel_sigmaTMinor(e0, 0u); records[0] = e0; }
-            if (tid != FS_INDEX_NONE) {
-                FsPatch pa = fsUnpack(s);
-                vec3 originA = fsPageOrigin3(pages[page].key);
-                for (uint f = 0u; f < uint(FS_TOPO_FACES); ++f) {
-                    uint bE = topo[fsTopoFaceWord(tid, f, 0u)];
-                    uint st = topo[fsTopoFaceWord(tid, f, 4u)] & 3u;
-                    if (bE == FS_INDEX_NONE || (st != FS_FACE_ACTIVE && st != FS_FACE_SUSPECT)) continue;
-                    uint cE = topo[fsTopoFaceWord(tid, f, 1u)];
-                    FsSurfel sb = surfels[bE & 0x3FFFFFu], sc = surfels[cE & 0x3FFFFFu];
-                    if (sb.surfaceId != topo[fsTopoFaceWord(tid, f, 2u)] || sc.surfaceId != topo[fsTopoFaceWord(tid, f, 3u)]) continue;   // vertex recycled: the next commit retires the face
-                    vec3 ob = fsPageOrigin3(pages[bE >> 22].key) - originA + fsSurfelLocalPos(sb) - pa.p;
-                    vec3 oc = fsPageOrigin3(pages[cE >> 22].key) - originA + fsSurfelLocalPos(sc) - pa.p;
-                    if (any(greaterThan(abs(ob), vec3(FS_TRI_OFFSET_RANGE_M))) || any(greaterThan(abs(oc), vec3(FS_TRI_OFFSET_RANGE_M)))) { atomicAdd(gctr[FS_GCTR_FACE_OVERFLOW], 1u); continue; }
-                    vec3 nf = cross(ob, oc); float nl = length(nf); if (nl < 1e-10) continue;
-                    nf /= nl; if (dot(nf, pa.n) < 0.0) nf = -nf;
-                    FsSurfel t = s;
-                    uint o, oh; fsSplitOct32(fsEncodeOct32(nf), o, oh); fsSet_FsSurfel_normalOct(t, o); fsSet_FsSurfel_normalOctHi(t, oh);
-                    t.radiusMajor_radiusMinor = fsTriOffsetEncode(ob); t.sigmaN_sigmaTMajor = fsTriOffsetEncode(oc); fsSet_FsSurfel_sigmaTMinor(t, FS_RENDER_TRI_MARK);
-                    // appearance: confirmed only when all three vertices carry confirmed photometry (count-free average of their colours)
-                    uint ca = s.appearanceHandle, cb = sb.appearanceHandle, cc = sc.appearanceHandle;
-                    uint obsMin = min(min((ca & FS_APPEARANCE_OBS_MASK), (cb & FS_APPEARANCE_OBS_MASK)), (cc & FS_APPEARANCE_OBS_MASK));
-                    if ((ca & cb & cc & FS_APPEARANCE_MEASURED) != 0u) {
-                        vec3 col = (vec3(float(ca & 0xFFu), float((ca >> 8) & 0xFFu), float((ca >> 16) & 0xFFu)) + vec3(float(cb & 0xFFu), float((cb >> 8) & 0xFFu), float((cb >> 16) & 0xFFu)) + vec3(float(cc & 0xFFu), float((cc >> 8) & 0xFFu), float((cc >> 16) & 0xFFu))) / 3.0;
-                        uvec3 c8 = uvec3(clamp(col + 0.5, vec3(0.0), vec3(255.0)));
-                        t.appearanceHandle = FS_APPEARANCE_MEASURED | obsMin | c8.x | (c8.y << 8) | (c8.z << 16);
-                    } else t.appearanceHandle = s.appearanceHandle & 0x00FFFFFFu;
-                    records[emitCount] = t; emitCount++;
+            // Stateless derived surface extraction. Canonical surfels remain the only persistent geometry.
+            uint refs[FS_EXTRACT_K]; float angles[FS_EXTRACT_K];
+            FsPatch a = fsUnpack(s);
+            uint nr = fsExtractRing(page, h, a, refs, angles);
+
+            float maxGap = 6.2831853;
+            if (nr >= 2u) {
+                maxGap = 0.0;
+                for (uint k=0u;k<uint(FS_EXTRACT_K) && k<nr;++k) {
+                    float next = k+1u<nr ? angles[k+1u] : angles[0]+6.2831853;
+                    maxGap=max(maxGap,next-angles[k]);
                 }
             }
-            for (uint r = 0u; r < 1u + uint(FS_TOPO_FACES); ++r) {
+            bool closed = nr>=3u && maxGap<=FS_EXTRACT_MAX_GAP_RAD;
+
+            uint emitCount = 0u;
+            FsSurfel records[1 + FS_EXTRACT_K];
+            if (!closed || FS_EXTRACT_CELL_FALLBACK != 0) {
+                // Boundary/unresolved surfels guarantee complete live readout while local remesh converges.
+                // On a closed fan the fallback is omitted below after valid face generation.
+                FsSurfel e0=s; fsSet_FsSurfel_sigmaTMinor(e0,0u);
+                records[emitCount++]=e0;
+            }
+
+            uint faceCount=0u;
+            if (nr>=2u) {
+                for(uint k=0u;k<uint(FS_EXTRACT_K) && k<nr;++k) {
+                    uint j=(k+1u)%nr;
+                    float gap=(j==0u?angles[0]+6.2831853:angles[j])-angles[k];
+                    if(gap>FS_EXTRACT_MAX_GAP_RAD) continue;
+                    FsSurfel tri;
+                    if(fsMakeTriangle(s,page,refs[k],refs[j],tri)) {
+                        records[emitCount++]=tri; faceCount++;
+                        if(emitCount>=1u+uint(FS_EXTRACT_K)) break;
+                    }
+                }
+            }
+            // A genuinely closed local fan is safe to render as mesh-only. Partial topology can never punch a hole.
+            if(closed && faceCount>=2u && emitCount>0u && fsGet_FsSurfel_sigmaTMinor(records[0])!=FS_RENDER_TRI_MARK) {
+                for(uint r=1u;r<emitCount;++r) records[r-1u]=records[r];
+                emitCount--;
+            }
+
+            for (uint r = 0u; r < 1u + uint(FS_EXTRACT_K); ++r) {
                 if (r >= emitCount) break;
                 if (total >= uint(FS_CELL_RENDER_MAX)) { overflow++; continue; }
                 if (curBlock == FS_INDEX_NONE || fill == uint(FS_RENDER_BLOCK_SURFELS)) {

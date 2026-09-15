@@ -155,13 +155,28 @@
 #define FS_FREE_WALK_MAX      128       // 8 m at half-cell steps; bounded by the measurement range
 #define FS_FREE_MAX_RANGE_M   6.0
 #define FS_FREE_PAGE_HOPS_MAX 4         // page transitions (hash lookups) per ray; a 6 m ray crosses <= 3 page boundaries
-#define FS_FREE_RAYS_PER_EPOCH 128      // deterministic evenly-spaced evidence rays; cell stamps are NOT geometry authority
+// Negative evidence is intentionally lower-rate than positive construction. It may retire stale geometry,
+// but it is never allowed to set the positive-fusion cadence.
+#define FS_FREE_RAYS_PER_EPOCH  16
+#define FS_FREE_OBS_STRIDE      4
 
-// Device-closure hard quanta. CostModel may choose inside these bounds but can never expand a single
-// SCAN/PUBLISH/TOPOLOGY job into the 8-14 ms kernels measured on Quest 3S.
+// One coherent compact observation normally maps to one world fusion job.
 #define FS_EPOCH_MEAS_MIN       256
-#define FS_EPOCH_MEAS_MAX       4096
-#define FS_EPOCH_MEAS_INITIAL   2048
+#define FS_EPOCH_MEAS_MAX       1024
+#define FS_EPOCH_MEAS_INITIAL   512
+
+// QuestRoomScan-style derived surface extraction over sparse canonical cells.
+// No persistent Edge/Face/Sheet authority exists in the live path.
+#define FS_EXTRACT_K                 8
+#define FS_EXTRACT_CAND_MAX          192
+#define FS_EXTRACT_LINK_R_M          0.070
+#define FS_EXTRACT_MIN_DOT           0.90
+#define FS_EXTRACT_PLANE_MAX_M       0.020
+#define FS_EXTRACT_MAX_GAP_RAD       2.618       // 150 deg: larger gap = real boundary / unresolved region
+#define FS_EXTRACT_MAX_EDGE_M        0.085
+#define FS_EXTRACT_CELL_FALLBACK     1           // unresolved/boundary sites retain an opaque surfel
+#define FS_PUB_MAINT_BATCH           128
+#define FS_PUB_EXTRACT_BATCH         16
 // ---- C09R-E5R deadline / deficit scheduler and cost-model floors ------------------------------------------------------------------
 #define FS_SCHED_FUSE_DEADLINE_MS    60    // E6R: newest usable depth observation waiting longer than this: fusion is overdue (15-20 fused observations/s)
 #define FS_SCHED_PUBLISH_DEADLINE_MS 75    // oldest pending dirty cell older than this: publication work is overdue (acceptance p95 < 100 ms)

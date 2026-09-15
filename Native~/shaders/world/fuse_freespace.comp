@@ -45,12 +45,13 @@ void fsStamp(uint slot, uint cell, uint stamp) {
 }
 void main() {
     if ((pc.flags & FS_FUSE_FLAG_FREE_SPACE) == 0u) return;
-    const uint count = FS_TK(FS_T_COUNT);
-    const uint rays = min(count, uint(FS_FREE_RAYS_PER_EPOCH));
-    const uint lane = gl_GlobalInvocationID.x;
+    uint count = FS_TK(FS_T_COUNT);
+    uint rays = min(count, uint(FS_FREE_RAYS_PER_EPOCH));
+    uint lane = gl_GlobalInvocationID.x;
     if (lane >= rays || count == 0u) return;
-    // Evenly spaced over the stride-slice stream; no first-N spatial bias.
-    const uint t = rays == count ? lane : min(count - 1u, (lane * count + rays / 2u) / rays);
+    uint phase = (FS_TK(FS_T_TICK) * 37u) % count;
+    uint base = rays == count ? lane : min(count - 1u, (lane * count + rays / 2u) / rays);
+    uint t = (base + phase) % count;
     FsSurfaceMeasurement m = meas[t];
     vec3 p = vec3(m.px, m.py, m.pz);
     vec3 eye = (m.sourceFlags & 0x10000u) != 0u ? pc.eye1.xyz : pc.eye0.xyz;

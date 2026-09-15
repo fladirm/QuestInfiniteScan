@@ -6,16 +6,35 @@
 // Deterministic for a given sorted stream. The centre moves freely; crossing the index cell emits a relocation record.
 #extension GL_GOOGLE_include_directive : require
 #define FS_USE_MEAS
+#define FS_USE_HASH
 #define FS_USE_PAGES_RO
 #define FS_USE_SURFELS
 #define FS_USE_EVIDENCE
 #define FS_USE_GCTR
 #define FS_USE_ASSOC_A_RO
 #define FS_USE_DIRTY
-#define FS_USE_SHEET
 #include "fs_world_blocks.glsl"
 #include "fs_fusion.glsl"
+#include "fs_sheet.glsl"          // fsFloorDiv32 (fs_global_cell.glsl requirement)
+#include "fs_global_cell.glsl"
 layout(local_size_x = FS_WG_SMALL) in;
+layout(push_constant) uniform Push { uint hashMask; } pc;
+
+// Derived mesh ownership can live in an adjacent cell. A material canonical change invalidates only the
+// bounded cells intersecting its extraction ball; dirty bits dedupe the fan-out.
+void fsInvalidateExtractBall(uint page, vec3 localP) {
+    vec3 worldP = fsPageOrigin3(pages[page].key) + localP;
+    ivec3 g0 = ivec3(floor((worldP - vec3(FS_EXTRACT_LINK_R_M)) / FS_CELL_EXTENT_M));
+    ivec3 g1 = ivec3(floor((worldP + vec3(FS_EXTRACT_LINK_R_M)) / FS_CELL_EXTENT_M));
+    int anchorId = pages[page].key.anchorId;
+    for (int z = g0.z; z <= g1.z; ++z)
+    for (int y = g0.y; y <= g1.y; ++y)
+    for (int x = g0.x; x <= g1.x; ++x) {
+        uint slot, cell;
+        if (fsGlobalCell(pc.hashMask, ivec3(x,y,z), page, anchorId, slot, cell))
+            fsMarkDirtyCell(slot, cell);
+    }
+}
 void main() {
     uint i = gl_GlobalInvocationID.x;
     uint count = FS_TK(FS_T_COUNT);
@@ -46,17 +65,12 @@ void main() {
     FsSurfelEvidence ev = evidence[h];
     // ---- one observation updates a surfel once (C09R-E4): a later slice of the same depth frame is not new evidence
     if (ev.lastObservationId == acc.obs && acc.obs != 0u) { atomicAdd(gctr[FS_GCTR_SEGMENTS_MATCHED], 1u); return; }
-    // ---- E4.1C / E6R refinement request: the surfel does not explain part of this observation in FS_REFINE_STREAK consecutive distinct
-    //      observations -> a site at the robust mean of the outliers on the side of the maximum residual (the request slot is this segment's)
+    // Refinement is canonical and measurement-driven: an unexplained residual is deliberately left unmatched on
+    // subsequent observations and births a new transient site through the normal cluster path. There is no second
+    // persistent topology/refinement queue.
     uint ws = acc.worstSide, oc = acc.oCnt[ws];
     uint streak = oc >= uint(FS_REFINE_MIN_OUTLIERS) ? fsResidualStreak(ev) + 1u : 0u;
     fsResidualStreakSet(ev, streak);
-    if (streak >= uint(FS_REFINE_STREAK) && (q.flags & FS_FLAG_PROMOTED) != 0u && (q.flags & FS_EVIDENCE_COUNT_MASK) >= uint(FS_REFINE_MIN_SUPPORT)) {
-        uint rw = fsSheetRefineWord(i, 0u); vec3 sp = acc.oP[ws] / float(oc);
-        sheet[rw] = fsSheetPack(page, h); sheet[rw + 1u] = floatBitsToUint(sp.x); sheet[rw + 2u] = floatBitsToUint(sp.y); sheet[rw + 3u] = floatBitsToUint(sp.z);
-        sheet[rw + 4u] = fsEncodeOct32(normalize(acc.oN[ws])); sheet[rw + 5u] = FS_TK(FS_T_TICK);
-        sheet[rw + 6u] = floatBitsToUint(acc.oFp[ws]); sheet[rw + 7u] = floatBitsToUint(acc.oS[ws] / float(oc));
-    }
     // ---- SurfaceObservationEstimate: robust mean of the frame's contributions with the precision of ONE measurement
     const float nEff = acc.h;
     float wObsN = acc.wN / nEff, wObsT = acc.wT / nEff;
@@ -93,18 +107,13 @@ void main() {
     uint pos = fsEvidencePositive(ev, fsViewSectorBit(q.n, eyeW - (origin + q.p)));
     atomicAdd(gctr[FS_GCTR_POSITIVE_EVIDENCE], 1u);
     if ((pos & 1u) != 0u) atomicAdd(gctr[FS_GCTR_CONTRA_HEALED], 1u);
-    if ((pos & 2u) != 0u) { atomicAdd(gctr[FS_GCTR_SURFEL_RECOVERED], 1u); fsSheetMark(page, h); }
+    if ((pos & 2u) != 0u) atomicAdd(gctr[FS_GCTR_SURFEL_RECOVERED], 1u);   // E8: no topology queue; a render-material change republishes below
     uint stat = fsGet_FsSurfelEvidence_positiveSupport(ev);
     uint flags = q.flags;
     cnt = min(cnt + 1u, uint(FS_EVIDENCE_COUNT_MAX));
     if ((flags & FS_FLAG_TRANSIENT) != 0u && stat >= uint(FS_PROMOTE_STATIC)) flags = (flags & ~FS_FLAG_TRANSIENT) | FS_FLAG_PROMOTED;
-    // E4.1R changed frontier. Topology may also explicitly wait for NEW evidence (a missing persistent face or a pending bridge).
-    // Because this kernel already rejects duplicate observationIds above, this cannot turn into a topology-pass self-loop.
     bool promotedNow = (flags & FS_FLAG_PROMOTED) != 0u && (q.flags & FS_FLAG_PROMOTED) == 0u;
     if (promotedNow) atomicAdd(gctr[FS_GCTR_PROMOTIONS], 1u);
-    const bool geometryChanged = (flags & FS_FLAG_PROMOTED) != 0u && (length(np - q.p) > FS_SHEET_MOVE_MIN_M || dot(nn, q.n) < FS_SHEET_TURN_MIN_COS);
-    const bool topologyAwaitingEvidence = (sheet[fsSheetNodeWord(h, uint(FS_SHEET_TOPO_FLAGS_WORD))] & uint(FS_SHEET_TOPO_REVISIT)) != 0u;
-    if (promotedNow || geometryChanged || topologyAwaitingEvidence) fsSheetMark(page, h);
 
     const uint oldAppearance = q.appearance;
     uint newAppearance = oldAppearance;
@@ -135,16 +144,7 @@ void main() {
     atomicAdd(gctr[FS_GCTR_CONTRIBUTIONS], acc.n);
 
     if (renderChanged) {
-        fsMarkDirtyCell(page, cell);
-        // A persistent triangle is stored in its minimum-SurfaceID owner's cell. This vertex may be a
-        // non-owner endpoint, so material vertex motion must also republish neighbouring owner cells.
-        for (uint k = 0u; k < uint(FS_SHEET_K); ++k) {
-            uint nb = sheet[fsSheetNodeWord(h, k)];
-            if (nb == FS_INDEX_NONE) continue;
-            uint nh = nb & 0x3FFFFFu, npg = nb >> 22;
-            uint nfl = fsGet_FsSurfel_evidenceFlags(surfels[nh]);
-            if ((nfl & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) != 0u) continue;
-            fsMarkDirtyCell(npg, fsCellOf(fsSurfelLocalPos(surfels[nh])));
-        }
+        fsInvalidateExtractBall(page, q.p);
+        fsInvalidateExtractBall(page, np);
     }
 }

@@ -51,6 +51,7 @@ struct PushErase     { int32_t anchorId; float cx, cy, cz, radius; };
 struct PushPage      { uint32_t page; };
 struct PushHash      { uint32_t hashMask; };
 struct PushRange     { uint32_t offset, count; };
+struct PushExtract   { uint32_t offset, count, hashMask, pad; };
 struct PushBatch     { uint32_t batchCap; };
 struct PushBlocks    { uint32_t blocks; };
 struct PushTake      { uint32_t begin, count, pageCount; };
@@ -69,14 +70,14 @@ static const KernelSpec kWorldKernels[K_COUNT] = {
     {"sort_histogram",       FS_KS(kSortHistogramSpirv),      sizeof(PushShift),     {B_GCTR, B_ASSOC_A, B_SORT}, 3},
     {"sort_scan",            FS_KS(kSortScanSpirv),           0,                     {B_GCTR, B_SORT}, 2},
     {"sort_scatter",         FS_KS(kSortScatterSpirv),        sizeof(PushShift),     {B_GCTR, B_ASSOC_A, B_ASSOC_B, B_SORT}, 4},
-    {"fuse_reduce",          FS_KS(kFuseReduceSpirv),         0,                     {B_MEAS, B_PAGES, B_SURFELS, B_EVIDENCE, B_GCTR, B_ASSOC_A, B_DIRTY, B_SHEET}, 8},
+    {"fuse_reduce",          FS_KS(kFuseReduceSpirv),         sizeof(PushHash),       {B_MEAS, B_HASH, B_PAGES, B_SURFELS, B_EVIDENCE, B_GCTR, B_ASSOC_A, B_DIRTY}, 8},
     {"fuse_cluster_count",   FS_KS(kFuseClusterCountSpirv),   0,                     {B_MEAS, B_PAGES, B_GCTR, B_ASSOC_A, B_SORT}, 5},
     {"fuse_prefix",          FS_KS(kFusePrefixSpirv),         0,                     {B_GCTR, B_SORT}, 2},
     {"fuse_prefix_carry",    FS_KS(kFusePrefixCarrySpirv),    sizeof(PushBlocks),                    {B_GCTR, B_SORT}, 2},
     {"fuse_cluster_write",   FS_KS(kFuseClusterWriteSpirv),   0,                     {B_MEAS, B_PAGES, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_ASSOC_A, B_SORT, B_POOLS, B_DIRTY, B_RETIRE}, 11},
     {"dirty_take",           FS_KS(kDirtyTakeSpirv),          sizeof(PushTake),      {B_GCTR, B_DIRTY}, 2},
-    {"fuse_maint_apply",     FS_KS(kFuseMaintApplySpirv),     0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_SHEET, B_POOLS, B_DIRTY, B_RETIRE}, 9},
-    {"publish_leaves",       FS_KS(kPublishLeavesSpirv),      sizeof(PushRange),                    {B_SURFELS, B_INDEX, B_GCTR, B_POOLS, B_DIRTY, B_RENDER, B_RBLOCKS, B_RDIR, B_RETIRE, B_SHEET, B_TOPO, B_PAGES}, 12},
+    {"fuse_maint_apply",     FS_KS(kFuseMaintApplySpirv),     sizeof(PushHash),       {B_HASH, B_PAGES, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_POOLS, B_DIRTY, B_RETIRE}, 9},
+    {"publish_leaves",       FS_KS(kPublishLeavesSpirv),      sizeof(PushExtract),    {B_HASH, B_PAGES, B_SURFELS, B_INDEX, B_GCTR, B_POOLS, B_DIRTY, B_RENDER, B_RBLOCKS, B_RDIR, B_RETIRE}, 11},
     {"publish_level",        FS_KS(kPublishLevelSpirv),       sizeof(PushLevel),     {B_PAGES, B_GCTR, B_POOLS, B_DIRTY, B_RENDER, B_RDIR, B_RETIRE, B_PENDING}, 8},
     {"render_publish_roots", FS_KS(kRenderPublishRootsSpirv), sizeof(PushPublish),   {B_PAGES, B_PENDING}, 2},
     {"world_erase",          FS_KS(kWorldEraseSpirv),         sizeof(PushErase),     {B_PAGES, B_SURFELS, B_INDEX, B_GCTR, B_DIRTY}, 5},

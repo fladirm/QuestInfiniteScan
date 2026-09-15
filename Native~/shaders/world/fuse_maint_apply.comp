@@ -2,12 +2,12 @@
 // F4b per dirty cell (single owner): E6R evidence lifecycle (hysteretic debt, SUSPECT / RETIRING / REMOVED), deterministic merges,
 // leaf compaction. (C09R-E4.1C: the major-axis split is replaced by site insertion at the worst residual, sheet_refine.)
 #extension GL_GOOGLE_include_directive : require
+#define FS_USE_HASH
 #define FS_USE_PAGES_RO
 #define FS_USE_SURFELS
 #define FS_USE_EVIDENCE
 #define FS_USE_INDEX
 #define FS_USE_GCTR
-#define FS_USE_SHEET
 #define FS_USE_POOLS
 #define FS_USE_DIRTY
 #define FS_USE_RETIRE
@@ -15,7 +15,24 @@
 #include "fs_fusion.glsl"
 #include "fs_index.glsl"
 #include "fs_maint.glsl"
+#include "fs_sheet.glsl"          // fsFloorDiv32 (fs_global_cell.glsl requirement)
+#include "fs_global_cell.glsl"
 layout(local_size_x = FS_WG_SMALL) in;
+layout(push_constant) uniform Push { uint hashMask; } pc;
+
+void fsInvalidateExtractBall(uint page, vec3 localP) {
+    vec3 worldP = fsPageOrigin3(pages[page].key) + localP;
+    ivec3 g0 = ivec3(floor((worldP - vec3(FS_EXTRACT_LINK_R_M)) / FS_CELL_EXTENT_M));
+    ivec3 g1 = ivec3(floor((worldP + vec3(FS_EXTRACT_LINK_R_M)) / FS_CELL_EXTENT_M));
+    int anchorId = pages[page].key.anchorId;
+    for (int z = g0.z; z <= g1.z; ++z)
+    for (int y = g0.y; y <= g1.y; ++y)
+    for (int x = g0.x; x <= g1.x; ++x) {
+        uint slot, cell;
+        if (fsGlobalCell(pc.hashMask, ivec3(x,y,z), page, anchorId, slot, cell))
+            fsMarkDirtyCell(slot, cell);
+    }
+}
 void main() {
     uint i = gl_GlobalInvocationID.x;
     if (i >= FS_TK(FS_T_DIRTY_COUNT)) return;
@@ -48,12 +65,18 @@ void main() {
                 if (debt >= uint(FS_DEBT_TRANSIENT)) { fsSet_FsSurfel_evidenceFlags(s, flags | FS_FLAG_REMOVED); surfels[h] = s; ghosts++; }
             } else if (st == FS_LIFE_ACTIVE && debt >= uint(FS_DEBT_SUSPECT)) {
                 fsLifeSet(ev, FS_LIFE_SUSPECT); fsSet_FsSurfelEvidence_suspectSince(ev, tick16);
-                atomicAdd(gctr[FS_GCTR_SURFEL_SUSPECT], 1u); fsSheetMark(page, h);
+                atomicAdd(gctr[FS_GCTR_SURFEL_SUSPECT], 1u);
             } else if (st == FS_LIFE_SUSPECT && debt >= uint(FS_DEBT_RETIRE)) {
-                fsSheetMark(page, h);                                            // the topology pass decides RETIRING (neighbourhood)
+                uint age = (tick16 - fsGet_FsSurfelEvidence_suspectSince(ev)) & 0xFFFFu;
+                if (age >= uint(FS_SUSPECT_MIN_TICKS) &&
+                    bitCount(fsGet_FsSurfelEvidence_viewDiversity(ev)) >= int(FS_RETIRE_MIN_VIEWS))
+                    fsLifeSet(ev, FS_LIFE_RETIRING);
             } else if (st == FS_LIFE_RETIRING && debt >= uint(FS_DEBT_REMOVE)) {
+                vec3 oldP = fsSurfelLocalPos(s);
                 fsSet_FsSurfel_evidenceFlags(s, flags | FS_FLAG_REMOVED); surfels[h] = s; ghosts++;
-                atomicAdd(gctr[FS_GCTR_PROMOTED_REMOVED], 1u); atomicAdd(gctr[FS_GCTR_SURFEL_RETIRED], 1u); fsSheetMark(page, h);
+                atomicAdd(gctr[FS_GCTR_PROMOTED_REMOVED], 1u);
+                atomicAdd(gctr[FS_GCTR_SURFEL_RETIRED], 1u);
+                fsInvalidateExtractBall(page, oldP);
             }
             evidence[h] = ev;
         }
@@ -79,6 +102,9 @@ void main() {
                 uint mergedCell = fsCellOf(r.p);
                 if (mergedCell != cell && !fsPushRelocation(hs, page, fsCellOf(ps.p), mergedCell, surfels[hs])) r.p = ps.p;   // list full: keep the survivor centre
                 surfels[hs] = fsPack(r);
+                fsInvalidateExtractBall(page, ps.p);
+                fsInvalidateExtractBall(page, pd.p);
+                fsInvalidateExtractBall(page, r.p);
                 fsSet_FsSurfelEvidence_positiveSupport(es, min(fsGet_FsSurfelEvidence_positiveSupport(es) + fsGet_FsSurfelEvidence_positiveSupport(ed), 65535u));
                 fsSet_FsSurfelEvidence_contradictionDebt(es, min(fsGet_FsSurfelEvidence_contradictionDebt(es), fsGet_FsSurfelEvidence_contradictionDebt(ed)));   // E6R: absorbed support never inherits the worse debt
                 fsSet_FsSurfelEvidence_viewDiversity(es, fsGet_FsSurfelEvidence_viewDiversity(es) | fsGet_FsSurfelEvidence_viewDiversity(ed));

@@ -146,8 +146,10 @@ public:
         ok &= Make(buf_.pending, (VkDeviceSize)FS_MAX_PAGES * sizeof(FsPendingPublish), true, "world.pending");
         ok &= Make(buf_.publishRing, (VkDeviceSize)kPublishRingSlots * FS_MAX_PAGES * sizeof(FsPendingPublish), true, "world.publishRing");
         ok &= Make(buf_.hash, (VkDeviceSize)hashCap_ * sizeof(FsPageHashEntry), true, "world.hash");
-        ok &= Make(buf_.sheet, SheetWords() * 4, true, "world.sheet");
-        ok &= Make(buf_.topo, TopoWords() * 4, true, "world.topology");
+        // Legacy E4/E6 buffers are quarantined for ABI/source compatibility only. No live kernel is scheduled
+        // against them; keep a tiny valid binding until the obsolete shaders are physically removed from history.
+        ok &= Make(buf_.sheet, 4096, true, "world.legacySheet");
+        ok &= Make(buf_.topo, 4096, true, "world.legacyTopology");
         ok &= Make(cpuRecords_, (VkDeviceSize)FS_TICK_MEAS_MAX * sizeof(FsSurfaceMeasurement), true, "world.cpuRecords");
         ok &= Make(cpuCounters_, 64, true, "world.cpuCounters");
         if (!ok) return false;
@@ -162,9 +164,8 @@ public:
         memset(buf_.dirty.mapped, 0, (size_t)dirtyWords * 4);
         rdir_ = (uint32_t*)buf_.rdir.mapped; memset(rdir_, 0xFF, (size_t)pageCount_ * 37449 * 4);
         retire_ = (uint32_t*)buf_.retire.mapped; pending_ = (FsPendingPublish*)buf_.pending.mapped; publishRing_ = (FsPendingPublish*)buf_.publishRing.mapped;
-        memset(buf_.sheet.mapped, 0, (size_t)SheetWords() * 4);
-        for (uint32_t h = 0; h < surfelCap_; ++h) { uint32_t* nw = (uint32_t*)buf_.sheet.mapped + (size_t)h * FS_SHEET_NODE_WORDS; for (uint32_t k = 0; k < FS_SHEET_K; ++k) nw[k] = FS_INDEX_NONE; nw[9] = FS_INDEX_NONE; }
-        memset(buf_.topo.mapped, 0, (size_t)TopoWords() * 4);
+        memset(buf_.sheet.mapped, 0, 4096);
+        memset(buf_.topo.mapped, 0, 4096);
         hashMirror_ = (FsPageHashEntry*)buf_.hash.mapped; hash_.Init(hashCap_); memcpy(hashMirror_, hash_.Data(), hash_.Bytes()); hashDirty_ = false;
         uint32_t* pools = (uint32_t*)buf_.pools.mapped;
         uint32_t ringBase = FS_POOL_COUNT * FS_POOL_HEADER_WORDS;
@@ -338,13 +339,7 @@ public:
         if (slot >= pages_.size() || pages_[slot].generation != generation) return;
         PageState& s = pages_[slot];
         for (uint32_t slab : s.slabs) {
-            // E4.1R: the slab's handles will be reused by another page: no stale graph proposals or graph-dirty bits survive
-            uint32_t* sh = (uint32_t*)buf_.sheet.mapped;
-            if (sh) for (uint32_t k = 0; k < FS_SLAB_SURFELS; ++k) {
-                const uint32_t h = slab * FS_SLAB_SURFELS + k;
-                for (uint32_t w = 0; w < FS_SHEET_NODE_WORDS; ++w) sh[h * FS_SHEET_NODE_WORDS + w] = (w < FS_SHEET_K || w == 9) ? FS_INDEX_NONE : 0u;   // E6R: topology records of the recycled handles are guarded by SurfaceID and released by their neighbours' commits
-                AtomicAndU32(sh + surfelCap_ * FS_SHEET_NODE_WORDS + (h >> 5), ~(1u << (h & 31u)));
-            }
+            // E8: no per-handle graph state exists in the live path (the legacy sheet buffer is a quarantined 4 KiB binding)
             slabs_.Free(slab);
         }
         s.slabs.clear(); s.life = PAGE_FREE; s.generation++;
@@ -396,16 +391,17 @@ public:
             std::atomic_thread_fence(std::memory_order_release);
         }
         PushShift sh[4] = {{0}, {8}, {16}, {24}};
+        PushHash phr{hashCap_ - 1};
         AddDispatch(*js, ingest, (std::min<uint32_t>(maxCount, FS_TICK_MEAS_MAX) + FS_WG_SMALL - 1) / FS_WG_SMALL, 1, &pin, sizeof pin);
         AddDispatch(*js, pipes_[K_ASSOC], 1, 1, &pa, sizeof pa, G, FS_GCTR_COUNT + FS_T_ARGS_MEAS);
-        AddDispatch(*js, pipes_[K_FREESPACE], 1, 1, &pf, sizeof pf, G, FS_GCTR_COUNT + FS_T_ARGS_MEAS);
+        if (freeSpace) AddDispatch(*js, pipes_[K_FREESPACE], 1, 1, &pf, sizeof pf, G, FS_GCTR_COUNT + FS_T_ARGS_MEAS);
         for (uint32_t p = 0; p < 4; ++p) {
             const bool fromA = (p & 1) == 0;
             AddDispatch(*js, fromA ? pipes_[K_SORT_HIST] : histB_, 1, 1, &sh[p], sizeof sh[p], G, FS_GCTR_COUNT + FS_T_ARGS_SORTBLK);
             AddDispatch(*js, pipes_[K_SORT_SCAN], 1, 1, nullptr, 0);
             AddDispatch(*js, fromA ? pipes_[K_SORT_SCATTER] : scatterB_, 1, 1, &sh[p], sizeof sh[p], G, FS_GCTR_COUNT + FS_T_ARGS_SORTBLK);
         }
-        AddDispatch(*js, pipes_[K_REDUCE], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_MEAS);
+        AddDispatch(*js, pipes_[K_REDUCE], 1, 1, &phr, sizeof phr, G, FS_GCTR_COUNT + FS_T_ARGS_MEAS);
         // C09R-E5R dispatch domain = the epoch's real size: whole 256-entry blocks covering maxCount (cluster count writes 0 past
         // the count inside them), the carry sums only those blocks. No kernel after ingest walks the 65 536 ABI capacity.
         const uint32_t blocks = std::max<uint32_t>(1u, (std::min<uint32_t>(maxCount, FS_TICK_MEAS_MAX) + 255u) / 256u);
@@ -414,9 +410,7 @@ public:
         AddDispatch(*js, pipes_[K_PREFIX], blocks, 1, nullptr, 0);
         AddDispatch(*js, pipes_[K_PREFIX_CARRY], 1, 1, &pbk, sizeof pbk);
         AddDispatch(*js, pipes_[K_CLUSTER_WRITE], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_MEAS);
-        PushHash phr{hashCap_ - 1};
-        AddDispatch(*js, pipes_[K_SHEET_REFINE], 1, 1, &phr, sizeof phr);   // E4.1C refine: site insertion at the maximum residual (cross-page coverage)
-        AddDispatch(*js, pipes_[K_RELOCATE], 1, 1, nullptr, 0);         // C09R-E5: the fuse epoch's own relocations (a publication chain may be mid-way)
+        AddDispatch(*js, pipes_[K_RELOCATE], 1, 1, nullptr, 0);         // canonical index follows geometry
         FixPushPointers(*js);
         JobDesc jd; jd.cls = FS_JOB_SCAN; jd.name = "world.fuse"; jd.dispatches = js->d.data(); jd.dispatchCount = (uint32_t)js->d.size(); jd.waitFrameEndValue = waitFrameEnd;
         jd.onRetired = [this, js, onDone](bool ok, uint64_t s, uint64_t e) {
@@ -427,8 +421,9 @@ public:
                 const uint32_t items = AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_COUNT);
                 AfterJob(false);
                 fuseCost_.Add(items, stats_.fuseUs); Charge(ST_FUSE, stats_.fuseUs);
-                epochMeasCap_ = fuseCost_.Batch(ClassQuantumUs(FS_JOB_SCAN),
-                                                FS_EPOCH_MEAS_MIN, FS_EPOCH_MEAS_MAX, FS_EPOCH_MEAS_INITIAL);
+                epochMeasCap_ = std::min<uint32_t>(FS_EPOCH_MEAS_MAX,
+                    std::max<uint32_t>(FS_EPOCH_MEAS_MIN, fuseCost_.Batch(ClassQuantumUs(FS_JOB_SCAN),
+                    FS_EPOCH_MEAS_MIN, FS_EPOCH_MEAS_MAX, FS_EPOCH_MEAS_INITIAL)));
             }
             onDone(ok);
         };
@@ -459,8 +454,7 @@ public:
         auto js = std::make_shared<JobStorage>();
         const Buffer* G = &buf_.gctr;
         const uint32_t head = AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_DIRTY_HEAD), pending = DirtyPending();
-        const uint32_t take = std::min<uint32_t>(pending, maintCost_.Batch(ClassQuantumUs(FS_JOB_PUBLISH),
-                                                                          FS_PUB_DIRTY_MIN, FS_PUB_DIRTY_MAX, 128u));
+        const uint32_t take = std::min<uint32_t>(pending, uint32_t(FS_PUB_MAINT_BATCH));
         epochDirtyCap_ = take;
         // age receipt: enqueue ticks of the batch (evenly sampled), resolved to milliseconds at the FRONT commit
         pubAgeTicks_.clear();
@@ -469,9 +463,10 @@ public:
         std::atomic_thread_fence(std::memory_order_release);
         PushTake pt{head, take, pageCount_};
         for (auto& l : loads) { PushPage pp{l.first}; AddDispatch(*js, pipes_[K_PAGE_LOAD], FS_CELLS_PER_PAGE / FS_WG_SMALL, 1, &pp, sizeof pp); }
+        PushHash ph{hashCap_ - 1};
         AddDispatch(*js, pipes_[K_DIRTY_TAKE], 1, 1, &pt, sizeof pt);
-        AddDispatch(*js, pipes_[K_MAINT_APPLY], 1, 1, nullptr, 0, G, FS_GCTR_COUNT + FS_T_ARGS_DIRTY);
-        AddDispatch(*js, pipes_[K_RELOCATE], 1, 1, nullptr, 0);         // C09R-E4: index follows geometry (maintenance merges) before the leaves read it
+        AddDispatch(*js, pipes_[K_MAINT_APPLY], 1, 1, &ph, sizeof ph, G, FS_GCTR_COUNT + FS_T_ARGS_DIRTY);
+        AddDispatch(*js, pipes_[K_RELOCATE], 1, 1, nullptr, 0);
         FixPushPointers(*js);
         JobDesc jd; jd.cls = FS_JOB_PUBLISH; jd.name = "world.publish.maint"; jd.dispatches = js->d.data(); jd.dispatchCount = (uint32_t)js->d.size();
         const bool hasLoads = !loads.empty();
@@ -494,10 +489,8 @@ public:
     }
     bool SubmitPubLeaves() {
         auto js = std::make_shared<JobStorage>();
-        const uint32_t chunk = leavesCost_.Batch(ClassQuantumUs(FS_JOB_PUBLISH),
-                                                 FS_PUB_LEAVES_MIN, FS_PUB_LEAVES_MAX, 64u);
-        const uint32_t count = std::min<uint32_t>(chunk, pubTotal_ - pubDone_);
-        PushRange pr{pubDone_, count};
+        const uint32_t count = std::min<uint32_t>(uint32_t(FS_PUB_EXTRACT_BATCH), pubTotal_ - pubDone_);
+        PushExtract pr{pubDone_, count, hashCap_ - 1, 0};
         AddDispatch(*js, pipes_[K_PUBLISH_LEAVES], (count + FS_WG_SMALL - 1) / FS_WG_SMALL, 1, &pr, sizeof pr);
         FixPushPointers(*js);
         JobDesc jd; jd.cls = FS_JOB_PUBLISH; jd.name = "world.publish.leaves"; jd.dispatches = js->d.data(); jd.dispatchCount = (uint32_t)js->d.size();
@@ -841,14 +834,14 @@ public:
         //   2. otherwise the runnable stage with the largest GPU-time deficit (shares FS_SCHED_SHARE_*).
         //   A new depth frame is NOT leased while publication or sheet work is overdue (latest-only: it waits in the ring or is superseded).
         const int64_t now = NowNs();
-        const uint32_t dirtyPending = DirtyPending(), sheetPending = SheetPendingCount();
+        const uint32_t dirtyPending = DirtyPending();
         const bool pubRunnable = pubStage_ != PUB_IDLE || dirtyPending != 0 || !pendingLoads_.empty();
-        const bool sheetRunnable = sheetPending != 0;
+        const bool sheetRunnable = false;       // E8: no persistent topology queue in the live architecture
         float pubAge = 0, sheetAge = 0;
         if (pubStage_ != PUB_IDLE) pubAge = (float)((now - pubStartNs_) / 1e6) + (pubAgeTicks_.empty() ? 0.f : WorkAgeMs(pubAgeTicks_.front(), pubStartNs_));
         else if (dirtyPending) pubAge = WorkAgeMs(DirtyEntryTick(AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_DIRTY_HEAD)), now);
         if (!pendingLoads_.empty()) pubAge = std::max(pubAge, (float)FS_SCHED_PUBLISH_DEADLINE_MS);
-        if (sheetRunnable) sheetAge = WorkAgeMs(SheetEntryTick(AtomicLoadU32(gctr_ + FS_GCTR_COUNT + FS_T_SHEET_HEAD)), now);
+        // sheetAge stays zero: surface connectivity is derived inside publish_leaves from canonical surfels.
         pubPendingAgeMs_ = pubAge; sheetPendingAgeMs_ = sheetAge;
         const float pubOver = pubRunnable ? pubAge / (float)FS_SCHED_PUBLISH_DEADLINE_MS : 0.f, sheetOver = sheetRunnable ? sheetAge / (float)FS_SCHED_SHEET_DEADLINE_MS : 0.f;
         // Latest-only is enforced at lease boundaries by MeasGpu_PeekFrame (older READY frames are superseded there).
@@ -882,7 +875,7 @@ public:
             else if (pubStage_ == PUB_IDLE) { std::vector<std::pair<uint32_t, bool>> loads; TakeLoads(loads); SubmitPubMaint(loads); }
             return;
         }
-        if (pick == ST_SHEET) { SubmitSheet(); return; }
+        if (pick == ST_SHEET) return;            // unreachable; retained enum slot only for telemetry ABI compatibility
         if (pick != ST_FUSE) return;
         if (slice_.count == 0) {
             meas::MeasGpuFrame f;
@@ -896,7 +889,8 @@ public:
         const uint32_t n = (slice_.count - slice_.phase + slice_.stride - 1) / slice_.stride;
         const bool last = slice_.phase + 1 >= slice_.stride;
         const bool live = slice_.live; const uint64_t seq = slice_.seq;
-        bool ok = SubmitFuse(live ? ingestLive_[slice_.slot] : ingestCpu_, slice_.phase, slice_.stride, n, slice_.anchor, slice_.eyeValid, slice_.eye[0], slice_.eye[1], live ? slice_.importFrameEnd : 0,
+        const bool doFreeSpace = live && last && slice_.eyeValid && ((seq % uint64_t(FS_FREE_OBS_STRIDE)) == 0u);
+        bool ok = SubmitFuse(live ? ingestLive_[slice_.slot] : ingestCpu_, slice_.phase, slice_.stride, n, slice_.anchor, doFreeSpace, slice_.eye[0], slice_.eye[1], live ? slice_.importFrameEnd : 0,
                              [this, live, seq, last](bool) { if (!last) return; if (live) meas::MeasGpu_ReleaseFrame(seq); else cpuSlotBusy_ = false; });
         // deferred by the executor (ring / budget): retried next tick, same slice. E6R: the measurement front-end shares the SCAN budget and
         // would take it again every frame (compaction + refine chunks), starving fusion forever (device run 15:09: 0 fuse jobs) -> backpressure

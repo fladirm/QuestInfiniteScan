@@ -273,7 +273,7 @@ static void TestBudgetSelection() {
     CHECK(stored2 >= FS_MEAS_DEFAULT_BUDGET - 400 && stored2 <= FS_MEAS_DEFAULT_BUDGET + 400); CHECK_EQ(ctr[FS_MEAS_CTR_OVERFLOW], 0u);
     CHECK_EQ(ctr[FS_MEAS_CTR_GROUPS], (W * H * 2 + FS_MEAS_WG - 1) / FS_MEAS_WG);
     uint32_t eyeR = 0; for (uint32_t i = 0; i < stored2; ++i) if (std::fabs(rec[i].pz - 2.5f) < 0.01f) ++eyeR;
-    CHECK(eyeR > stored2 / 2 - 400 && eyeR < stored2 / 2 + 400);
+    CHECK(eyeR + stored2 / 4 > stored2 / 2 && eyeR < stored2 / 2 + stored2 / 4);   // even split within 25 % (E8 budget 512: a fixed 400 would underflow)
     // the rotating row phase: two consecutive frames map thread 0 to different rows
     uint32_t layer, x, y0, y1;
     ThreadToTexel(0, 2, W, H, 11, layer, x, y0); ThreadToTexel(0, 2, W, H, 12, layer, x, y1);
