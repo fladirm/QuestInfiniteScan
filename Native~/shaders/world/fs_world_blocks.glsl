@@ -132,7 +132,8 @@ layout(std430, set = 0, binding = FS_B_SHEET) readonly buffer SheetBlockRO { uin
 #endif
 #if defined(FS_USE_SHEET) || defined(FS_USE_SHEET_RO)
 uint fsSheetNodeWord(uint h, uint w) { return h * uint(FS_SHEET_NODE_WORDS) + w; }
-uint fsSheetDeltaWord(uint i, uint w) { return FS_TK(FS_T_SHEET_RING_BASE) + uint(FS_SHEET_RING_CAP) + i * 4u + w; }
+uint fsSheetDeltaWord(uint i, uint w) { return FS_TK(FS_T_SHEET_RING_BASE) + uint(FS_SHEET_RING_CAP) + i * 8u + w; }   // 8 words per batch node
+uint fsSheetRefineWord(uint i, uint w) { return FS_TK(FS_T_SHEET_RING_BASE) + uint(FS_SHEET_RING_CAP) + uint(FS_SHEET_BATCH_MAX) * 8u + i * 8u + w; }   // 8 words per measurement segment (E4.1C refinement request)
 uint fsSheetPack(uint page, uint h) { return (page << 22) | h; }
 #endif
 #if defined(FS_USE_SHEET) && defined(FS_USE_GCTR)

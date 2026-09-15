@@ -17,7 +17,6 @@
 #include "fuse_dirty_pages_spirv.inc"
 #include "fuse_dirty_prefix_spirv.inc"
 #include "fuse_dirty_emit_spirv.inc"
-#include "fuse_maint_count_spirv.inc"
 #include "fuse_maint_apply_spirv.inc"
 #include "publish_leaves_spirv.inc"
 #include "publish_level_spirv.inc"
@@ -30,6 +29,8 @@
 #include "sheet_graph_spirv.inc"
 #include "sheet_fit_spirv.inc"
 #include "sheet_apply_spirv.inc"
+#include "sheet_contract_spirv.inc"
+#include "sheet_refine_spirv.inc"
 
 namespace fs {
 namespace world {
@@ -52,8 +53,8 @@ struct PushHash      { uint32_t hashMask; };
 
 enum WorldKernel : uint32_t {
     K_INGEST = 0, K_ASSOC, K_FREESPACE, K_SORT_HIST, K_SORT_SCAN, K_SORT_SCATTER, K_REDUCE, K_CLUSTER_COUNT, K_PREFIX, K_PREFIX_CARRY,
-    K_CLUSTER_WRITE, K_DIRTY_PAGES, K_DIRTY_PREFIX, K_DIRTY_EMIT, K_MAINT_COUNT, K_MAINT_APPLY, K_PUBLISH_LEAVES, K_PUBLISH_LEVEL,
-    K_PUBLISH_ROOTS, K_ERASE, K_PAGE_RELEASE, K_PAGE_LOAD, K_RELOCATE, K_SHEET_BEGIN, K_SHEET_GRAPH, K_SHEET_FIT, K_SHEET_APPLY, K_COUNT
+    K_CLUSTER_WRITE, K_DIRTY_PAGES, K_DIRTY_PREFIX, K_DIRTY_EMIT, K_MAINT_APPLY, K_PUBLISH_LEAVES, K_PUBLISH_LEVEL,
+    K_PUBLISH_ROOTS, K_ERASE, K_PAGE_RELEASE, K_PAGE_LOAD, K_RELOCATE, K_SHEET_BEGIN, K_SHEET_GRAPH, K_SHEET_FIT, K_SHEET_APPLY, K_SHEET_CONTRACT, K_SHEET_REFINE, K_COUNT
 };
 struct KernelSpec { const char* name; const uint32_t* spirv; size_t words; uint32_t pushBytes; uint32_t bindings[12]; uint32_t bindingCount; };
 #define FS_KS(sym) sym, sizeof(sym) / 4
@@ -72,8 +73,7 @@ static const KernelSpec kWorldKernels[K_COUNT] = {
     {"fuse_dirty_pages",     FS_KS(kFuseDirtyPagesSpirv),     0,                     {B_GCTR, B_DIRTY}, 2},
     {"fuse_dirty_prefix",    FS_KS(kFuseDirtyPrefixSpirv),    sizeof(PushPageCount), {B_GCTR, B_DIRTY}, 2},
     {"fuse_dirty_emit",      FS_KS(kFuseDirtyEmitSpirv),      0,                     {B_GCTR, B_DIRTY}, 2},
-    {"fuse_maint_count",     FS_KS(kFuseMaintCountSpirv),     0,                     {B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_SORT, B_DIRTY}, 6},
-    {"fuse_maint_apply",     FS_KS(kFuseMaintApplySpirv),     0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_SORT, B_FREESPACE, B_POOLS, B_DIRTY, B_RETIRE}, 10},
+    {"fuse_maint_apply",     FS_KS(kFuseMaintApplySpirv),     0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_FREESPACE, B_POOLS, B_DIRTY, B_RETIRE}, 9},
     {"publish_leaves",       FS_KS(kPublishLeavesSpirv),      0,                     {B_SURFELS, B_INDEX, B_GCTR, B_POOLS, B_DIRTY, B_RENDER, B_RBLOCKS, B_RDIR, B_RETIRE, B_SHEET}, 10},
     {"publish_level",        FS_KS(kPublishLevelSpirv),       sizeof(PushLevel),     {B_PAGES, B_GCTR, B_POOLS, B_DIRTY, B_RENDER, B_RDIR, B_RETIRE, B_PENDING}, 8},
     {"render_publish_roots", FS_KS(kRenderPublishRootsSpirv), sizeof(PushPublish),   {B_PAGES, B_PENDING}, 2},
@@ -83,8 +83,10 @@ static const KernelSpec kWorldKernels[K_COUNT] = {
     {"world_relocate",       FS_KS(kWorldRelocateSpirv),      0,                     {B_PAGES, B_SURFELS, B_INDEX, B_GCTR, B_POOLS, B_DIRTY, B_RETIRE}, 7},
     {"sheet_begin",          FS_KS(kSheetBeginSpirv),         0,                     {B_GCTR}, 1},
     {"sheet_graph",          FS_KS(kSheetGraphSpirv),         sizeof(PushHash),      {B_PAGES, B_SURFELS, B_INDEX, B_HASH, B_FREESPACE, B_GCTR, B_SHEET}, 7},
-    {"sheet_fit",            FS_KS(kSheetFitSpirv),           0,                     {B_PAGES, B_SURFELS, B_GCTR, B_SHEET}, 4},
+    {"sheet_fit",            FS_KS(kSheetFitSpirv),           0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_GCTR, B_SHEET}, 5},
     {"sheet_apply",          FS_KS(kSheetApplySpirv),         0,                     {B_PAGES, B_SURFELS, B_GCTR, B_SHEET, B_DIRTY}, 5},
+    {"sheet_contract",       FS_KS(kSheetContractSpirv),      0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_GCTR, B_SHEET, B_DIRTY}, 6},
+    {"sheet_refine",         FS_KS(kSheetRefineSpirv),        0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_POOLS, B_DIRTY, B_RETIRE, B_SHEET}, 9},
 };
 #undef FS_KS
 

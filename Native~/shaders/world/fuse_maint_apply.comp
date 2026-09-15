@@ -1,13 +1,12 @@
 #version 450
 // F4b per dirty cell (single owner): ghost removal from free-space contradictions, deterministic merges,
-// explicit splits (two children along the major axis, ids = idBase + newTotal + prefix), leaf compaction.
+// leaf compaction. (C09R-E4.1C: the major-axis split is replaced by site insertion at the worst residual, sheet_refine.)
 #extension GL_GOOGLE_include_directive : require
 #define FS_USE_PAGES
 #define FS_USE_SURFELS
 #define FS_USE_EVIDENCE
 #define FS_USE_INDEX
 #define FS_USE_GCTR
-#define FS_USE_SORT_RO
 #define FS_USE_FREESPACE_RO
 #define FS_USE_POOLS
 #define FS_USE_DIRTY
@@ -26,10 +25,7 @@ void main() {
     uint byteIndex = pages[page].freeSpaceBase + cell;
     bool seenThrough = ((freeSpace[byteIndex >> 2u] >> ((byteIndex & 3u) * 8u)) & 0xFFu) == stamp;
     uint leaves[FS_MAINT_LEAVES_MAX]; uint nl = fsCollectLeaves(page, cell, leaves);
-    uint splitId = FS_TK(FS_T_ID_BASE) + FS_TK(FS_T_NEW_TOTAL) + sortw[FS_SORT_PREFIX + i] + sortw[FS_SORT_BLOCKSUM + i / 256u];
-    uint capacity = pages[page].slabCount * uint(FS_SLAB_SURFELS);
-    uint ghosts = 0u, merges = 0u, splits = 0u;
-    uint splitPlan[FS_SPLITS_PER_CELL]; uint nPlan = 0u;
+    uint ghosts = 0u, merges = 0u;
     for (uint l = 0u; l < uint(FS_MAINT_LEAVES_MAX); ++l) {
         if (l >= nl) break;
         uint leaf = leaves[l];
@@ -68,24 +64,7 @@ void main() {
                 uint hs = aWins ? ha : hb, hd = aWins ? hb : ha;
                 FsPatch ps = aWins ? pa : pb, pd = aWins ? pb : pa;
                 FsSurfelEvidence es = aWins ? ea : eb, ed = aWins ? eb : ea;
-                float ws = 1.0 / (ps.sigmaN * ps.sigmaN), wd = 1.0 / (pd.sigmaN * pd.sigmaN);
-                vec3 delta = pd.p - ps.p; float d = dot(ps.n, delta);
-                vec3 tv = delta - d * ps.n;
-                FsPatch r = ps;
-                r.p = ps.p + ps.n * (d * wd / (ws + wd)) + tv * (wd / (ws + wd));
-                r.n = normalize(ps.n * ws + pd.n * wd);
-                // union ellipse: combined second moments about the merged centre
-                float sa, sb, sc; fsPatchMoment(ps, sa, sb, sc); float da, db, dc; fsPatchMoment(pd, da, db, dc);
-                vec3 t1, t2; fsTangentFrame(r.n, t1, t2);
-                vec2 os = vec2(dot(ps.p - r.p, t1), dot(ps.p - r.p, t2)), od = vec2(dot(pd.p - r.p, t1), dot(pd.p - r.p, t2));
-                float cs = float(max(ps.flags & FS_EVIDENCE_COUNT_MASK, 1u)), cd = float(max(pd.flags & FS_EVIDENCE_COUNT_MASK, 1u));
-                float ma = (cs * (sa + os.x * os.x) + cd * (da + od.x * od.x)) / (cs + cd);
-                float mb = (cs * (sb + os.y * os.y) + cd * (db + od.y * od.y)) / (cs + cd);
-                float mc = (cs * (sc + os.x * os.y) + cd * (dc + od.x * od.y)) / (cs + cd);
-                float rM, rm, ang; fsMomentToEllipse(ma, mb, mc, rM, rm, ang);
-                r.rM = clamp(rM, FS_RADIUS_MIN_M, FS_RADIUS_MAX_M); r.rm = clamp(rm, FS_RADIUS_MIN_M, r.rM); r.angle = ang;
-                r.sigmaN = max(sqrt(1.0 / (ws + wd)), FS_SIGMA_N_FLOOR_M);
-                r.flags = (ps.flags & ~FS_EVIDENCE_COUNT_MASK) | min((ps.flags & FS_EVIDENCE_COUNT_MASK) + (pd.flags & FS_EVIDENCE_COUNT_MASK), uint(FS_EVIDENCE_COUNT_MAX));
+                FsPatch r = fsAbsorbPatch(ps, pd);
                 // the index follows the geometry (C09R-E4): a merged centre outside the owner cell is relocated, never clamped
                 r.p = fsPageRangeGuard(r.p);
                 uint mergedCell = fsCellOf(r.p);
@@ -99,14 +78,6 @@ void main() {
                 pa = r;
             }
         }
-        // ---- split plan (§8.4): executed after the leaf walk (insertion may restructure the subtree)
-        for (uint k = 0u; k < uint(FS_INDEX_LEAF_CAP); ++k) {
-            if (k >= cnt) break;
-            uint h = idx[fsIdxLeafWord(leaf, 2u + k)];
-            FsPatch q = fsUnpack(surfels[h]);
-            if ((q.flags & FS_FLAG_REMOVED) != 0u || !fsSplitWanted(q, evidence[h]) || nPlan >= uint(FS_SPLITS_PER_CELL)) continue;
-            splitPlan[nPlan++] = h;
-        }
         // ---- compact the leaf: drop removed handles (their storage is a hole until slab compaction)
         uint w = 0u;
         for (uint k = 0u; k < uint(FS_INDEX_LEAF_CAP); ++k) {
@@ -117,37 +88,6 @@ void main() {
         }
         idx[fsIdxLeafWord(leaf, 0u)] = w;
     }
-    // ---- splits: two children along the major axis, deterministic ids, original retired from the index
-    for (uint sIdx = 0u; sIdx < uint(FS_SPLITS_PER_CELL); ++sIdx) {
-        if (sIdx >= nPlan) break;
-        uint h = splitPlan[sIdx];
-        FsPatch q = fsUnpack(surfels[h]);
-        uint local0 = atomicAdd(pages[page].surfelCount, 2u);
-        if (local0 + 1u >= capacity) { atomicAdd(pages[page].shortfall, 2u); continue; }
-        vec3 tM, tm; fsPatchFrame(q, tM, tm);
-        FsSurfelEvidence ev = evidence[h];
-        FsSurfelEvidence halfEv = ev; fsSet_FsSurfelEvidence_staticEvidence(halfEv, max(fsGet_FsSurfelEvidence_staticEvidence(ev) / 2u, 1u));
-        fsSet_FsSurfelEvidence_varianceQ(halfEv, fsEncodeLog(1.0, FS_VAR_NORM_BASE));   // children start at "residual = measurement noise"
-        if (!fsIndexRemove(page, cell, q.p, h)) continue;
-        FsSurfel dead = surfels[h]; fsSet_FsSurfel_evidenceFlags(dead, q.flags | FS_FLAG_REMOVED); surfels[h] = dead;
-        for (uint c = 0u; c < 2u; ++c) {
-            uint local = local0 + c;
-            uint hn = slabDir[page * uint(FS_PAGE_MAX_SLABS) + (local / uint(FS_SLAB_SURFELS))] * uint(FS_SLAB_SURFELS) + (local % uint(FS_SLAB_SURFELS));
-            FsPatch child = q;
-            child.p = q.p + tM * (c == 0u ? -0.5 : 0.5) * q.rM;
-            child.p = fsPageRangeGuard(child.p);                              // no cell clamp (C09R-E4)
-            child.rM = max(q.rM * 0.5, FS_RADIUS_MIN_M); child.rm = min(q.rm, child.rM);
-            child.flags = (q.flags & ~FS_EVIDENCE_COUNT_MASK) | max((q.flags & FS_EVIDENCE_COUNT_MASK) / 2u, 1u);
-            child.surfaceId = splitId + splits * 2u + c;
-            surfels[hn] = fsPack(child); evidence[hn] = halfEv;
-            if (fsIndexInsert(page, cell, child.p, hn)) {
-                uint childCell = fsCellOf(child.p);
-                if (childCell != cell) fsPushRelocation(hn, page, cell, childCell, surfels[hn]);   // full list: stays indexed in the owner cell, geometry intact
-            }
-        }
-        splits++;
-    }
     if (ghosts != 0u) atomicAdd(gctr[FS_GCTR_GHOSTS], ghosts);
     if (merges != 0u) atomicAdd(gctr[FS_GCTR_MERGES], merges);
-    if (splits != 0u) atomicAdd(gctr[FS_GCTR_SPLITS], splits);
 }

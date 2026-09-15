@@ -41,8 +41,18 @@ F1 stable LSD radix sort by the 32-bit key (4 × 8 bits, sequential rank; ties k
 contributions, tangent ellipse from 2×2 moments, centre clamped to the owner cell) → F3
 `fuse_cluster_count/write` (greedy first-fit over the unmatched segment of a cell, ≤ `FS_CELL_NEW_MAX` (8)
 candidates, SurfaceID = idBase + exclusive prefix) → dirty-cell list (deterministic, sliced by
-`epochDirtyCap`) → F4 `fuse_maint_count/apply` (ghosts from free-space stamps, deterministic merge priority:
-static evidence → sigma → lower SurfaceID; explicit split along the major axis).
+`epochDirtyCap`) → F4 `fuse_maint_apply` (ghosts from free-space stamps, deterministic merge priority:
+static evidence → sigma → lower SurfaceID).
+C09R-E4.1C adaptive coarsen / refine (no major-axis split any more):
+- **Refine** (`fuse_reduce` → `sheet_refine`, fuse job): a converged surfel whose observation holds ≥
+  `FS_REFINE_MIN_OUTLIERS` contributions beyond `FS_REFINE_OUTLIER_K` σ requests a site at the robust mean of the
+  outliers on the side of the maximum residual; the sequential pass inserts it as a TRANSIENT candidate unless a live
+  surfel of the 27-cell neighbourhood already explains it. Ids `idBase + newTotal + births`.
+- **Coarsen** (`sheet_fit` decision → `sheet_contract`, publish job): a converged flat interior node that has the lowest
+  survival priority of its mutual ring contracts into the neighbour of minimum
+  `Ecollapse = plane error/σ + W_CURV·RMS/σ + W_N·(1−n·n_fit) + W_B·(K−degree) + W_C·|Δcolour|` below
+  `FS_CONTRACT_BUDGET`; the survivor keeps its SurfaceID and absorbs (`fsAbsorbPatch`), the loser is removed and its
+  neighbours relink. The lowest-priority rule rules out chains. Receipts `edgeContractions`, `refinementBirths`.
 Determinism: the result of an epoch is a pure function of the measurement sequence (ring order) and the
 generation it read; replay is bit-identical (`TestFusionDeterminism`). CPU twins: `fs_fusion_ref.h`.
 Budget: `QuantumGate` halves `epochMeasCap`/`epochDirtyCap` when the SCAN class overran its quantum and

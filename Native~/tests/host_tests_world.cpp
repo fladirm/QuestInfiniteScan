@@ -442,12 +442,77 @@ static void TestDeterministicMerge() {
     Patch d = b; d.n = Norm(v3(0.3f, 0, 1)); CHECK(!Mergeable(a, d));                        // 17 deg: not coplanar
     Patch e = b; e.p = v3(0.12f, 0.1f, 0.1f); CHECK(!Mergeable(a, e));                        // 2 cm apart > 0.75 * (rA + rB)
     Patch f = b; f.flags = kFlagTransient | 1; CHECK(!Mergeable(a, f));                       // candidates never merge
-    // split: persistent residual with support
-    FsSurfelEvidence ev{}; ev.varianceQ = EncodeLog(25.f, (float)FS_VAR_NORM_BASE);        // residual std = 5 x the measurement sigma
-    Patch g = a; g.flags = kFlagPromoted | 8; CHECK(SplitWanted(g, ev));
-    g.flags = kFlagPromoted | 3; CHECK(!SplitWanted(g, ev));                                 // support below FS_SPLIT_MIN_SUPPORT
-    ev.varianceQ = EncodeLog(1.f, (float)FS_VAR_NORM_BASE); g.flags = kFlagPromoted | 8; CHECK(!SplitWanted(g, ev));   // residual = measurement noise: never split
-    g.sigmaN = 0.0003f; CHECK(!SplitWanted(g, ev));                                          // a tiny fused sigma alone never triggers a split (run 00:12: 111 k splits)
+    // absorb: precision-weighted centre, summed support, SurfaceID of the survivor, count-weighted measured appearance
+    Patch s = a; s.appearance = FS_APPEARANCE_MEASURED | ColorPack(v3(1, 0, 0)); Patch l = b; l.appearance = FS_APPEARANCE_MEASURED | ColorPack(v3(0, 0, 1));
+    Patch m = AbsorbPatch(s, l);
+    CHECK(m.surfaceId == a.surfaceId && (m.flags & kEvidenceCountMask) == 10 && m.sigmaN < a.sigmaN);
+    CHECK_NEAR(m.p.x, 0.1025, 1e-5); CHECK(m.rM >= a.rM);
+    CHECK_NEAR(ColorOf(m.appearance).x, 0.5, 0.01);
+}
+
+static void TestCoarsenRefine() {
+    // converged flat wall, 2.5 cm grid: static evidence 10 everywhere; the centre has the lowest priority of its ring (largest id)
+    std::vector<Patch> ps;
+    for (int y = -3; y <= 3; ++y) for (int x = -3; x <= 3; ++x) ps.push_back(SheetPatch(v3(0.025f * x, 0.025f * y, 0.f), v3(0, 0, 1), 0.01f, 0.002f));
+    std::vector<SheetSite> sites = Sites(ps);
+    for (auto& s : sites) { s.ev.staticEvidence = 10; s.q.surfaceId = s.id; }
+    const uint32_t centre = 24; sites[centre].q.surfaceId = 1000;
+    std::vector<std::vector<uint32_t>> props; for (auto& s : sites) props.push_back(SheetProposals(s, sites));
+    std::vector<float> cover(sites.size(), 0.f);
+    SheetDelta d = SheetFitR(sites[centre], props[centre], sites, props, cover);
+    std::printf("coarsen: degree %u flat %d target %u E %.3f\n", d.degree, (int)d.flat, d.contractTarget, d.contractE);
+    CHECK(d.flat && d.degree >= FS_CONTRACT_MIN_DEGREE && d.contractTarget != UINT32_MAX && d.contractE < (float)FS_CONTRACT_BUDGET);   // flat wall coarsens
+    // no chains: over the whole batch a chosen survivor is never itself a loser
+    std::vector<uint32_t> target(sites.size(), UINT32_MAX);
+    for (auto& s : sites) target[s.id] = SheetFitR(s, props[s.id], sites, props, cover).contractTarget;
+    uint32_t losers = 0;
+    for (size_t i = 0; i < target.size(); ++i) if (target[i] != UINT32_MAX) { losers++; CHECK(target[target[i]] == UINT32_MAX); }
+    CHECK(losers >= 1);
+    // not converged -> no contraction
+    SheetSite young = sites[centre]; young.ev.staticEvidence = FS_CONTRACT_MIN_STATIC - 1;
+    CHECK(SheetFitR(young, props[centre], sites, props, cover).contractTarget == UINT32_MAX);
+    // not the lowest priority of its ring -> it stays (it may be a survivor)
+    SheetSite strong = sites[centre]; strong.q.surfaceId = 0; strong.ev.staticEvidence = 50;
+    CHECK(SheetFitR(strong, props[centre], sites, props, cover).contractTarget == UINT32_MAX);
+    // appearance edge: black centre on a white wall -> penalty above the budget, detail kept
+    std::vector<SheetSite> col = sites;
+    for (auto& s : col) s.q.appearance = FS_APPEARANCE_MEASURED | ColorPack(v3(1, 1, 1));
+    col[centre].q.appearance = FS_APPEARANCE_MEASURED | ColorPack(v3(0, 0, 0));
+    CHECK(SheetFitR(col[centre], props[centre], col, props, cover).contractTarget == UINT32_MAX);
+    // boundary: a corner node of the grid (degree < FS_CONTRACT_MIN_DEGREE or penalised) keeps its detail when the ring is short
+    std::vector<Patch> strip{SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.01f, 0.002f), SheetPatch(v3(0.025f, 0, 0), v3(0, 0, 1), 0.01f, 0.002f), SheetPatch(v3(0.05f, 0, 0), v3(0, 0, 1), 0.01f, 0.002f)};
+    std::vector<SheetSite> st = Sites(strip); for (auto& s : st) { s.ev.staticEvidence = 10; s.q.surfaceId = s.id; } st[1].q.surfaceId = 99;
+    std::vector<std::vector<uint32_t>> pst; for (auto& s : st) pst.push_back(SheetProposals(s, st));
+    CHECK(SheetFitR(st[1], pst[1], st, pst, std::vector<float>(3, 0.f)).contractTarget == UINT32_MAX);
+    // curved ring (5 cm sphere) never contracts
+    std::vector<Patch> sph{SheetPatch(v3(0, 0, 0), v3(0, 0, 1), 0.004f, 0.0005f)};
+    for (int k = 0; k < 8; ++k) { float ang = 6.2831853f * (float)k / 8.f; V3 p = v3(0.02f * cosf(ang), 0.02f * sinf(ang), 0.f); p.z = 0.05f - sqrtf(0.05f * 0.05f - Dot(p, p)); sph.push_back(SheetPatch(p, v3(-p.x, -p.y, 0.05f - p.z), 0.004f, 0.0005f)); }
+    std::vector<SheetSite> ss = Sites(sph); for (auto& s : ss) { s.ev.staticEvidence = 10; s.q.surfaceId = s.id; } ss[0].q.surfaceId = 99;
+    std::vector<std::vector<uint32_t>> psph; for (auto& s : ss) psph.push_back(SheetProposals(s, ss));
+    CHECK(SheetFitR(ss[0], psph[0], ss, psph, std::vector<float>(ss.size(), 0.f)).contractTarget == UINT32_MAX);
+
+    // ---- refinement: a converged surfel receives an observation whose part lies 2 cm in front of its plane (an ornament / step)
+    FsPageKey key{0, 0, 0, 0}; V3 origin = PageOrigin3(key);
+    SurfelSample smp{{0.31f, 0.52f, 0.73f}, {0, 0, 1}, 0.03f, 0.002f, 0.004f, 7};
+    FsSurfel s = MakeSurfel(smp, key); s.evidenceFlags = (uint16_t)(kFlagPromoted | 8);
+    FsSurfelEvidence ev{}; ev.staticEvidence = 8; ev.varianceQ = EncodeLog(1.f, (float)FS_VAR_NORM_BASE); ev.lastObservationId = 3;
+    V3 c = LocalPos(s);
+    std::vector<FsSurfaceMeasurement> seg;
+    for (int i = 0; i < 12; ++i) seg.push_back(Meas(origin + c + v3(0.002f * (float)(i % 4), 0.002f * (float)(i / 4), 0.f), v3(0, 0, 1), 0.002f, 0.004f, 0.004f, 4));
+    ReduceResult inl = ReduceSegment(s, ev, seg, origin, 5);
+    CHECK(inl.changed && !inl.refine);                                                        // everything explained: no site
+    for (int i = 0; i < 4; ++i) seg.push_back(Meas(origin + c + v3(0.01f + 0.001f * (float)i, 0.0f, 0.02f), v3(0, 0, 1), 0.002f, 0.004f, 0.005f, 4));
+    ReduceResult out = ReduceSegment(s, ev, seg, origin, 5);
+    CHECK(out.refine);
+    CHECK_NEAR(out.siteP.z, c.z + 0.02f, 1e-4); CHECK_NEAR(out.siteP.x, c.x + 0.0115f, 1e-4); CHECK_NEAR(out.siteFp, 0.005, 1e-6);   // robust mean of the outliers
+    // the site is inserted only where nothing explains it
+    Patch parent = Unpack(s);
+    CHECK(!RefineCovered({parent}, out.siteP, out.siteN, out.siteSigma));
+    Patch existing = parent; existing.p = out.siteP; existing.rM = 0.006f;
+    CHECK(RefineCovered({parent, existing}, out.siteP, out.siteN, out.siteSigma));
+    // a young surfel (support below FS_REFINE_MIN_SUPPORT) does not refine: it is still converging
+    FsSurfel y = s; y.evidenceFlags = (uint16_t)(kFlagPromoted | 3);
+    CHECK(!ReduceSegment(y, ev, seg, origin, 5).refine);
 }
 
 static void TestPoolsAndRetirement() {
@@ -573,7 +638,7 @@ static void TestIndexGeneration() {
 
 int main() {
     TestPageHash(); TestEncodings(); TestSynthetic(); TestResidency(); TestHzbBand(); TestHzbDisagreement(); TestCullMath();
-    TestFusionDeterminism(); TestRelocationAcrossCell(); TestSurfaceComplex(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCrossPageFreeRay(); TestIndexGeneration();
+    TestFusionDeterminism(); TestRelocationAcrossCell(); TestSurfaceComplex(); TestCoarsenRefine(); TestAppearanceFusion(); TestConcurrentCandidates(); TestDenseBucket(); TestDeterministicMerge(); TestPoolsAndRetirement(); TestSparseUpdate(); TestCrossPageFreeRay(); TestIndexGeneration();
     std::printf("finalscan host world tests: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

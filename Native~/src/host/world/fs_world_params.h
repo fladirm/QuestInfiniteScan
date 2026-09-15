@@ -67,13 +67,29 @@
 #define FS_SHEET_TURN_MIN_COS 0.9994    // ... or its normal turned more than ~2 deg (converged in-plane updates cost no graph work)
 #define FS_SHEET_RING_CAP     262144    // graph-dirty ring (power of two; dedupe bit per handle)
 #define FS_SHEET_BATCH_MAX    4096      // graph-dirty surfels processed per publication (bounded work)
+// ---- C09R-E4.1C adaptive coarsen / refine (provisional numbers)
+#define FS_CONTRACT_MIN_STATIC  8       // both ends of a contracted edge are converged (distinct observations)
+#define FS_CONTRACT_MIN_DEGREE  3       // the loser is an interior node (boundary / detail nodes never contract)
+#define FS_CONTRACT_DIST_MAX_M  0.035   // edge length bound of a contraction
+// Ecollapse(a -> b) = |survivor offset from a's fitted ring plane| / ring sigma      (plane error after contraction)
+//                  + W_CURV x ring plane RMS / ring sigma                          (curvature the ring loses)
+//                  + W_NORMAL x (1 - dot(n_b, n_fit))                              (normal error)
+//                  + W_BOUNDARY x (FS_SHEET_K - mutual degree)                     (boundary penalty)
+//                  + W_COLOR x |measured colour a - measured colour b|             (appearance / edge penalty)
+#define FS_CONTRACT_BUDGET      2.0     // local accuracy budget
+#define FS_CONTRACT_W_CURV      0.5
+#define FS_CONTRACT_W_NORMAL    20.0
+#define FS_CONTRACT_W_BOUNDARY  0.25
+#define FS_CONTRACT_W_COLOR     2.0
+#define FS_REFINE_OUTLIER_K     3.0     // a contribution beyond K x the combined sigma is surface error the surfel does not explain
+#define FS_REFINE_MIN_OUTLIERS  3       // ... in one observation, at least this many
+#define FS_REFINE_MIN_SUPPORT   4       // ... on a surfel with this much support: insert a site at the worst residual
+#define FS_REFINE_BIRTHS_MAX    256     // site insertions per epoch (bounded sequential pass)
 #define FS_SHEET_NODE_WORDS   8         // per handle: nbr[6] (page << 22 | handle), meta (degree << 24 | coverage 0.01 mm), component
 #define FS_RELOC_MAX          1024      // C09R-E4 relocation records per epoch (centre crossed its index cell); beyond: the position update waits (counted)
 #define FS_GHOST_MOTION_MIN   3         // free-space contradictions before a candidate / weak surfel is removed
 #define FS_GHOST_STATIC_K     2         // + staticEvidence / K contradictions for supported surfels
-#define FS_SPLIT_VAR_K        4.0       // split when the residual std exceeds K x the MEASUREMENT sigma (normalised variance) and support >= FS_SPLIT_MIN_SUPPORT
 #define FS_VAR_NORM_BASE      0.001     // log base of the normalised residual variance (varianceQ): 0.001 .. ~6e4 (E3b; run 00:12: 111 k splits against the fused sigma)
-#define FS_SPLIT_MIN_SUPPORT  6
 #define FS_MERGE_MIN_DOT      0.98      // coplanar within ~11 deg ...
 #define FS_MERGE_OVERLAP_K    0.75      // ... centres closer than k * (rA + rB), plane distance inside the gate
 #define FS_SIGMA_N_FLOOR_M    0.0003
@@ -136,7 +152,7 @@
 #define FS_GCTR_SEG_OVERFLOW       7      // contributions beyond FS_SEG_REDUCE_MAX / FS_SEG_CLUSTER_MAX
 #define FS_GCTR_NEW_SURFELS        8      // created after dedupe
 #define FS_GCTR_NEW_SHORTFALL      9      // refused: page had no free slab
-#define FS_GCTR_SPLITS             10
+#define FS_GCTR_SPLITS             10     // retired in C09R-E4.1C (major-axis split replaced by refinement births, FS_GCTR_REFINE_BIRTHS); stays 0
 #define FS_GCTR_MERGES             11
 #define FS_GCTR_GHOSTS             12
 #define FS_GCTR_CANDIDATE_OVERFLOW 13
@@ -188,6 +204,7 @@
 #define FS_T_SHEET_COUNT     13         // this publication's batch size
 #define FS_T_SHEET_MASK_BASE 14         // word offsets inside the sheet buffer (CPU-written, depend on the surfel capacity)
 #define FS_T_SHEET_RING_BASE 15
+#define FS_T_REFINE_BIRTHS   77         // E4.1C refinement births of the epoch (deterministic ids after the candidates)
 #define FS_T_RELOC_COUNT     9          // relocation records (written by fuse_reduce / fuse_maint_apply, consumed and zeroed by world_relocate)
 #define FS_T_ARGS_MEAS       16         // {ceil(count/64), 1, 1, 0}
 #define FS_T_ARGS_SORTBLK    20         // {blocks, 1, 1, 0}

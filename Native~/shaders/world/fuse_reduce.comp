@@ -44,6 +44,15 @@ void main() {
     if (acc.n == 0u || acc.h <= 0.0) return;
     if (overflow != 0u) atomicAdd(gctr[FS_GCTR_SEG_OVERFLOW], 1u);
     FsSurfelEvidence ev = evidence[h];
+    // ---- E4.1C refinement request: the surfel does not explain part of this observation -> insert a site at the worst residual
+    //      (the robust mean of the outlier contributions on the side of the maximum residual; the request slot is this segment's)
+    uint ws = acc.worstSide, oc = acc.oCnt[ws];
+    if (oc >= uint(FS_REFINE_MIN_OUTLIERS) && (q.flags & FS_FLAG_PROMOTED) != 0u && (q.flags & FS_EVIDENCE_COUNT_MASK) >= uint(FS_REFINE_MIN_SUPPORT)) {
+        uint rw = fsSheetRefineWord(i, 0u); vec3 sp = acc.oP[ws] / float(oc);
+        sheet[rw] = fsSheetPack(page, h); sheet[rw + 1u] = floatBitsToUint(sp.x); sheet[rw + 2u] = floatBitsToUint(sp.y); sheet[rw + 3u] = floatBitsToUint(sp.z);
+        sheet[rw + 4u] = fsEncodeOct32(normalize(acc.oN[ws])); sheet[rw + 5u] = FS_TK(FS_T_TICK);
+        sheet[rw + 6u] = floatBitsToUint(acc.oFp[ws]); sheet[rw + 7u] = floatBitsToUint(acc.oS[ws] / float(oc));
+    }
     // ---- one observation updates a surfel once (C09R-E4): a later slice of the same depth frame is not new evidence
     if (ev.lastObservationId == acc.obs && acc.obs != 0u) { atomicAdd(gctr[FS_GCTR_SEGMENTS_MATCHED], 1u); return; }
     // ---- SurfaceObservationEstimate: robust mean of the frame's contributions with the precision of ONE measurement

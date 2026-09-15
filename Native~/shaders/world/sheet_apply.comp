@@ -23,7 +23,7 @@ void main() {
     uint flags = sheet[dw + 2u];
     sheet[fsSheetNodeWord(h, 6u)] = ((flags >> 4) & 15u) << 24 | (flags >> 16);
     sheet[fsSheetNodeWord(h, 7u)] = sheet[dw + 3u];
-    if ((flags & 1u) == 0u) return;
+    if ((flags & 1u) == 0u || sheet[dw + 4u] != FS_INDEX_NONE) return;   // curved, or contracted by sheet_contract (E4.1C)
     FsSurfel s = surfels[h];
     FsPatch a = fsUnpack(s);
     if ((a.flags & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) != 0u) return;

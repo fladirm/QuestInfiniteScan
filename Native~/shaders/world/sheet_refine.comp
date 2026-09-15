@@ -1,0 +1,81 @@
+#version 450
+// C09R-E4.1C refinement by site insertion (replaces the blunt major-axis split). One sequential invocation after cluster write:
+// every matched segment whose robust reduce found unexplained surface (>= FS_REFINE_MIN_OUTLIERS contributions beyond
+// FS_REFINE_OUTLIER_K sigma, on the side of the maximum residual, of a converged surfel) requested a site at the robust mean of
+// those contributions. The site is born as a TRANSIENT candidate (it earns promotion like every candidate) unless a live surfel
+// of the own or a neighbouring cell already explains that location (plane gate + tangential support) -> no overlap births.
+// Deterministic SurfaceIDs after the epoch's candidates: idBase + newTotal + births (the CPU advances idBase by both).
+// Twin: fs::world::RefineCovered / RefineWanted (fs_fusion_ref.h).
+#extension GL_GOOGLE_include_directive : require
+#define FS_USE_PAGES
+#define FS_USE_SURFELS
+#define FS_USE_EVIDENCE
+#define FS_USE_INDEX
+#define FS_USE_GCTR
+#define FS_USE_POOLS
+#define FS_USE_DIRTY
+#define FS_USE_RETIRE
+#define FS_USE_SHEET_RO
+#include "fs_world_blocks.glsl"
+#include "fs_fusion.glsl"
+#include "fs_index.glsl"
+#include "fs_maint.glsl"
+layout(local_size_x = 1) in;
+bool fsSiteCovered(uint page, uint cell, vec3 sp, vec3 sn, float sSigma) {
+    ivec3 c = ivec3(int(cell & 31u), int((cell >> 5) & 31u), int((cell >> 10) & 31u));
+    for (int dz = -1; dz <= 1; ++dz) for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
+        ivec3 g = c + ivec3(dx, dy, dz);
+        if (any(lessThan(g, ivec3(0))) || any(greaterThan(g, ivec3(31)))) continue;
+        uint nc = uint(g.x) | (uint(g.y) << 5) | (uint(g.z) << 10);
+        uint leaves[FS_MAINT_LEAVES_MAX]; uint nl = fsCollectLeaves(page, nc, leaves);
+        for (uint l = 0u; l < uint(FS_MAINT_LEAVES_MAX); ++l) {
+            if (l >= nl) break;
+            uint cnt = min(idx[fsIdxLeafWord(leaves[l], 0u)], uint(FS_INDEX_LEAF_CAP));
+            for (uint k = 0u; k < uint(FS_INDEX_LEAF_CAP); ++k) {
+                if (k >= cnt) break;
+                FsPatch b = fsUnpack(surfels[idx[fsIdxLeafWord(leaves[l], 2u + k)]]);
+                if ((b.flags & FS_FLAG_REMOVED) != 0u || dot(b.n, sn) < FS_SHEET_MIN_DOT) continue;
+                vec3 delta = sp - b.p; float d = dot(b.n, delta);
+                if (abs(d) > fsPlaneGate(b.sigmaN, sSigma)) continue;
+                if (length(delta - d * b.n) <= b.rM) return true;
+            }
+        }
+    }
+    return false;
+}
+void main() {
+    uint count = min(FS_TK(FS_T_COUNT), uint(FS_TICK_MEAS_MAX));
+    uint tick = FS_TK(FS_T_TICK), tick16 = tick & 0xFFFFu;
+    uint births = 0u;
+    FS_TK(FS_T_REFINE_BIRTHS) = 0u;
+    for (uint i = 0u; i < uint(FS_TICK_MEAS_MAX); ++i) {
+        if (i >= count || births >= uint(FS_REFINE_BIRTHS_MAX)) break;
+        uint rw = fsSheetRefineWord(i, 0u);
+        if (sheet[rw + 5u] != tick) continue;
+        uint parentE = sheet[rw], page = parentE >> 22, parent = parentE & 0x3FFFFFu;
+        if ((fsGet_FsSurfel_evidenceFlags(surfels[parent]) & FS_FLAG_REMOVED) != 0u) continue;
+        vec3 sp = fsPageRangeGuard(vec3(uintBitsToFloat(sheet[rw + 1u]), uintBitsToFloat(sheet[rw + 2u]), uintBitsToFloat(sheet[rw + 3u])));
+        vec3 sn = fsDecodeOct32(sheet[rw + 4u]);
+        float fp = clamp(uintBitsToFloat(sheet[rw + 6u]), FS_RADIUS_MIN_M, FS_RADIUS_MAX_M);
+        float sSigma = max(uintBitsToFloat(sheet[rw + 7u]), FS_SIGMA_N_FLOOR_M);
+        uint cell = fsCellOf(sp);
+        if (fsSiteCovered(page, cell, sp, sn, sSigma)) continue;
+        uint capacity = pages[page].slabCount * uint(FS_SLAB_SURFELS);
+        uint local = atomicAdd(pages[page].surfelCount, 1u);
+        if (local >= capacity) { atomicAdd(pages[page].shortfall, 1u); continue; }
+        uint h = slabDir[page * uint(FS_PAGE_MAX_SLABS) + (local / uint(FS_SLAB_SURFELS))] * uint(FS_SLAB_SURFELS) + (local % uint(FS_SLAB_SURFELS));
+        FsPatch pt; pt.p = sp; pt.n = sn; pt.angle = 0.0; pt.rM = fp; pt.rm = fp; pt.sigmaN = sSigma; pt.sigmaT = max(fp, FS_SIGMA_T_FLOOR_M);
+        pt.flags = 1u | FS_FLAG_TRANSIENT | FS_FLAG_SIDED_A;
+        pt.surfaceId = FS_TK(FS_T_ID_BASE) + FS_TK(FS_T_NEW_TOTAL) + births;
+        pt.appearance = fsPreviewColorFromNormal(sn);
+        surfels[h] = fsPack(pt);
+        FsSurfelEvidence ev; ev.staticEvidence_motionEvidence = 1u; ev.varianceQ_lastSeenFrame = (tick16 << 16) | fsEncodeLog(1.0, FS_VAR_NORM_BASE);
+        ev.lastObservationId = evidence[parent].lastObservationId;
+        evidence[h] = ev;
+        births++;                                                        // the id is consumed even when the index refuses the site
+        if (fsIndexInsert(page, cell, pt.p, h)) fsMarkDirtyCell(page, cell);
+        else { FsSurfel dead = surfels[h]; fsSet_FsSurfel_evidenceFlags(dead, pt.flags | FS_FLAG_REMOVED); surfels[h] = dead; }
+    }
+    FS_TK(FS_T_REFINE_BIRTHS) = births;
+    if (births != 0u) atomicAdd(gctr[FS_GCTR_REFINE_BIRTHS], births);
+}

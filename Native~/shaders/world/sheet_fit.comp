@@ -4,9 +4,13 @@
 // propose back is marked graph-dirty (frontier), so the graph converges without scanning unchanged regions. Over the mutual ring:
 // local plane fit (flat -> normal offset + normal target; curved -> none), derived coverage radius = half the median mutual edge
 // length (readout only), component label = min packed id, receipts (plane / normal RMS, coverage overlap / hole along edges).
+// C09R-E4.1C coarsening decision (delta word 4): a converged interior node of a flat ring that has the LOWEST survival priority
+// of its whole mutual ring contracts into the mutual neighbour of minimum Ecollapse below FS_CONTRACT_BUDGET (fs_world_params.h).
+// The lowest-priority rule makes every chosen target a non-loser of the same batch: no chains, order-independent decisions.
 #extension GL_GOOGLE_include_directive : require
 #define FS_USE_PAGES_RO
 #define FS_USE_SURFELS_RO
+#define FS_USE_EVIDENCE_RO
 #define FS_USE_GCTR
 #define FS_USE_SHEET
 #include "fs_world_blocks.glsl"
@@ -19,7 +23,7 @@ void main() {
     uint e = sheet[FS_TK(FS_T_SHEET_RING_BASE) + ((FS_TK(FS_T_SHEET_BEGIN) + i) & (uint(FS_SHEET_RING_CAP) - 1u))];
     uint page = e >> 22, h = e & 0x3FFFFFu;
     uint dw = fsSheetDeltaWord(i, 0u);
-    sheet[dw] = 0u; sheet[dw + 1u] = 0u; sheet[dw + 2u] = 0u; sheet[dw + 3u] = e;
+    sheet[dw] = 0u; sheet[dw + 1u] = 0u; sheet[dw + 2u] = 0u; sheet[dw + 3u] = e; sheet[dw + 4u] = FS_INDEX_NONE; sheet[dw + 5u] = 0u; sheet[dw + 6u] = 0u; sheet[dw + 7u] = 0u;
     if (!fsSheetMarked(h)) return;
     FsPatch a = fsUnpack(surfels[h]);
     if ((a.flags & (FS_FLAG_REMOVED | FS_FLAG_TRANSIENT)) != 0u || (a.flags & FS_FLAG_PROMOTED) == 0u) return;
@@ -86,4 +90,25 @@ void main() {
     sheet[dw + 1u] = isFlat ? fsEncodeOct32(nFit) : 0u;
     sheet[dw + 2u] = (isFlat ? 1u : 0u) | (min(nm, 15u) << 4) | (min(uint(coverR * 1e5 + 0.5), 0xFFFFu) << 16);
     sheet[dw + 3u] = component;
+    // ---- E4.1C edge contraction decision
+    FsSurfelEvidence ea = evidence[h];
+    if (!isFlat || nm < uint(FS_CONTRACT_MIN_DEGREE) || fsGet_FsSurfelEvidence_staticEvidence(ea) < uint(FS_CONTRACT_MIN_STATIC)) return;
+    float sigFit = max(sqrt(s2Sum / wSum), FS_SIGMA_N_FLOOR_M);
+    for (uint k = 0u; k < uint(FS_SHEET_K); ++k) {
+        if (k >= nm) break;
+        uint nbH = mut[k] & 0x3FFFFFu;
+        if (!fsSurvives(fsUnpack(surfels[nbH]), evidence[nbH], a, ea)) return;          // a is not the lowest priority of its ring
+    }
+    float bestE = FS_CONTRACT_BUDGET; uint target = FS_INDEX_NONE;
+    for (uint k = 0u; k < uint(FS_SHEET_K); ++k) {
+        if (k >= nm) break;
+        uint nbH = mut[k] & 0x3FFFFFu;
+        FsPatch b = fsUnpack(surfels[nbH]);
+        if (md[k] > FS_CONTRACT_DIST_MAX_M || fsGet_FsSurfelEvidence_staticEvidence(evidence[nbH]) < uint(FS_CONTRACT_MIN_STATIC)) continue;
+        float E = abs(dot(nFit, mp[k] - cFit)) / sigFit + FS_CONTRACT_W_CURV * rms / sigFit + FS_CONTRACT_W_NORMAL * (1.0 - dot(b.n, nFit))
+                + FS_CONTRACT_W_BOUNDARY * float(uint(FS_SHEET_K) - nm);
+        if ((a.appearance & b.appearance & FS_APPEARANCE_MEASURED) != 0u) E += FS_CONTRACT_W_COLOR * length(fsColorOf(a.appearance) - fsColorOf(b.appearance));
+        if (E < bestE || (E == bestE && target != FS_INDEX_NONE && mut[k] < target)) { bestE = E; target = mut[k]; }
+    }
+    sheet[dw + 4u] = target;
 }

@@ -122,7 +122,8 @@ inline void RadixSortAssoc(std::vector<FsAssociation>& a) {
 }
 
 // ---- F2 segmented reduce (twin: fs_fusion.glsl FsAccum + fuse_reduce.comp, C09R-E4) -----------------------
-struct Accum { float wN = 0, dN = 0; V3 nSum; float wT = 0; float tx = 0, ty = 0; float mxx = 0, myy = 0, mxy = 0, d2 = 0, s2 = 0, h = 0, fp = 0; V3 col; float colW = 0; uint32_t srcAnd = 0xFFFFFFFFu, obs = 0, n = 0; };
+struct Accum { float wN = 0, dN = 0; V3 nSum; float wT = 0; float tx = 0, ty = 0; float mxx = 0, myy = 0, mxy = 0, d2 = 0, s2 = 0, h = 0, fp = 0; V3 col; float colW = 0; uint32_t srcAnd = 0xFFFFFFFFu, obs = 0, n = 0;
+               uint32_t oCnt[2] = {0, 0}; V3 oP[2], oN[2]; float oFp[2] = {0, 0}, oS[2] = {0, 0}, worstD = 0; uint32_t worstSide = 0; };   // E4.1C unexplained surface per residual sign
 inline V3 ColorOf(uint32_t w) { return v3((float)(w & 0xFFu), (float)((w >> 8) & 0xFFu), (float)((w >> 16) & 0xFFu)) * (1.f / 255.f); }
 inline uint32_t ColorPack(V3 c) { auto q = [](float x) { x = x < 0.f ? 0.f : (x > 1.f ? 1.f : x); return (uint32_t)(x * 255.f + 0.5f); }; return q(c.x) | (q(c.y) << 8) | (q(c.z) << 16); }
 inline uint32_t BlendAppearance(uint32_t old, V3 meanCol, float wPrior, float wMeas) {
@@ -134,7 +135,13 @@ inline float Huber(float d, float sigmaComb) { float ad = fabsf(d), c = (float)F
 inline float SigmaFloor(uint32_t srcAnd) { return (srcAnd & 4u) ? fmaxf((float)FS_SIGMA_N_FLOOR_M, (float)FS_DEPTH_PRIOR_SIGMA_FLOOR_M) : (float)FS_SIGMA_N_FLOOR_M; }
 inline void AccumAdd(Accum& a, const Patch& q, V3 t1, V3 t2, V3 pm, V3 nm, float sigmaNm, float sigmaTm, float footprint, uint32_t colorWord, uint32_t srcFlags, uint32_t obs) {
     V3 delta = pm - q.p; float d = Dot(q.n, delta);
-    float hw = Huber(d, sqrtf(q.sigmaN * q.sigmaN + sigmaNm * sigmaNm));
+    float sComb = sqrtf(q.sigmaN * q.sigmaN + sigmaNm * sigmaNm);
+    float hw = Huber(d, sComb);
+    if (fabsf(d) > (float)FS_REFINE_OUTLIER_K * sComb) {
+        uint32_t side = d >= 0.f ? 0u : 1u;
+        a.oCnt[side]++; a.oP[side] = a.oP[side] + pm; a.oN[side] = a.oN[side] + nm; a.oFp[side] = fmaxf(a.oFp[side], footprint); a.oS[side] += sigmaNm;
+        if (fabsf(d) > a.worstD) { a.worstD = fabsf(d); a.worstSide = side; }
+    }
     float wN = hw / (sigmaNm * sigmaNm), wT = hw / (sigmaTm * sigmaTm);
     float tvx = Dot(delta, t1), tvy = Dot(delta, t2);
     a.wN += wN; a.dN += wN * d; a.nSum = a.nSum + nm * wN;
@@ -145,7 +152,8 @@ inline void AccumAdd(Accum& a, const Patch& q, V3 t1, V3 t2, V3 pm, V3 nm, float
     a.srcAnd &= srcFlags; a.obs = obs;
     if (colorWord & FS_MEAS_COLOR_VALID) { a.col = a.col + ColorOf(colorWord); a.colW += 1.f; }
 }
-struct ReduceResult { FsSurfel surfel; FsSurfelEvidence evidence; uint32_t folded = 0; bool overflow = false; bool changed = false; bool duplicate = false; bool relocated = false; uint32_t newCell = 0; };
+struct ReduceResult { FsSurfel surfel; FsSurfelEvidence evidence; uint32_t folded = 0; bool overflow = false; bool changed = false; bool duplicate = false; bool relocated = false; uint32_t newCell = 0;
+                      bool refine = false; V3 siteP, siteN; float siteFp = 0.f, siteSigma = 0.f; };   // E4.1C refinement request (twin: fuse_reduce.comp)
 // One matched segment = one surfel; `seg` in sorted order, all from ONE observation (one epoch ingests one frame).
 inline ReduceResult ReduceSegment(const FsSurfel& s, const FsSurfelEvidence& evIn, const std::vector<FsSurfaceMeasurement>& seg, V3 origin, uint32_t tick) {
     ReduceResult r; r.surfel = s; r.evidence = evIn;
@@ -159,6 +167,9 @@ inline ReduceResult ReduceSegment(const FsSurfel& s, const FsSurfelEvidence& evI
         AccumAdd(acc, q, t1, t2, MeasPos(m) - origin, MeasNormal(m), MeasSigmaN(m), MeasSigmaT(m), MeasFootprint(m), m.reserved, m.sourceFlags, m.observationId);
     }
     if (acc.n == 0 || acc.h <= 0.f) return r;
+    { const uint32_t ws = acc.worstSide, oc = acc.oCnt[ws];
+      if (oc >= FS_REFINE_MIN_OUTLIERS && (q.flags & kFlagPromoted) && (q.flags & kEvidenceCountMask) >= FS_REFINE_MIN_SUPPORT) {
+          r.refine = true; r.siteP = acc.oP[ws] * (1.f / (float)oc); r.siteN = Norm(acc.oN[ws]); r.siteFp = acc.oFp[ws]; r.siteSigma = acc.oS[ws] / (float)oc; } }
     if (evIn.lastObservationId == acc.obs && acc.obs != 0u) { r.duplicate = true; return r; }
     const float nEff = acc.h;
     float wObsN = acc.wN / nEff, wObsT = acc.wT / nEff;
@@ -399,13 +410,7 @@ private:
     const std::vector<FsSurfel>* surfels_ = nullptr; Counters ctr_;
 };
 
-// ---- F4 maintenance rules (twin: fs_maint.glsl) --------------------------------------------------------
-inline bool SplitWanted(const Patch& q, const FsSurfelEvidence& ev) {
-    uint32_t cnt = q.flags & kEvidenceCountMask;
-    if (cnt < FS_SPLIT_MIN_SUPPORT || (q.flags & kFlagPromoted) == 0) return false;
-    float var = DecodeLog(ev.varianceQ, (float)FS_VAR_NORM_BASE);
-    return sqrtf(var) > (float)FS_SPLIT_VAR_K && q.rM > 2.f * (float)FS_RADIUS_MIN_M;
-}
+// ---- F4 maintenance rules (twin: fs_maint.glsl / fs_fusion.glsl) -------------------------------------------
 // Merge priority: higher static evidence, then lower sigma, then lower SurfaceID survives.
 inline bool Survives(const Patch& a, const FsSurfelEvidence& ea, const Patch& b, const FsSurfelEvidence& eb) {
     if (ea.staticEvidence != eb.staticEvidence) return ea.staticEvidence > eb.staticEvidence;
@@ -444,7 +449,8 @@ inline std::vector<uint32_t> SheetProposals(const SheetSite& a, const std::vecto
     std::vector<uint32_t> out; for (auto& x : best) out.push_back(x.second);
     return out;
 }
-struct SheetDelta { float offset = 0.f; V3 normal; bool flat = false; uint32_t degree = 0; float coverR = 0.f; float planeRms = 0.f; float overlap = 0.f, hole = 0.f; std::vector<uint32_t> frontier; };
+struct SheetDelta { float offset = 0.f; V3 normal; bool flat = false; uint32_t degree = 0; float coverR = 0.f; float planeRms = 0.f; float overlap = 0.f, hole = 0.f; std::vector<uint32_t> frontier;
+                    uint32_t contractTarget = UINT32_MAX; float contractE = 0.f; };   // E4.1C: survivor id when this node contracts
 // Fit pass over the MUTUAL ring (both ends propose each other); proposals of non-mutual neighbours become frontier marks.
 inline SheetDelta SheetFitR(const SheetSite& a, const std::vector<uint32_t>& aProps, const std::vector<SheetSite>& sites, const std::vector<std::vector<uint32_t>>& props, const std::vector<float>& coverOf) {
     SheetDelta r;
@@ -473,7 +479,51 @@ inline SheetDelta SheetFitR(const SheetSite& a, const std::vector<uint32_t>& aPr
     r.planeRms = sqrtf(res2 / wSum);
     r.flat = r.planeRms <= (float)FS_SHEET_FLAT_K * sqrtf(s2Sum / wSum);
     if (r.flat) { r.offset = Dot(nFit, cFit - a.world); r.normal = nFit; }
+    // E4.1C contraction decision (twin: sheet_fit.comp): converged flat interior node of lowest priority in its mutual ring
+    if (!r.flat || r.degree < FS_CONTRACT_MIN_DEGREE || a.ev.staticEvidence < FS_CONTRACT_MIN_STATIC) return r;
+    const float sigFit = fmaxf(sqrtf(s2Sum / wSum), (float)FS_SIGMA_N_FLOOR_M);
+    for (size_t id : mut) if (!Survives(sites[id].q, sites[id].ev, a.q, a.ev)) return r;
+    float bestE = (float)FS_CONTRACT_BUDGET;
+    for (size_t k = 0; k < mut.size(); ++k) {
+        const SheetSite& b = sites[mut[k]];
+        if (dists[k] > (float)FS_CONTRACT_DIST_MAX_M || b.ev.staticEvidence < FS_CONTRACT_MIN_STATIC) continue;
+        float E = fabsf(Dot(nFit, b.world - cFit)) / sigFit + (float)FS_CONTRACT_W_CURV * r.planeRms / sigFit + (float)FS_CONTRACT_W_NORMAL * (1.f - Dot(b.q.n, nFit))
+                + (float)FS_CONTRACT_W_BOUNDARY * (float)(FS_SHEET_K - r.degree);
+        if (a.q.appearance & b.q.appearance & FS_APPEARANCE_MEASURED) E += (float)FS_CONTRACT_W_COLOR * Len(ColorOf(a.q.appearance) - ColorOf(b.q.appearance));
+        if (E < bestE || (E == bestE && r.contractTarget != UINT32_MAX && b.id < r.contractTarget)) { bestE = E; r.contractTarget = b.id; r.contractE = E; }
+    }
     return r;
+}
+// Survivor absorbs a patch of the same surface (twin: fsAbsorbPatch); `pd` in the survivor's page frame.
+inline Patch AbsorbPatch(const Patch& ps, const Patch& pd) {
+    float ws = 1.f / (ps.sigmaN * ps.sigmaN), wd = 1.f / (pd.sigmaN * pd.sigmaN);
+    V3 delta = pd.p - ps.p; float d = Dot(ps.n, delta); V3 tv = delta - ps.n * d;
+    Patch r = ps;
+    r.p = ps.p + ps.n * (d * wd / (ws + wd)) + tv * (wd / (ws + wd));
+    r.n = Norm(ps.n * ws + pd.n * wd);
+    float sa, sb, sc, da, db, dc; PatchMoment(ps, sa, sb, sc); PatchMoment(pd, da, db, dc);
+    V3 t1, t2; Frame(r.n, t1, t2);
+    float osx = Dot(ps.p - r.p, t1), osy = Dot(ps.p - r.p, t2), odx = Dot(pd.p - r.p, t1), ody = Dot(pd.p - r.p, t2);
+    float cs = (float)std::max<uint32_t>(ps.flags & kEvidenceCountMask, 1u), cd = (float)std::max<uint32_t>(pd.flags & kEvidenceCountMask, 1u);
+    float rM, rm, ang;
+    MomentToEllipse((cs * (sa + osx * osx) + cd * (da + odx * odx)) / (cs + cd), (cs * (sb + osy * osy) + cd * (db + ody * ody)) / (cs + cd), (cs * (sc + osx * osy) + cd * (dc + odx * ody)) / (cs + cd), rM, rm, ang);
+    r.rM = fminf(fmaxf(rM, (float)FS_RADIUS_MIN_M), (float)FS_RADIUS_MAX_M); r.rm = fminf(fmaxf(rm, (float)FS_RADIUS_MIN_M), r.rM); r.angle = ang;
+    r.sigmaN = fmaxf(sqrtf(1.f / (ws + wd)), (float)FS_SIGMA_N_FLOOR_M);
+    r.flags = (ps.flags & ~(uint32_t)kEvidenceCountMask) | std::min<uint32_t>((ps.flags & kEvidenceCountMask) + (pd.flags & kEvidenceCountMask), FS_EVIDENCE_COUNT_MAX);
+    bool ms = ps.appearance & FS_APPEARANCE_MEASURED, md = pd.appearance & FS_APPEARANCE_MEASURED;
+    if (ms && md) r.appearance = FS_APPEARANCE_MEASURED | ColorPack((ColorOf(ps.appearance) * cs + ColorOf(pd.appearance) * cd) * (1.f / (cs + cd)));
+    else if (md) r.appearance = pd.appearance;
+    return r;
+}
+// Refinement site coverage (twin: sheet_refine.comp fsSiteCovered): a live surfel already explains the location.
+inline bool RefineCovered(const std::vector<Patch>& live, V3 sp, V3 sn, float sSigma) {
+    for (const Patch& b : live) {
+        if ((b.flags & kFlagRemoved) || Dot(b.n, sn) < (float)FS_SHEET_MIN_DOT) continue;
+        V3 delta = sp - b.p; float d = Dot(b.n, delta);
+        if (fabsf(d) > PlaneGate(b.sigmaN, sSigma)) continue;
+        if (Len(delta - b.n * d) <= b.rM) return true;
+    }
+    return false;
 }
 // Apply: the surfel moves along the fitted normal and turns toward it; canonical radii never change (statistical support).
 inline Patch SheetApplyR(const Patch& a, const SheetDelta& d) {

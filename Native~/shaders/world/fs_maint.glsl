@@ -1,11 +1,10 @@
 // Local maintenance of one cell subtree (C09R-B F4): the owner invocation of a dirty cell walks its leaves
-// (bounded), applies free-space contradictions (ghost removal), deterministic merges and explicit splits.
-// Shared by fuse_maint_count (plans, counts splits) and fuse_maint_apply (executes with deterministic ids).
+// (bounded), applies free-space contradictions (ghost removal) and deterministic merges (fuse_maint_apply). Refinement is
+// site insertion (sheet_refine, C09R-E4.1C), coarsening is graph edge contraction (sheet_contract).
 #ifndef FS_MAINT_GLSL
 #define FS_MAINT_GLSL
 #define FS_MAINT_LEAVES_MAX 64
 #define FS_MAINT_STACK 32
-#define FS_SPLITS_PER_CELL 8
 // Collects the leaf ids of the cell subtree in a deterministic order (depth-first, octant order).
 uint fsCollectLeaves(uint page, uint cell, out uint leaves[FS_MAINT_LEAVES_MAX]) {
     uint n = 0u;
@@ -28,19 +27,6 @@ uint fsCollectLeaves(uint page, uint cell, out uint leaves[FS_MAINT_LEAVES_MAX])
         }
     }
     return n;
-}
-bool fsSplitWanted(FsPatch q, FsSurfelEvidence ev) {
-    uint cnt = q.flags & FS_EVIDENCE_COUNT_MASK;
-    if (cnt < uint(FS_SPLIT_MIN_SUPPORT) || (q.flags & FS_FLAG_PROMOTED) == 0u) return false;
-    float var = fsDecodeLog(fsGet_FsSurfelEvidence_varianceQ(ev), FS_VAR_NORM_BASE);   // normalised: residual / measurement sigma
-    return sqrt(var) > FS_SPLIT_VAR_K && q.rM > 2.0 * FS_RADIUS_MIN_M;
-}
-// Merge priority: higher static evidence, then lower sigma, then lower SurfaceID survives.
-bool fsSurvives(FsPatch a, FsSurfelEvidence ea, FsPatch b, FsSurfelEvidence eb) {
-    uint sa = fsGet_FsSurfelEvidence_staticEvidence(ea), sb = fsGet_FsSurfelEvidence_staticEvidence(eb);
-    if (sa != sb) return sa > sb;
-    if (a.sigmaN != b.sigmaN) return a.sigmaN < b.sigmaN;
-    return a.surfaceId < b.surfaceId;
 }
 bool fsMergeable(FsPatch a, FsPatch b) {
     if ((a.flags & FS_FLAG_PROMOTED) == 0u || (b.flags & FS_FLAG_PROMOTED) == 0u) return false;

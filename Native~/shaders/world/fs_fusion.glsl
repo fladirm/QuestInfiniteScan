@@ -69,9 +69,12 @@ struct FsAccum {
     float colW;          // number of coloured contributions
     uint  srcAnd;        // AND of the contribution source flags (depth-prior-only observation keeps the systematic floor)
     uint  obs;           // observation id of the contributions (one epoch ingests one frame)
+    // E4.1C unexplained surface: contributions beyond FS_REFINE_OUTLIER_K x the combined sigma, per residual sign
+    // (index 0 = in front of the surfel plane, 1 = behind); the side holding the maximum |residual| is the refinement site.
+    uint  oCnt[2]; vec3 oP[2]; vec3 oN[2]; float oFp[2]; float oS[2]; float worstD; uint worstSide;
     uint  n;
 };
-FsAccum fsAccumInit() { FsAccum a; a.wN = 0.0; a.dN = 0.0; a.nSum = vec3(0.0); a.wT = 0.0; a.tMean = vec2(0.0); a.mxx = 0.0; a.myy = 0.0; a.mxy = 0.0; a.d2 = 0.0; a.s2 = 0.0; a.h = 0.0; a.fp = 0.0; a.col = vec3(0.0); a.colW = 0.0; a.srcAnd = 0xFFFFFFFFu; a.obs = 0u; a.n = 0u; return a; }
+FsAccum fsAccumInit() { FsAccum a; a.wN = 0.0; a.dN = 0.0; a.nSum = vec3(0.0); a.wT = 0.0; a.tMean = vec2(0.0); a.mxx = 0.0; a.myy = 0.0; a.mxy = 0.0; a.d2 = 0.0; a.s2 = 0.0; a.h = 0.0; a.fp = 0.0; a.col = vec3(0.0); a.colW = 0.0; a.srcAnd = 0xFFFFFFFFu; a.obs = 0u; a.oCnt[0] = 0u; a.oCnt[1] = 0u; a.oP[0] = vec3(0.0); a.oP[1] = vec3(0.0); a.oN[0] = vec3(0.0); a.oN[1] = vec3(0.0); a.oFp[0] = 0.0; a.oFp[1] = 0.0; a.oS[0] = 0.0; a.oS[1] = 0.0; a.worstD = 0.0; a.worstSide = 0u; a.n = 0u; return a; }
 vec3 fsColorOf(uint word) { return vec3(float(word & 0xFFu), float((word >> 8) & 0xFFu), float((word >> 16) & 0xFFu)) / 255.0; }
 uint fsColorPack(vec3 c) { uvec3 u = uvec3(clamp(c, 0.0, 1.0) * 255.0 + 0.5); return u.x | (u.y << 8) | (u.z << 16); }
 // Precision-weighted appearance blend (contract §14, C16a): prior weight = distinct observations, measurement weight = 1 observation.
@@ -80,6 +83,40 @@ uint fsBlendAppearance(uint old, vec3 meanCol, float wPrior, float wMeas) {
     if ((old & FS_APPEARANCE_MEASURED) == 0u) return FS_APPEARANCE_MEASURED | fsColorPack(meanCol);
     return FS_APPEARANCE_MEASURED | fsColorPack(mix(fsColorOf(old), meanCol, wMeas / (wPrior + wMeas)));
 }
+// Merge priority: higher static evidence, then lower sigma, then lower SurfaceID survives.
+bool fsSurvives(FsPatch a, FsSurfelEvidence ea, FsPatch b, FsSurfelEvidence eb) {
+    uint sa = fsGet_FsSurfelEvidence_staticEvidence(ea), sb = fsGet_FsSurfelEvidence_staticEvidence(eb);
+    if (sa != sb) return sa > sb;
+    if (a.sigmaN != b.sigmaN) return a.sigmaN < b.sigmaN;
+    return a.surfaceId < b.surfaceId;
+}
+// Survivor absorbs a second patch of the same surface (merge in maintenance, edge contraction in the surface complex; twin
+// fs::world::AbsorbPatch): precision-weighted centre along the normal and tangent, precision-weighted normal, union second
+// moment about the new centre weighted by distinct observations, combined sigma, summed support, count-weighted appearance.
+// `pd` is expressed in the survivor's page frame. The SurfaceID and flags of the survivor are kept.
+FsPatch fsAbsorbPatch(FsPatch ps, FsPatch pd) {
+    float ws = 1.0 / (ps.sigmaN * ps.sigmaN), wd = 1.0 / (pd.sigmaN * pd.sigmaN);
+    vec3 delta = pd.p - ps.p; float d = dot(ps.n, delta);
+    vec3 tv = delta - d * ps.n;
+    FsPatch r = ps;
+    r.p = ps.p + ps.n * (d * wd / (ws + wd)) + tv * (wd / (ws + wd));
+    r.n = normalize(ps.n * ws + pd.n * wd);
+    float sa, sb, sc; fsPatchMoment(ps, sa, sb, sc); float da, db, dc; fsPatchMoment(pd, da, db, dc);
+    vec3 t1, t2; fsTangentFrame(r.n, t1, t2);
+    vec2 os = vec2(dot(ps.p - r.p, t1), dot(ps.p - r.p, t2)), od = vec2(dot(pd.p - r.p, t1), dot(pd.p - r.p, t2));
+    float cs = float(max(ps.flags & FS_EVIDENCE_COUNT_MASK, 1u)), cd = float(max(pd.flags & FS_EVIDENCE_COUNT_MASK, 1u));
+    float ma = (cs * (sa + os.x * os.x) + cd * (da + od.x * od.x)) / (cs + cd);
+    float mb = (cs * (sb + os.y * os.y) + cd * (db + od.y * od.y)) / (cs + cd);
+    float mc = (cs * (sc + os.x * os.y) + cd * (dc + od.x * od.y)) / (cs + cd);
+    float rM, rm, ang; fsMomentToEllipse(ma, mb, mc, rM, rm, ang);
+    r.rM = clamp(rM, FS_RADIUS_MIN_M, FS_RADIUS_MAX_M); r.rm = clamp(rm, FS_RADIUS_MIN_M, r.rM); r.angle = ang;
+    r.sigmaN = max(sqrt(1.0 / (ws + wd)), FS_SIGMA_N_FLOOR_M);
+    r.flags = (ps.flags & ~FS_EVIDENCE_COUNT_MASK) | min((ps.flags & FS_EVIDENCE_COUNT_MASK) + (pd.flags & FS_EVIDENCE_COUNT_MASK), uint(FS_EVIDENCE_COUNT_MAX));
+    bool ms = (ps.appearance & FS_APPEARANCE_MEASURED) != 0u, md = (pd.appearance & FS_APPEARANCE_MEASURED) != 0u;
+    if (ms && md) r.appearance = FS_APPEARANCE_MEASURED | fsColorPack((fsColorOf(ps.appearance) * cs + fsColorOf(pd.appearance) * cd) / (cs + cd));
+    else if (md) r.appearance = pd.appearance;
+    return r;
+}
 // Plane gate with the topological bound: a broad measurement sigma never joins sheets farther apart than FS_ASSOC_PLANE_MAX_M.
 float fsPlaneGate(float sigmaA, float sigmaB) { return min(FS_ASSOC_SIGMA_GATE * sqrt(sigmaA * sigmaA + sigmaB * sigmaB), FS_ASSOC_PLANE_MAX_M); }
 // Huber weight of a plane residual d against the combined sigma.
@@ -87,7 +124,13 @@ float fsHuber(float d, float sigmaComb) { float ad = abs(d); float c = FS_HUBER_
 void fsAccumAdd(inout FsAccum a, FsPatch q, vec3 t1, vec3 t2, vec3 pm, vec3 nm, float sigmaNm, float sigmaTm, float footprint, uint colorWord, uint srcFlags, uint obs) {
     vec3 delta = pm - q.p;
     float d = dot(q.n, delta);
-    float hw = fsHuber(d, sqrt(q.sigmaN * q.sigmaN + sigmaNm * sigmaNm));
+    float sComb = sqrt(q.sigmaN * q.sigmaN + sigmaNm * sigmaNm);
+    float hw = fsHuber(d, sComb);
+    if (abs(d) > FS_REFINE_OUTLIER_K * sComb) {
+        uint side = d >= 0.0 ? 0u : 1u;
+        a.oCnt[side]++; a.oP[side] += pm; a.oN[side] += nm; a.oFp[side] = max(a.oFp[side], footprint); a.oS[side] += sigmaNm;
+        if (abs(d) > a.worstD) { a.worstD = abs(d); a.worstSide = side; }
+    }
     float wN = hw / (sigmaNm * sigmaNm), wT = hw / (sigmaTm * sigmaTm);
     vec2 tv = vec2(dot(delta, t1), dot(delta, t2));
     a.wN += wN; a.dN += wN * d; a.nSum += nm * wN;
