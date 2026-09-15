@@ -308,7 +308,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void SessionDesignDisplayFollowsModelInSessionRoomCoordinates()
+        public void SessionDesignDisplayIsTheSessionAnchorFrameUnderTheModel()
         {
             var modelObject = new GameObject("model");
             var displayObject = new GameObject("display");
@@ -317,24 +317,37 @@ namespace Genesis.RoomScan.Tests
                 Transform model = modelObject.transform;
                 Transform display = displayObject.transform;
                 Vector3 scanCenter = new(3f, -2f, 5f);
-                Vector3 roomPoint = new(4.5f, 1.25f, -0.75f);
+                Vector3 anchorPoint = new(4.5f, 1.25f, -0.75f);
+                Matrix4x4 anchorFromPackage = Matrix4x4.TRS(
+                    new Vector3(0.4f, -1.1f, 2.3f),
+                    Quaternion.Euler(0f, 63f, 4f), Vector3.one);
 
-                MerkabaArtifactViewer.ConfigureSessionDesignDisplay(
-                    display, model, scanCenter);
+                Assert.That(MerkabaArtifactViewer.ConfigureSessionDesignDisplay(
+                    display, model, scanCenter, anchorFromPackage), Is.True);
                 model.SetPositionAndRotation(new Vector3(2f, 3f, 4f),
                     Quaternion.Euler(12f, 37f, -8f));
                 model.localScale = Vector3.one * 0.25f;
 
-                Vector3 expected = model.TransformPoint(roomPoint - scanCenter);
-                Assert.That(Vector3.Distance(display.TransformPoint(roomPoint),
-                    expected), Is.LessThan(1e-5f));
+                Vector3 packagePoint =
+                    anchorFromPackage.inverse.MultiplyPoint3x4(anchorPoint);
+                Vector3 expected = model.TransformPoint(packagePoint -
+                    scanCenter);
+                Assert.That(Vector3.Distance(display.TransformPoint(
+                    anchorPoint), expected), Is.LessThan(1e-4f));
 
-                model.SetPositionAndRotation(new Vector3(-7f, 0.5f, 9f),
-                    Quaternion.Euler(-21f, 118f, 16f));
-                model.localScale = Vector3.one * 1.75f;
-                expected = model.TransformPoint(roomPoint - scanCenter);
-                Assert.That(Vector3.Distance(display.TransformPoint(roomPoint),
-                    expected), Is.LessThan(1e-5f));
+                // ALIGN 1:1 places the model under the anchor; the design
+                // root then coincides with the anchor itself.
+                model.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+                model.localScale = Vector3.one;
+                Matrix4x4 aligned = MerkabaArtifactViewer.
+                    ComposeAlignedModelLocal(anchorFromPackage, scanCenter);
+                model.SetPositionAndRotation(aligned.GetColumn(3),
+                    aligned.rotation);
+                Assert.That(Vector3.Distance(display.TransformPoint(
+                    anchorPoint), anchorPoint), Is.LessThan(1e-4f));
+                Assert.That(MerkabaArtifactViewer.ConfigureSessionDesignDisplay(
+                    display, model, scanCenter,
+                    Matrix4x4.Scale(Vector3.one * 2f)), Is.False);
             }
             finally
             {

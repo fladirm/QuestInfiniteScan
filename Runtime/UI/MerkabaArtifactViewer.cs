@@ -796,16 +796,21 @@ namespace Genesis.RoomScan.UI
             _designLibrary = null;
             _paintEngine.Save();
             _paintEngine.Close();
-            bool roomReady = RoomSpaceRoot.RoomSpaceReady;
-            Transform displayRoot = roomReady ? _designDisplayRoot : null;
+            bool sessionAnchor = RoomSpaceRoot.RoomSpaceReady &&
+                _packageSpatialBinding.HasValue && _scanner != null &&
+                _scanner.ActiveAnchorUuid != Guid.Empty &&
+                _packageSpatialBinding.Value.AnchorUuid ==
+                _scanner.ActiveAnchorUuid;
+            Transform displayRoot = sessionAnchor ? _designDisplayRoot : null;
             string path = _scanner?.ActiveDesignPath;
             if (displayRoot == null || string.IsNullOrWhiteSpace(path))
             {
-                Logger.Warning("Design paint is unavailable until an anchored " +
-                    "scan session is active.");
+                Logger.Warning("Design paint is unavailable until the package " +
+                    "anchor matches the active scan session anchor.");
                 return;
             }
-            _paintEngine.Open(displayRoot, previewShader, path);
+            _paintEngine.Open(displayRoot, previewShader, path,
+                _packageSpatialBinding.Value.AnchorFromPackage);
             string libraryPath = _scanner?.DesignLibraryPath;
             if (string.IsNullOrWhiteSpace(libraryPath)) return;
             _designLibrary = new MerkabaDesignLibrary(libraryPath);
@@ -992,8 +997,13 @@ namespace Genesis.RoomScan.UI
             _modelRoot = root.transform;
             var design = new GameObject("Session Design Display");
             _designDisplayRoot = design.transform;
-            ConfigureSessionDesignDisplay(_designDisplayRoot, _modelRoot,
-                _scanCenter);
+            if (!_packageSpatialBinding.HasValue ||
+                !ConfigureSessionDesignDisplay(_designDisplayRoot, _modelRoot,
+                    _scanCenter, _packageSpatialBinding.Value.AnchorFromPackage))
+            {
+                Destroy(design);
+                _designDisplayRoot = null;
+            }
             var annotations = new GameObject("Annotations");
             _annotationRoot = annotations.transform;
             _annotationRoot.SetParent(_modelRoot, false);
@@ -1038,17 +1048,32 @@ namespace Genesis.RoomScan.UI
             CreateBackdrop(camera);
         }
 
-        internal static void ConfigureSessionDesignDisplay(
-            Transform displayRoot, Transform modelRoot, Vector3 scanCenter)
+        /// <summary>
+        /// Places the design root so its local frame is the session anchor
+        /// frame: model · T(-scanCenter) · inverse(AnchorFromPackage). The
+        /// design then follows the model and survives re-export.
+        /// </summary>
+        internal static bool ConfigureSessionDesignDisplay(
+            Transform displayRoot, Transform modelRoot, Vector3 scanCenter,
+            Matrix4x4 anchorFromPackage)
         {
             if (displayRoot == null)
                 throw new ArgumentNullException(nameof(displayRoot));
             if (modelRoot == null)
                 throw new ArgumentNullException(nameof(modelRoot));
+            Matrix4x4 local = Matrix4x4.Translate(-scanCenter) *
+                anchorFromPackage.inverse;
+            if (!TryDecomposeTransform(local, out Vector3 position,
+                    out Quaternion rotation, out Vector3 scale) ||
+                Mathf.Abs(scale.x - 1f) > 1e-3f ||
+                Mathf.Abs(scale.y - 1f) > 1e-3f ||
+                Mathf.Abs(scale.z - 1f) > 1e-3f)
+                return false;
             displayRoot.SetParent(modelRoot, false);
-            displayRoot.localPosition = -scanCenter;
-            displayRoot.localRotation = Quaternion.identity;
+            displayRoot.localPosition = position;
+            displayRoot.localRotation = rotation;
             displayRoot.localScale = Vector3.one;
+            return true;
         }
 
         private void HandleViewerInput()
@@ -1643,9 +1668,17 @@ namespace Genesis.RoomScan.UI
                 CancelPaintStroke();
                 bool paint = _paintEngine.TrySample(ray,
                     out MerkabaPaintEngine.PaintHit paintHit);
-                Vector3 center = paint
-                    ? paintHit.Point
-                    : MerkabaPaintEngine.SpatialBrushPoint(ray);
+                bool model = TryHitModel(ray, out ModelHit eraseHit);
+                bool usePaint = paint && (!model || paintHit.Along <
+                    Vector3.Distance(ray.origin, eraseHit.Point));
+                if (!usePaint && !model)
+                {
+                    SetAnnotationHitPreview(false, default);
+                    if (triggerDown)
+                        Status = "No paint or exported surface under eraser";
+                    return;
+                }
+                Vector3 center = usePaint ? paintHit.Point : eraseHit.Point;
                 SetAnnotationHitPreview(true, new ModelHit(center,
                     -ray.direction));
                 if (triggerHeld && Time.unscaledTime >= _nextPaintErase)
@@ -1660,7 +1693,8 @@ namespace Genesis.RoomScan.UI
                 return;
             }
 
-            bool surfaceTool = PaintToolUsesSurface(_paintTool);
+            bool surfaceTool = PaintToolUsesSurface(_paintTool) ||
+                _paintTool == MerkabaArtifactPaintTool.Spray;
             ModelHit surfaceHit = default;
             bool hasSurfaceHit = surfaceTool &&
                 TryHitModel(ray, out surfaceHit);
@@ -1743,13 +1777,16 @@ namespace Genesis.RoomScan.UI
                 AppendProjectedSurfaceSamples(ray);
                 return;
             }
-            Vector3 spatialPoint = MerkabaPaintEngine.SpatialBrushPoint(ray);
             if (_paintTool == MerkabaArtifactPaintTool.Spray)
             {
-                _paintEngine.AddSpray(spatialPoint, ray.direction,
-                    Time.unscaledDeltaTime, _sprayDensity, _sprayScatter);
+                // Spray lands on the exported surface; no hit, no paint.
+                if (TryHitModel(ray, out ModelHit sprayHit))
+                    _paintEngine.AddSpray(SurfacePaintPoint(sprayHit),
+                        sprayHit.Normal, Time.unscaledDeltaTime,
+                        _sprayDensity, _sprayScatter);
                 return;
             }
+            Vector3 spatialPoint = MerkabaPaintEngine.SpatialBrushPoint(ray);
             AppendSpatialSamples(spatialPoint);
         }
 
@@ -2189,6 +2226,8 @@ namespace Genesis.RoomScan.UI
             float nearest = float.PositiveInfinity;
             modelHit = default;
             bool found = false;
+            // A model hidden at opacity 0 offers no surface to query.
+            if (_previewOpacity <= 0.001f) return false;
             foreach (Tile tile in _tiles)
             {
                 if (tile.Object == null ||
@@ -2690,12 +2729,10 @@ namespace Genesis.RoomScan.UI
                 _annotations.AddRange(file.items);
                 _nextAnnotationId = Mathf.Max(file.nextId, 1);
                 bool migrated = false;
+                // The paint engine only opens when the package anchor is the
+                // active session anchor, so its frame is valid for import.
                 bool canMigratePaint = _paintEngine != null &&
-                    _paintEngine.IsOpen && _packageSpatialBinding.HasValue &&
-                    _scanner != null && _scanner.ActiveAnchorUuid != Guid.Empty &&
-                    _packageSpatialBinding.Value.AnchorUuid ==
-                    _scanner.ActiveAnchorUuid &&
-                    RoomSpaceRoot.RoomSpaceReady;
+                    _paintEngine.IsOpen && _packageSpatialBinding.HasValue;
                 if (canMigratePaint)
                 {
                     for (int index = _annotations.Count - 1;
@@ -2714,10 +2751,8 @@ namespace Genesis.RoomScan.UI
                         };
                         Matrix4x4 anchorFromPackage =
                             _packageSpatialBinding.Value.AnchorFromPackage;
-                        Transform roomRoot = RoomSpaceRoot.Instance.transform;
                         Vector3[] points = Array.ConvertAll(annotation.points,
-                            point => roomRoot.TransformPoint(
-                                anchorFromPackage.MultiplyPoint3x4(point)));
+                            point => anchorFromPackage.MultiplyPoint3x4(point));
                         if (!_paintEngine.ImportLegacy(tool,
                                 annotation.styled ? annotation.color :
                                     Color.white,

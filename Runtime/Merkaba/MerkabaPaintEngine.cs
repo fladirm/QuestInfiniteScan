@@ -50,7 +50,12 @@ namespace Genesis.RoomScan
 
         private void OnDestroy() => Close();
 
-        internal void Open(Transform roomRoot, Shader shader, string path)
+        /// <summary>
+        /// Opens the session design under <paramref name="roomRoot"/>, whose
+        /// local frame is the session anchor frame.
+        /// </summary>
+        internal void Open(Transform roomRoot, Shader shader, string path,
+            Matrix4x4? anchorFromLegacyPackage = null)
         {
             Close();
             if (roomRoot == null)
@@ -62,7 +67,8 @@ namespace Genesis.RoomScan
                     "An active session design path is required.", nameof(path));
             _roomRoot = roomRoot;
             _path = path;
-            _document = MerkabaDesignDocument.Load(path);
+            _document = MerkabaDesignDocument.Load(path,
+                anchorFromLegacyPackage);
             var root = new GameObject("Merkaba Session Paint");
             _paintRoot = root.transform;
             _paintRoot.SetParent(_roomRoot, false);
@@ -78,7 +84,7 @@ namespace Genesis.RoomScan
             _undoHistory.Clear();
             _redoHistory.Clear();
             _pendingHistory = null;
-            _dirty = false;
+            _dirty = _document.MigratedFromPackageFrame;
         }
 
         internal void Close()
@@ -362,16 +368,28 @@ namespace Genesis.RoomScan
             return RestoreHistory(_redoHistory, _undoHistory);
         }
 
+        /// <summary>
+        /// Imports legacy points already expressed in the session anchor
+        /// frame. Nothing passes through world space, so the result does not
+        /// depend on where the preview is displayed.
+        /// </summary>
         internal bool ImportLegacy(MerkabaDesignTool tool, Color color,
-            float radius, IReadOnlyList<Vector3> worldPoints)
+            float radius, IReadOnlyList<Vector3> anchorPoints)
         {
-            if (worldPoints == null || worldPoints.Count == 0 ||
+            if (anchorPoints == null || anchorPoints.Count == 0 ||
                 _document == null) return false;
             BeginStroke(tool, new MerkabaPaintSettings(color, color.a, 1f,
                 0.8f, 1f, radius, MerkabaBrushShape.Round));
-            foreach (Vector3 point in worldPoints)
-                AppendSample(new PaintInputSample(point, Vector3.zero, false,
-                    radius));
+            if (_activeStroke == null) return false;
+            _activeStroke.radius = radius;
+            foreach (Vector3 point in anchorPoints)
+                _activeStroke.samples.Add(new MerkabaDesignSample
+                {
+                    position = point,
+                    normal = Vector3.zero,
+                    hasNormal = false,
+                    radius = radius
+                });
             RebuildVisual(_activeStroke);
             return CommitStroke();
         }

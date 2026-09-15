@@ -35,7 +35,7 @@ offline: MerkabaExportShell -> MerkabaExportMembrane -> MerkabaGlbWriter
   HLSL is a hand-written string literal, not a translation of the C# algorithm.
 - `[x]` **C4** 25 mm pitch. `MembranePatchPitch = LatticeStep`, `HalfSupport` is never
   a patch half-extent (`PatchHalfExtent` has zero occurrences).
-- `[~]` **C5/C7** Deterministic membrane + oracle cases. Implemented as specified;
+- `[~]` **C5/C7** (2026-09-15: MAIN-independent corner branch, RISK-2 partly fixed) Deterministic membrane + oracle cases. Implemented as specified;
   the C7 list is only partly covered — see RISK-2.
 - `[x]` **C6** 4 vertices / 6 indices / 2 triangles per patch.
 - `[x]` **C8** Tile-cooperative GPU build with groupshared occupancy + halo cache,
@@ -63,7 +63,7 @@ offline: MerkabaExportShell -> MerkabaExportMembrane -> MerkabaGlbWriter
 - `[~]` **K/L** Production UX. SCAN / REFINE / DESIGN / VIEW tabs exist, USS/UXML were
   rewritten, UI wins the raycast. Not audited against the visual-language checklist.
 - `[~]` **M** Colour: HSV wheel, recent/saved swatches, eyedropper wired.
-- `[~]` **N** Paint: `MerkabaPaintEngine.cs` + `MerkabaDesignDocument.cs` appeared
+- `[~]` **N** Paint (2026-09-15: design v2 in session-anchor frame, RISK-14): `MerkabaPaintEngine.cs` + `MerkabaDesignDocument.cs` appeared
   UNTRACKED at 02:27 on 2026-09-05 from the concurrent Codex session. Not reviewed here.
 - `[ ]` **O** Object library: `MerkabaDesignLibrary.cs` does not exist; no GLB import,
   no `library/` store, no placement persistence.

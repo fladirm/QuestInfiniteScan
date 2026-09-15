@@ -75,14 +75,16 @@ namespace Genesis.RoomScan
     }
 
     /// <summary>
-    /// Session-local design authority. Positions are stored in RoomSpaceRoot
-    /// coordinates; the document never becomes canonical M8 state.
+    /// Session-local design authority. Positions are stored in the session
+    /// anchor frame; the document never becomes canonical M8 state.
     /// </summary>
     [Serializable]
     public sealed class MerkabaDesignDocument
     {
         internal const string Format = "QuestMerkabaDesign";
-        internal const int CurrentVersion = 1;
+        internal const int CurrentVersion = 2;
+        // Version 1 stored points in the frame of whichever package was open.
+        internal const int PackageFrameVersion = 1;
 
         public string format = Format;
         public int version = CurrentVersion;
@@ -110,16 +112,62 @@ namespace Genesis.RoomScan
             Normalize();
         }
 
-        internal static MerkabaDesignDocument Load(string path)
+        [NonSerialized] internal bool MigratedFromPackageFrame;
+
+        /// <summary>
+        /// Loads a design stored in session-anchor coordinates. A version 1
+        /// document is converted once with its package's AnchorFromPackage.
+        /// </summary>
+        internal static MerkabaDesignDocument Load(string path,
+            Matrix4x4? anchorFromLegacyPackage = null)
         {
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
                 return new MerkabaDesignDocument();
             string json = File.ReadAllText(path, Encoding.UTF8);
             MerkabaDesignDocument document = JsonUtility.FromJson<
                 MerkabaDesignDocument>(json);
+            if (document != null && document.format == Format &&
+                document.version == PackageFrameVersion)
+            {
+                if (!anchorFromLegacyPackage.HasValue)
+                    throw new InvalidDataException(
+                        "Version 1 session design needs its package anchor " +
+                        "relation to migrate.");
+                document.MigrateToAnchorFrame(anchorFromLegacyPackage.Value);
+            }
             Validate(document);
             document.Normalize();
             return document;
+        }
+
+        private void MigrateToAnchorFrame(Matrix4x4 anchorFromPackage)
+        {
+            Quaternion rotation = anchorFromPackage.rotation;
+            foreach (MerkabaDesignStroke stroke in strokes ??
+                     new List<MerkabaDesignStroke>())
+            {
+                if (stroke?.samples == null) continue;
+                for (int index = 0; index < stroke.samples.Count; index++)
+                {
+                    MerkabaDesignSample sample = stroke.samples[index];
+                    sample.position = anchorFromPackage.MultiplyPoint3x4(
+                        sample.position);
+                    if (sample.hasNormal)
+                        sample.normal = anchorFromPackage.MultiplyVector(
+                            sample.normal).normalized;
+                    stroke.samples[index] = sample;
+                }
+            }
+            foreach (MerkabaDesignInstance instance in instances ??
+                     new List<MerkabaDesignInstance>())
+            {
+                if (instance == null) continue;
+                instance.position = anchorFromPackage.MultiplyPoint3x4(
+                    instance.position);
+                instance.rotation = rotation * instance.rotation;
+            }
+            version = CurrentVersion;
+            MigratedFromPackageFrame = true;
         }
 
         private static void Validate(MerkabaDesignDocument document)

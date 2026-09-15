@@ -20,7 +20,17 @@ Cheapest real closure: a differential test that runs `TryBuildPatch` and the com
 `BuildReadoutVertices` over the same seeded lattice fixtures and compares corner
 positions bitwise. Until that exists, treat every edit to either side as a two-file edit.
 
-## RISK-2 — the shared-corner invariant is asymmetric and only tested flat [OPEN]
+## RISK-2 — the shared-corner invariant is asymmetric and only tested flat [PARTLY FIXED IN CODE 2026-09-15]
+
+Update 82c5a0a: TryResolveCorner (CPU + HLSL twin) gathers <=12 candidates from the four
+columns, picks a seed, grows the contiguous height branch (gap <= 0.6 patch pitch,
+sorted by height then coord), and averages the per-column members nearest the branch
+median. Inside one sheet the corner no longer depends on which MAIN asks. The seed is
+still chosen by MAIN signature + residual to mainHeight, so two MAINs on different
+close sheets can still seed different branches; no non-flat shared-corner parity test
+was added. C7 suite 306/306 editor. DEVICE ACCEPTANCE PENDING.
+
+Original finding:
 
 In `TryResolveCorner`, a corner shared by two adjacent MAINs is enumerated over the same
 four tangent columns (columns derive from the half-lattice address, so that part is
@@ -193,7 +203,17 @@ returns before anchor relocalizes -> "Room anchor not localized".
 only, not anchor tracked/stable; no TrackingOriginChangePending / trackingOriginUpdated
 handling; pause during unfinished resume clears `_resumeAfterPause`.
 
-## RISK-14 — design frame is package/grid-local, legacy paint migration double-transforms [OPEN, CONFIRMED]
+## RISK-14 — design frame is package/grid-local, legacy paint migration double-transforms [FIXED IN CODE, DEVICE ACCEPTANCE PENDING]
+
+Fix: the design root local frame is the session anchor frame
+(`model * T(-scanCenter) * inverse(AnchorFromPackage)`); paint only opens when the package
+AnchorUuid equals the active session anchor. `MerkabaDesignDocument` v2 stores anchor
+coordinates; v1 migrates once through AnchorFromPackage and is saved dirty. Legacy
+annotation paint imports anchor points directly (no world round-trip). Opacity 0 disables
+model surface queries. Eraser and Spray are fail-closed on paint/model hits; SpatialBrush
+stays 3D. Still open: brush radius/offset are world-sized; no live-membrane raycast.
+
+Original finding:
 Paint/objects parent under `_designDisplayRoot = modelRoot * T(-scanCenter)` (package
 frame), not session room space; no AnchorUuid guard in OpenSessionDesign. Legacy
 migration maps points to physical world via AnchorFromPackage then back through the

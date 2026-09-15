@@ -68,6 +68,37 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
+        public void VersionOneDesignMigratesOnceIntoTheAnchorFrame()
+        {
+            string path = DesignPath();
+            System.IO.Directory.CreateDirectory(
+                System.IO.Path.GetDirectoryName(path));
+            var legacy = new MerkabaDesignDocument { version = 1 };
+            legacy.strokes.Add(new MerkabaDesignStroke
+            {
+                id = 1,
+                samples = new System.Collections.Generic.List<
+                    MerkabaDesignSample>
+                {
+                    new() { position = new Vector3(1f, 0f, 0f), radius = 0.01f }
+                }
+            });
+            System.IO.File.WriteAllText(path, JsonUtility.ToJson(legacy));
+            Matrix4x4 anchorFromPackage = Matrix4x4.TRS(
+                new Vector3(0f, 2f, 0f), Quaternion.Euler(0f, 90f, 0f),
+                Vector3.one);
+
+            Assert.Throws<System.IO.InvalidDataException>(() =>
+                MerkabaDesignDocument.Load(path));
+            MerkabaDesignDocument migrated = MerkabaDesignDocument.Load(path,
+                anchorFromPackage);
+            Assert.That(migrated.version,
+                Is.EqualTo(MerkabaDesignDocument.CurrentVersion));
+            Assert.That(Vector3.Distance(migrated.strokes[0].samples[0].position,
+                new Vector3(0f, 2f, -1f)), Is.LessThan(1e-5f));
+        }
+
+        [Test]
         public void LocalEraserSplitsStrokeAndPreservesBothOuterRuns()
         {
             MerkabaPaintEngine engine = OpenEngine();
