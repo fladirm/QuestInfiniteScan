@@ -15,6 +15,7 @@
 #include <chrono>
 #include "fs_world.h"
 #include "fs_world_kernels.h"
+#include <cstring>
 #include "fs_page_hash.h"
 #include "fs_pools.h"
 #include "fs_residency_math.h"
@@ -188,6 +189,7 @@ public:
         if (pipesReady_) return true;
         auto make = [&](Pipeline& p, uint32_t k) {
             const KernelSpec& ks = kWorldKernels[k];
+            if (std::strcmp(ks.name, WorldKernelName((WorldKernel)k)) != 0) { LogError("FS-WORLD kernel slot %u is %s, enum names %s", k, ks.name, WorldKernelName((WorldKernel)k)); return false; }
             VkDescriptorSetLayoutBinding b[12] = {};
             for (uint32_t i = 0; i < ks.bindingCount; ++i) { b[i].binding = ks.bindings[i]; b[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; b[i].descriptorCount = 1; b[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT; }
             if (!CreateComputePipeline(p, ks.spirv, ks.words, ks.pushBytes, b, ks.bindingCount, ks.name)) { LogError("FS-WORLD pipeline %s failed", ks.name); return false; }

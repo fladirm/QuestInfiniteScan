@@ -88,11 +88,27 @@ static const KernelSpec kWorldKernels[K_COUNT] = {
     {"sheet_fit",            FS_KS(kSheetFitSpirv),           0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_GCTR, B_SHEET, B_TOPO}, 6},
     {"sheet_apply",          FS_KS(kSheetApplySpirv),         0,                     {B_PAGES, B_SURFELS, B_GCTR, B_SHEET, B_DIRTY, B_EVIDENCE}, 6},
     {"sheet_contract",       FS_KS(kSheetContractSpirv),      0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_GCTR, B_SHEET, B_DIRTY}, 6},
+    {"sheet_refine",         FS_KS(kSheetRefineSpirv),        sizeof(PushHash),      {B_PAGES, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_POOLS, B_DIRTY, B_RETIRE, B_SHEET, B_HASH}, 10},
     {"topo_faces",           FS_KS(kTopoFacesSpirv),          0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_GCTR, B_SHEET, B_TOPO}, 6},
     {"topo_commit",          FS_KS(kTopoCommitSpirv),         0,                     {B_PAGES, B_SURFELS, B_EVIDENCE, B_GCTR, B_SHEET, B_DIRTY, B_TOPO, B_POOLS}, 8},
-    {"sheet_refine",         FS_KS(kSheetRefineSpirv),        sizeof(PushHash),      {B_PAGES, B_SURFELS, B_EVIDENCE, B_INDEX, B_GCTR, B_POOLS, B_DIRTY, B_RETIRE, B_SHEET, B_HASH}, 10},
 };
 #undef FS_KS
+// Order-independent identity of every enum slot: pipes_[k] must be built from the kernel the enum names.
+inline const char* WorldKernelName(WorldKernel k) {
+    switch (k) {
+    case K_INGEST: return "fuse_ingest"; case K_ASSOC: return "fuse_associate"; case K_FREESPACE: return "fuse_freespace";
+    case K_SORT_HIST: return "sort_histogram"; case K_SORT_SCAN: return "sort_scan"; case K_SORT_SCATTER: return "sort_scatter";
+    case K_REDUCE: return "fuse_reduce"; case K_CLUSTER_COUNT: return "fuse_cluster_count"; case K_PREFIX: return "fuse_prefix";
+    case K_PREFIX_CARRY: return "fuse_prefix_carry"; case K_CLUSTER_WRITE: return "fuse_cluster_write"; case K_DIRTY_TAKE: return "dirty_take";
+    case K_MAINT_APPLY: return "fuse_maint_apply"; case K_PUBLISH_LEAVES: return "publish_leaves"; case K_PUBLISH_LEVEL: return "publish_level";
+    case K_PUBLISH_ROOTS: return "render_publish_roots"; case K_ERASE: return "world_erase"; case K_PAGE_RELEASE: return "world_page_release";
+    case K_PAGE_LOAD: return "world_page_load"; case K_RELOCATE: return "world_relocate"; case K_SHEET_BEGIN: return "sheet_begin";
+    case K_SHEET_GRAPH: return "sheet_graph"; case K_SHEET_FIT: return "sheet_fit"; case K_SHEET_APPLY: return "sheet_apply";
+    case K_SHEET_CONTRACT: return "sheet_contract"; case K_SHEET_REFINE: return "sheet_refine"; case K_TOPO_FACES: return "topo_faces";
+    case K_TOPO_COMMIT: return "topo_commit"; case K_COUNT: break;
+    }
+    return "";
+}
 
 } // namespace world
 } // namespace fs

@@ -55,7 +55,12 @@ namespace FinalScan.Host
             _text.color = new Color(0.85f, 1f, 0.85f, 0.95f);
             _text.richText = false;
             _text.text = "FinalScan";
+            go.SetActive(enabled);
         }
+
+        // A disabled HUD (the UI Toolkit panel renders) must not leave its TextMesh at the rig origin.
+        void OnEnable() { if (_anchor != null) _anchor.gameObject.SetActive(true); }
+        void OnDisable() { if (_anchor != null) _anchor.gameObject.SetActive(false); }
 
         void LateUpdate()
         {
