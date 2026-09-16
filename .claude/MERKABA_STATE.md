@@ -35,12 +35,12 @@ offline: MerkabaExportShell -> MerkabaExportMembrane -> MerkabaGlbWriter
   HLSL is a hand-written string literal, not a translation of the C# algorithm.
 - `[x]` **C4** 25 mm pitch. `MembranePatchPitch = LatticeStep`, `HalfSupport` is never
   a patch half-extent (`PatchHalfExtent` has zero occurrences).
-- `[~]` **C5/C7** (2026-09-15: MAIN-independent corner branch, RISK-2 partly fixed) Deterministic membrane + oracle cases. Implemented as specified;
+- `[~]` **C5/C7** (2026-09-16: analytic union-boundary skin, 26-neighbour key, 422 facelets over 210 shared vertices, one authority for runtime and export) Deterministic membrane + oracle cases. Implemented as specified;
   the C7 list is only partly covered — see RISK-2.
 - `[x]` **C6** 4 vertices / 6 indices / 2 triangles per patch.
 - `[x]` **C8** Tile-cooperative GPU build with groupshared occupancy + halo cache,
   cheap-occupancy-first, full `KernelState` loaded only for emitters.
-- `[x]` **C9** Scheduler (2026-09-15: membrane-input dirty tiles, paged delta publication; RISK-7). `MerkabaGridRenderer.LateUpdate` is the contract's conceptual
+- `[x]` **C9** Scheduler (2026-09-16: serial 20 Hz scan->readout transaction, publication generations with fence-gated page reclaim, 6.4 m world-sphere coverage, native scanner-queue readout at ABI 4; RISK-7, RISK-15). `MerkabaGridRenderer.LateUpdate` is the contract's conceptual
   form verbatim: scanner work wins, coalesced dirty, no head-motion rebuild, no
   `GridToWorld`-difference rebuild.
 - `[x]` **C10** FRONT/BACK. Full capacity per slot, failed BACK leaves FRONT untouched.

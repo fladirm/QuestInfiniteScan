@@ -104,7 +104,7 @@ carry a pointer to `contr.md` but are otherwise unrevised.
 
 # Audit 2026-09-15 @ 651cea6 (source read only, no gates, DEVICE ACCEPTANCE PENDING)
 
-## RISK-7 — readout is a full rebuild, dirty after nearly every observation [FIXED IN CODE, DEVICE ACCEPTANCE PENDING]
+## RISK-7 — readout is a full rebuild, dirty after nearly every observation [FIXED IN CODE, DEVICE MEASURED 2026-09-16: publication is sparse and cheap; see RISK-15]
 
 Fix: paged delta publication. Integration marks `runtime.w` DIRTY only on membrane-input
 change (occupancy, plane payload, KNOWN-FREE class, colour top 6 bits); install marks DIRTY.
@@ -202,6 +202,29 @@ returns before anchor relocalizes -> "Room anchor not localized".
 `WaitForActiveSpatialAnchorReadyAsync` has no callers. Scanner submit gates on head pose
 only, not anchor tracked/stable; no TrackingOriginChangePending / trackingOriginUpdated
 handling; pause during unfinished resume clears `_resumeAfterPause`.
+
+## RISK-15 — the analytic skin is published at full density and the draw is now the bottleneck [OPEN, MEASURED 2026-09-16]
+
+The boundary arrangement publishes 422 refined facelets over 210 shared vertices per
+measured kernel; an isolated kernel draws 422 triangles, a kernel inside a flat sheet
+still draws ~70. On device (Quest 3S, clean install, commit `232b421`) the readout
+compute is no longer the cost: its timed stages are `BuildRenderTiles` 0.012 ms avg
+(max 0.021), `CollectRenderRebuildTiles` 0.045 ms, `CopyRenderIndex` 0.010 ms,
+`RequestWarmResidency` 0.010 ms, `PublishRenderTileList` 0.004 ms. The readout job's
+wall time is 44 ms avg / 116 ms max, which is queue waiting, not compute: the whole
+native job waits 180-250 ms behind graphics work.
+
+Measured frames: idle scene 35-37 FPS of 72 (App 24-31 ms). While scanning 17-18 FPS
+(App 43-77 ms, VrApi GPU 51-55). Before this run the same scene ran 15-19 FPS with the
+readout on the graphics queue, so the queue split helped but the draw volume now
+dominates.
+
+Open question for the next run: the cost is per-frame vertex/index throughput of the
+published skin, not the publication. Candidates, in contract order: cross-kernel vertex
+sharing beyond the tile, merging coplanar facelets across kernels (the arrangement only
+merges inside one support), and avoiding the per-frame index copy by drawing published
+ranges directly. No evidence yet that a lower facelet count is needed; the geometry is
+exact and must not be degraded blindly.
 
 ## RISK-14 — design frame is package/grid-local, legacy paint migration double-transforms [FIXED IN CODE, DEVICE ACCEPTANCE PENDING]
 
