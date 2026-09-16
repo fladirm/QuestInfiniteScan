@@ -25,7 +25,7 @@ python3 "$qis_script_dir/generate_merkaba_native_executor_shaders.py" \
     -I"$qis_editor/Data/PluginAPI" \
     -I"$qis_generated_dir" \
     "$qis_repo/Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp" \
-    -lvulkan -o "$qis_output.tmp"
+    -lvulkan -llog -o "$qis_output.tmp"
 mv -- "$qis_output.tmp" "$qis_output"
 install -m 0644 -- "$qis_script_dir/MerkabaVulkanTimestamps.pluginmeta" \
     "$qis_output.meta"

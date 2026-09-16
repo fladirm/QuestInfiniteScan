@@ -71,7 +71,6 @@ float4x4 _MerkabaGridToWorld;
 float4x4 _MerkabaWorldToGrid;
 float4 _M8CullGridPlanes[12];
 uint _M8ReadoutRevision;
-uint _M8PreviousPublished;
 uint _M8ResidencyChanged;
 
 // Published tile count and active list of the FRONT slot.
@@ -146,13 +145,6 @@ void M8RequestWarmLoad(uint tileRefIndex, uint chunkIndex, uint tileLocal,
     if (lateDraw) M8CounterIncrement(M8_COUNTER_LATE_DRAW_COLD_MISSES);
 }
 
-void M8AppendPageQueue(uint queueBase, uint control, uint page)
-{
-    uint index;
-    InterlockedAdd(_M8RenderPageQueues[control], 1u, index);
-    if (index < M8_RENDER_PAGE_CAPACITY)
-        _M8RenderPageQueues[queueBase + index] = page;
-}
 
 // A page retired by this slot is free again at this slot's next build: the
 // slot is BACK for the whole of that build and no frame draws BACK.
@@ -475,7 +467,9 @@ groupshared uint gM8SkinKernelNeighbours[M8_SKIN_KERNELS_PER_TILE];
 groupshared uint gM8SkinVertexTotal;
 groupshared uint gM8MembraneCanEmit;
 groupshared uint gM8MembraneMeasuredTotal;
-groupshared uint gM8MembranePageIds[M8_RENDER_TILE_MAX_PAGES];
+// First entry of this tile's page chain in the build's allocation list; the
+// chain itself stays in that list so the per-tile bound costs no groupshared.
+groupshared uint gM8MembraneAllocBase;
 groupshared uint gM8MembranePageCount;
 groupshared uint gM8MembranePatchTotal;
 groupshared uint gM8MembraneBatchBase;
@@ -652,21 +646,9 @@ bool M8TryLoadMembraneState(int3 globalCoord, out KernelState state,
 [numthreads(1, 1, 1)]
 void PrepareRenderReclaim(uint id : SV_DispatchThreadID)
 {
-    // A failed publication never reached FRONT, so its own pages are free at
-    // once. Otherwise reclaim the leading generation-safe retire entries.
-    if (_M8PreviousPublished == 0u)
-    {
-        _M8RenderPageQueues[M8_RENDER_CONTROL_RECLAIM_COUNT] =
-            min(_M8RenderPageQueues[M8_RENDER_CONTROL_ALLOC_COUNT],
-                M8_RENDER_PAGE_CAPACITY);
-        _M8FrameDispatchArgs[0] = max(1u,
-            (_M8RenderPageQueues[M8_RENDER_CONTROL_RECLAIM_COUNT] + 255u) >>
-                8u);
-        _M8FrameDispatchArgs[1] = 1u;
-        _M8FrameDispatchArgs[2] = 1u;
-        return;
-    }
-
+    // A rejected BACK keeps its records and their pages: the next build of
+    // this slot completes it. Only the retire ring returns pages, one build
+    // after they stopped being referenced.
     uint head = _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_HEAD];
     uint tail = _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_TAIL];
     uint pending = min(tail - head, M8_RENDER_PAGE_CAPACITY);
@@ -682,15 +664,9 @@ void ReclaimRenderPages(uint id : SV_DispatchThreadID)
     uint count = _M8RenderPageQueues[M8_RENDER_CONTROL_RECLAIM_COUNT];
     uint freeBase = _M8RenderPageQueues[M8_RENDER_CONTROL_FREE_PAGES];
     if (id >= count || freeBase + id >= M8_RENDER_PAGE_CAPACITY) return;
-    uint entry;
-    if (_M8PreviousPublished != 0u)
-    {
-        uint head = _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_HEAD];
-        entry = _M8RenderPageQueues[M8_RENDER_RETIRE_BASE +
-            ((head + id) & M8_RENDER_RETIRE_MASK)];
-    }
-    else
-        entry = _M8RenderPageQueues[M8_RENDER_ALLOC_BASE + id];
+    uint head = _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_HEAD];
+    uint entry = _M8RenderPageQueues[M8_RENDER_RETIRE_BASE +
+        ((head + id) & M8_RENDER_RETIRE_MASK)];
     _M8RenderPageQueues[M8_RENDER_FREE_BASE + freeBase + id] =
         entry & M8_RENDER_PAGE_ID_MASK;
 }
@@ -702,8 +678,7 @@ void ApplyRenderReclaim(uint id : SV_DispatchThreadID)
     uint freePages = min(_M8RenderPageQueues[M8_RENDER_CONTROL_FREE_PAGES] +
         reclaimed, M8_RENDER_PAGE_CAPACITY);
     _M8RenderPageQueues[M8_RENDER_CONTROL_FREE_PAGES] = freePages;
-    if (_M8PreviousPublished != 0u)
-        _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_HEAD] += reclaimed;
+    _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_HEAD] += reclaimed;
     _M8RenderPageQueues[M8_RENDER_CONTROL_RECLAIM_COUNT] = 0u;
     _M8RenderPageQueues[M8_RENDER_CONTROL_ALLOC_COUNT] = 0u;
 }
@@ -711,6 +686,11 @@ void ApplyRenderReclaim(uint id : SV_DispatchThreadID)
 [numthreads(128, 1, 1)]
 void CopyRenderIndex(uint id : SV_DispatchThreadID)
 {
+    // Page ownership of this publication starts empty; RecountRenderPatches
+    // claims every page of every published record. This sweep covers one
+    // physical tile per thread, two pages each.
+    _M8RenderPageQueues[M8_RENDER_OWNER_BASE + id * 2u] = 0u;
+    _M8RenderPageQueues[M8_RENDER_OWNER_BASE + id * 2u + 1u] = 0u;
     if (id >= M8BackPreviousTileCount()) return;
     uint physicalSlot = _M8RenderIndexBack[M8BackPreviousListBase() + id];
     if (physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) return;
@@ -995,13 +975,22 @@ bool M8TrySkinNeighbourMask(int3 globalCoord, KernelState main,
     return true;
 }
 
+// Page p of this tile's chain, from the build's allocation list.
+uint M8TilePage(uint ordinal)
+{
+    return _M8RenderPageQueues[M8_RENDER_ALLOC_BASE + gM8MembraneAllocBase +
+        ordinal];
+}
+
 bool M8TakeRenderPages(uint pagesNeeded)
 {
     if (pagesNeeded == 0u) return true;
-    if (gM8MembranePageCount + pagesNeeded > M8_RENDER_TILE_MAX_PAGES)
+    if (gM8MembranePageCount != 0u || pagesNeeded > M8_RENDER_TILE_MAX_PAGES)
         return false;
     // One atomic pop of the shared free stack: concurrent tile groups never
     // observe the same page, and an exhausted pool reverts its own claim.
+    // Nothing pushes onto the free stack during a build (rejected tiles
+    // retire their pages), so the popped range is intact while it is read.
     uint remaining;
     InterlockedAdd(_M8RenderPageQueues[M8_RENDER_CONTROL_FREE_PAGES],
         ~pagesNeeded + 1u, remaining);
@@ -1012,35 +1001,39 @@ bool M8TakeRenderPages(uint pagesNeeded)
             pagesNeeded, ignored);
         return false;
     }
+    uint allocBase;
+    InterlockedAdd(_M8RenderPageQueues[M8_RENDER_CONTROL_ALLOC_COUNT],
+        pagesNeeded, allocBase);
+    if (allocBase + pagesNeeded > M8_RENDER_PAGE_CAPACITY)
+    {
+        uint ignored;
+        InterlockedAdd(_M8RenderPageQueues[M8_RENDER_CONTROL_FREE_PAGES],
+            pagesNeeded, ignored);
+        return false;
+    }
+    gM8MembraneAllocBase = allocBase;
+    uint previous = M8_RENDER_PAGE_INVALID;
     for (uint page = 0u; page < pagesNeeded; page++)
     {
         uint pageId = _M8RenderPageQueues[
             M8_RENDER_FREE_BASE + remaining - 1u - page];
-        if (gM8MembranePageCount != 0u)
-        {
-            uint previous = gM8MembranePageIds[gM8MembranePageCount - 1u];
+        _M8RenderPageQueues[M8_RENDER_ALLOC_BASE + allocBase + page] = pageId;
+        if (previous != M8_RENDER_PAGE_INVALID)
             _M8RenderPageQueues[M8_RENDER_LINK_BASE + previous] = pageId;
-        }
-        gM8MembranePageIds[gM8MembranePageCount] = pageId;
-        gM8MembranePageCount += 1u;
         _M8RenderPageQueues[M8_RENDER_LINK_BASE + pageId] =
             M8_RENDER_PAGE_INVALID;
+        previous = pageId;
     }
+    gM8MembranePageCount = pagesNeeded;
     return true;
 }
 void M8DiscardTilePages()
 {
-    // Pages consumed by a rejected tile are referenced by neither slot, so
-    // they return to the free stack immediately.
+    // Pages of a rejected tile belong to no record; they return through the
+    // retire ring of this slot like every page a build stops referencing.
     uint count = gM8MembranePageCount;
-    if (count == 0u) return;
-    uint base;
-    InterlockedAdd(_M8RenderPageQueues[M8_RENDER_CONTROL_FREE_PAGES], count,
-        base);
     for (uint page = 0u; page < count; page++)
-        if (base + page < M8_RENDER_PAGE_CAPACITY)
-            _M8RenderPageQueues[M8_RENDER_FREE_BASE + base + page] =
-                gM8MembranePageIds[page];
+        M8RetirePage(M8TilePage(page));
 }
 
 uint M8SkinVisibleFaceletCount(uint neighbourMask)
@@ -1085,57 +1078,51 @@ float3 M8SkinProjectOntoPlane(float3 scaffold, int3 ownerCoord,
     return scaffold + normal * (offset - dot(scaffold - center, normal));
 }
 
-#define M8_SKIN_MAX_OWNERS 8u
+// Owners of a boundary vertex are visited in canonical lattice order: the
+// neighbours below this kernel, this kernel, the neighbours above. The
+// neighbour table is generated in that order (z, y, x ascending) and this
+// kernel sorts between entries 12 and 13. Both sides of a shared boundary
+// visit the same sequence, so their floats agree bit for bit, and no private
+// array exists for the Adreno compiler to spill.
+#define M8_SKIN_SELF_ORDER 13u
+#define M8_SKIN_OWNER_ORDERS (M8_SKIN_NEIGHBOUR_COUNT + 1u)
 
-bool M8SkinCoordBefore(int3 a, int3 b)
+// Full canonical state of a resolved halo kernel through the cached tile
+// slots: colour and confidence come from the record, not from the halo
+// summary, so the live vertex equals the export vertex.
+KernelState M8LoadOwnerState(int3 globalCoord)
 {
-    if (a.z != b.z) return a.z < b.z;
-    if (a.y != b.y) return a.y < b.y;
-    return a.x < b.x;
+    int3 relative = globalCoord - gM8MembraneTileOrigin;
+    int3 tileOffset = int3(relative.x < 0 ? -1 : relative.x >= 8 ? 1 : 0,
+        relative.y < 0 ? -1 : relative.y >= 8 ? 1 : 0,
+        relative.z < 0 ? -1 : relative.z >= 8 ? 1 : 0);
+    int3 local = relative - tileOffset * 8;
+    uint slot = gM8MembraneTileSlots[M8MembraneTileIndex(tileOffset)];
+    uint kernelLocal = (uint)local.x | ((uint)local.y << 3u) |
+        ((uint)local.z << 6u);
+    return M8LoadKernelStateRead(slot, kernelLocal);
 }
 
-// Owners of a boundary vertex in canonical lattice order: this kernel plus
-// every compatible contact neighbour with a measured plane. Both sides of a
-// shared boundary build the same sequence, so their floats agree bit for bit.
-uint M8SkinCollectOwners(int3 globalCoord, KernelState state,
-    uint neighbourMask, uint vertexIndex, out int3 coords[M8_SKIN_MAX_OWNERS],
-    out KernelState states[M8_SKIN_MAX_OWNERS])
+bool M8SkinOwnerAt(int3 globalCoord, KernelState state, uint sharedMask,
+    uint order, out int3 coord, out KernelState owner)
 {
-    [unroll]
-    for (uint clear = 0u; clear < M8_SKIN_MAX_OWNERS; clear++)
+    if (order == M8_SKIN_SELF_ORDER)
     {
-        coords[clear] = int3(0, 0, 0);
-        states[clear] = (KernelState)0;
+        coord = globalCoord;
+        owner = state;
+        return true;
     }
-    uint count = 0u;
-    coords[0] = globalCoord;
-    states[0] = state;
-    count = 1u;
-    uint sharedMask = asuint(M8_SKIN_VERTICES[vertexIndex].w) & neighbourMask;
-    [loop]
-    for (uint index = 0u; index < M8_SKIN_NEIGHBOUR_COUNT; index++)
-    {
-        if ((sharedMask & (1u << index)) == 0u) continue;
-        if (count >= M8_SKIN_MAX_OWNERS) break;
-        int3 coord = globalCoord + M8_SKIN_NEIGHBOURS[index];
-        KernelState neighbour;
-        bool resolved;
-        if (!M8TryLoadMembraneState(coord, neighbour, resolved) || !resolved ||
-            !M8HasSurfacePlane(neighbour.flags)) continue;
-        // insertion in canonical order
-        uint slot = count;
-        [loop]
-        while (slot > 0u && M8SkinCoordBefore(coord, coords[slot - 1u]))
-        {
-            coords[slot] = coords[slot - 1u];
-            states[slot] = states[slot - 1u];
-            slot--;
-        }
-        coords[slot] = coord;
-        states[slot] = neighbour;
-        count++;
-    }
-    return count;
+    uint index = order < M8_SKIN_SELF_ORDER ? order : order - 1u;
+    coord = globalCoord + M8_SKIN_NEIGHBOURS[index];
+    owner = (KernelState)0;
+    if ((sharedMask & (1u << index)) == 0u) return false;
+    KernelState summary;
+    bool resolved;
+    if (!M8TryLoadMembraneState(coord, summary, resolved) || !resolved ||
+        !M8HasSurfacePlane(summary.flags))
+        return false;
+    owner = M8LoadOwnerState(coord);
+    return true;
 }
 
 float3 M8SkinVertexPosition(int3 globalCoord, KernelState state,
@@ -1143,14 +1130,19 @@ float3 M8SkinVertexPosition(int3 globalCoord, KernelState state,
 {
     float3 scaffold = M8SkinScaffoldPoint(globalCoord, vertexIndex);
     if (!M8HasSurfacePlane(state.flags)) return scaffold;
-    int3 coords[M8_SKIN_MAX_OWNERS];
-    KernelState states[M8_SKIN_MAX_OWNERS];
-    uint count = M8SkinCollectOwners(globalCoord, state, neighbourMask,
-        vertexIndex, coords, states);
+    uint sharedMask = asuint(M8_SKIN_VERTICES[vertexIndex].w) & neighbourMask;
     float3 sum = 0.0;
+    uint count = 0u;
     [loop]
-    for (uint index = 0u; index < count; index++)
-        sum += M8SkinProjectOntoPlane(scaffold, coords[index], states[index]);
+    for (uint order = 0u; order < M8_SKIN_OWNER_ORDERS; order++)
+    {
+        int3 coord;
+        KernelState owner;
+        if (!M8SkinOwnerAt(globalCoord, state, sharedMask, order, coord,
+                owner)) continue;
+        sum += M8SkinProjectOntoPlane(scaffold, coord, owner);
+        count++;
+    }
     return sum / (float)count;
 }
 
@@ -1189,16 +1181,17 @@ bool M8SkinFaceletVisible(uint4 facelet, uint neighbourMask, float3 facing)
 uint M8SkinVertexColor(int3 globalCoord, KernelState state,
     uint neighbourMask, uint vertexIndex)
 {
-    int3 coords[M8_SKIN_MAX_OWNERS];
-    KernelState states[M8_SKIN_MAX_OWNERS];
-    uint count = M8SkinCollectOwners(globalCoord, state, neighbourMask,
-        vertexIndex, coords, states);
+    uint sharedMask = asuint(M8_SKIN_VERTICES[vertexIndex].w) & neighbourMask;
     uint red = 0u, green = 0u, blue = 0u, total = 0u;
     [loop]
-    for (uint index = 0u; index < count; index++)
+    for (uint order = 0u; order < M8_SKIN_OWNER_ORDERS; order++)
     {
-        uint weight = max(1u, states[index].colorConfidence);
-        uint packed = states[index].packedColor;
+        int3 coord;
+        KernelState owner;
+        if (!M8SkinOwnerAt(globalCoord, state, sharedMask, order, coord,
+                owner)) continue;
+        uint weight = max(1u, owner.colorConfidence);
+        uint packed = owner.packedColor;
         red += (packed & 255u) * weight;
         green += ((packed >> 8u) & 255u) * weight;
         blue += ((packed >> 16u) & 255u) * weight;
@@ -1256,7 +1249,7 @@ uint M8SkinVertexCount(uint used[M8_SKIN_VERTEX_MASK_WORDS])
 // Vertex k of the tile lives in page chain[k >> 6], slot k & 63.
 uint M8SkinVertexSlot(uint tileVertex)
 {
-    return gM8MembranePageIds[tileVertex >> M8_RENDER_PAGE_VERTEX_SHIFT] *
+    return M8TilePage(tileVertex >> M8_RENDER_PAGE_VERTEX_SHIFT) *
         M8_RENDER_PAGE_VERTICES +
         (tileVertex & (M8_RENDER_PAGE_VERTICES - 1u));
 }
@@ -1264,7 +1257,7 @@ uint M8SkinVertexSlot(uint tileVertex)
 // Index j of the tile lives in page chain[j >> 8], slot j & 255.
 uint M8SkinIndexSlot(uint tileIndex)
 {
-    return gM8MembranePageIds[tileIndex >> M8_RENDER_PAGE_INDEX_SHIFT] *
+    return M8TilePage(tileIndex >> M8_RENDER_PAGE_INDEX_SHIFT) *
         M8_RENDER_PAGE_INDICES +
         (tileIndex & (M8_RENDER_PAGE_INDICES - 1u));
 }
@@ -1670,13 +1663,10 @@ void BuildRenderTiles(uint3 groupId : SV_GroupID,
     _M8RenderIndexBack[base + 4u] = asuint(gM8MembraneTileOrigin.y);
     _M8RenderIndexBack[base + 5u] = asuint(gM8MembraneTileOrigin.z);
     _M8RenderIndexBack[base + M8_RENDER_RECORD_FIRST_PAGE] =
-        gM8MembranePageCount != 0u ? gM8MembranePageIds[0] :
+        gM8MembranePageCount != 0u ? M8TilePage(0u) :
             M8_RENDER_PAGE_INVALID;
     _M8RenderIndexBack[base + M8_RENDER_RECORD_VERSION] =
         _M8RenderVersionsRead[physicalSlot];
-    for (uint page = 0u; page < gM8MembranePageCount; page++)
-        M8AppendPageQueue(M8_RENDER_ALLOC_BASE,
-            M8_RENDER_CONTROL_ALLOC_COUNT, gM8MembranePageIds[page]);
     InterlockedAnd(_M8TileRecords[M8TileRuntimeIndex(physicalSlot)].w,
         ~(M8_RENDER_DIRTY | M8_RENDER_PENDING |
           M8_RENDER_DEPENDENCY_MASK), ignoredCount);
@@ -1704,9 +1694,27 @@ void RecountRenderPatches(uint id : SV_DispatchThreadID)
     if (id >= tiles) return;
     uint physicalSlot = _M8RenderIndexBack[M8BackListBase() + id];
     if (physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) return;
-    uint patches = _M8RenderIndexBack[M8RecordBase(physicalSlot) + 0u];
+    uint base = M8RecordBase(physicalSlot);
+    uint patches = _M8RenderIndexBack[base + 0u];
     uint ignored;
     InterlockedAdd(_M8RenderIndexBack[1], patches, ignored);
+    // Every page of this record is claimed for this tile. A page claimed by
+    // two records is publication corruption; ValidatePublication then also
+    // rejects every index that does not land in a page of its own record.
+    uint pages = min(_M8RenderIndexBack[base + 1u], M8_RENDER_TILE_MAX_PAGES);
+    uint page = _M8RenderIndexBack[base + M8_RENDER_RECORD_FIRST_PAGE];
+    [loop]
+    for (uint ordinal = 0u; ordinal < pages; ordinal++)
+    {
+        if (page >= M8_RENDER_PAGE_CAPACITY) break;
+        uint prior;
+        InterlockedCompareExchange(
+            _M8RenderPageQueues[M8_RENDER_OWNER_BASE + page], 0u,
+            physicalSlot + 1u, prior);
+        if (prior != 0u)
+            _M8Counters[M8_COUNTER_RENDER_PUBLICATION_INVALID] = 1u;
+        page = _M8RenderPageQueues[M8_RENDER_LINK_BASE + page];
+    }
 }
 
 // Every published record of BACK is checked before it can become FRONT: page
@@ -1741,12 +1749,19 @@ void ValidatePublication(uint id : SV_DispatchThreadID)
             uint source = page * M8_RENDER_PAGE_INDICES;
             [loop]
             for (uint slot = 0u; slot < used; slot++)
-                if (_M8RenderIndicesRead[source + slot] >=
-                    M8_RENDER_PAGE_CAPACITY * M8_RENDER_PAGE_VERTICES)
+            {
+                uint vertex = _M8RenderIndicesRead[source + slot];
+                // The vertex must live in a page this very record owns.
+                if (vertex >= M8_RENDER_PAGE_CAPACITY *
+                        M8_RENDER_PAGE_VERTICES ||
+                    _M8RenderPageQueues[M8_RENDER_OWNER_BASE +
+                        (vertex >> M8_RENDER_PAGE_VERTEX_SHIFT)] !=
+                    physicalSlot + 1u)
                 {
                     valid = false;
                     break;
                 }
+            }
             remaining -= used;
             page = _M8RenderPageQueues[M8_RENDER_LINK_BASE + page];
         }
@@ -1778,12 +1793,14 @@ void FinalizeReadout(uint id : SV_DispatchThreadID)
     uint unresolved = min(0x7fffffffu,
         _M8Counters[M8_COUNTER_READOUT_UNRESOLVED] +
         _M8Counters[M8_COUNTER_RENDER_PENDING_TILES]);
-    // A build that could not place every selected tile publishes nothing:
-    // FRONT stays and the scan transaction retries its readout.
+    // A build that could not place every selected tile, or whose halo is
+    // still unresolved, publishes nothing: FRONT stays, the scan transaction
+    // stays open and the readout retries once residency moved.
     bool failed = _M8Counters[M8_COUNTER_RENDER_CAPACITY_FAILED] != 0u ||
         _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] != 0u ||
         _M8Counters[M8_COUNTER_RENDER_VIEW_OVERFLOW] != 0u ||
-        _M8Counters[M8_COUNTER_RENDER_PUBLICATION_INVALID] != 0u;
+        _M8Counters[M8_COUNTER_RENDER_PUBLICATION_INVALID] != 0u ||
+        unresolved != 0u;
     if (_M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] ==
             MERKABA_READOUT_BUILDING)
         _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] = failed

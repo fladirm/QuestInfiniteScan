@@ -203,7 +203,14 @@ returns before anchor relocalizes -> "Room anchor not localized".
 only, not anchor tracked/stable; no TrackingOriginChangePending / trackingOriginUpdated
 handling; pause during unfinished resume clears `_resumeAfterPause`.
 
-## RISK-16 — the analytic skin is published and exported at full density; the artifact viewer collapses [FIXED IN CODE 2026-09-16, DEVICE ACCEPTANCE PENDING]
+## RISK-16 — the analytic skin is published and exported at full density; the artifact viewer collapses [PARTIALLY FIXED IN CODE 2026-09-16; DENSITY NOT CLOSED; DEVICE ACCEPTANCE PENDING]
+
+Still open after the review closure: every visible facelet is still one triangle
+(no merge of adjacent coplanar facelets on CPU or GPU), so the triangle density of
+the export and of the live publication is unproven until a new device export exists;
+and vertex identity is shared between kernels inside one 8^3 tile only
+(`M8SkinNeighbourKernel` returns invalid across tiles), so tile boundaries still hold
+two vertex slots for one physical point (bit-identical position, no seam).
 
 Fix (review closure `1f39344`..`163b647`): vertices are projected onto the measured
 sheets (`P = Q + N (d - dot(Q - C, N))`, mean over the owner sheets in canonical order),

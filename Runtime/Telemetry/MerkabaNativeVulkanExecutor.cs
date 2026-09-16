@@ -13,7 +13,7 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        internal const int AbiVersion = 4;
+        internal const int AbiVersion = 5;
         internal const int ResourceCount = 48;
         // First pipeline of each job kind; must equal the plugin's
         // kReadoutPipelineBegin / kFineErasePipelineBegin and the

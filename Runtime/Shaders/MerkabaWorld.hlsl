@@ -21,7 +21,7 @@
 #define M8_RENDER_VISIBLE_USED_SHIFT 16u
 #define M8_RENDER_VISIBLE_USED_MASK 0xffu
 #define M8_RENDER_PAGE_INVALID 0xffffffffu
-#define M8_RENDER_TILE_MAX_PAGES 512u
+#define M8_RENDER_TILE_MAX_PAGES 2560u
 #define M8_RENDER_RECORD_WORDS 8u
 #define M8_RENDER_RECORD_FIRST_PAGE 6u
 // Publication version of the tile this record was built from.
@@ -54,6 +54,9 @@
     (M8_RENDER_CONTROL_WORDS + 2u * M8_RENDER_PAGE_CAPACITY)
 #define M8_RENDER_LINK_BASE \
     (M8_RENDER_CONTROL_WORDS + 3u * M8_RENDER_PAGE_CAPACITY)
+// Owner (tile + 1) of every page of the publication under validation.
+#define M8_RENDER_OWNER_BASE \
+    (M8_RENDER_CONTROL_WORDS + 4u * M8_RENDER_PAGE_CAPACITY)
 // Tile runtime.w: disposable readout scheduling bits, never persisted.
 // Bits 3..28 are exact 26-neighbour boundary dependencies.
 #define M8_RENDER_DIRTY 1u

@@ -603,53 +603,32 @@ namespace Genesis.RoomScan
         }
 
         /// <summary>
-        /// The owners of a boundary vertex: this kernel plus every compatible
-        /// contact neighbour with a measured plane, in canonical lattice order
-        /// so both sides of a shared boundary evaluate the same sequence.
+        /// Owners of a boundary vertex are visited in canonical lattice order:
+        /// the neighbours below this kernel, this kernel, the neighbours
+        /// above. <see cref="NeighboursValue"/> is generated in that order
+        /// (z, y, x ascending) and this kernel sorts between entries 12 and
+        /// 13, so both sides of a shared boundary evaluate the same sequence
+        /// without sorting or owner arrays. Mirrors M8SkinOwnerAt.
         /// </summary>
-        private static int CollectOwners(int3 kernelCoord, KernelState state,
-            IReadOnlyDictionary<int3, KernelState> context, uint neighbourMask,
-            int vertex, Span<int3> ownerCoords, Span<KernelState> ownerStates)
+        internal const int SelfOrder = 13;
+        internal const int OwnerOrders = 27;
+
+        private static bool OwnerAt(int3 kernelCoord, KernelState state,
+            IReadOnlyDictionary<int3, KernelState> context, uint sharedMask,
+            int order, out int3 coord, out KernelState owner)
         {
-            int count = 0;
-            uint shared = _vertexContacts[vertex] & neighbourMask;
-            InsertOwner(kernelCoord, state, ownerCoords, ownerStates, ref count);
-            for (int index = 0; index < NeighboursValue.Length; index++)
+            if (order == SelfOrder)
             {
-                if ((shared & (1u << index)) == 0u) continue;
-                int3 coord = kernelCoord + NeighboursValue[index];
-                if (context.TryGetValue(coord, out KernelState neighbour) &&
-                    neighbour.HasMeasuredSurfacePlane)
-                    InsertOwner(coord, neighbour, ownerCoords, ownerStates,
-                        ref count);
+                coord = kernelCoord;
+                owner = state;
+                return true;
             }
-            return count;
-        }
-
-        private static void InsertOwner(int3 coord, KernelState owner,
-            Span<int3> ownerCoords, Span<KernelState> ownerStates,
-            ref int count)
-        {
-            if (count == ownerCoords.Length) return;
-            int index = count;
-            while (index > 0 && CompareCoords(coord, ownerCoords[index - 1]) < 0)
-            {
-                ownerCoords[index] = ownerCoords[index - 1];
-                ownerStates[index] = ownerStates[index - 1];
-                index--;
-            }
-            ownerCoords[index] = coord;
-            ownerStates[index] = owner;
-            count++;
-        }
-
-        internal const int MaximumVertexOwners = 8;
-
-        private static int CompareCoords(int3 a, int3 b)
-        {
-            if (a.z != b.z) return a.z < b.z ? -1 : 1;
-            if (a.y != b.y) return a.y < b.y ? -1 : 1;
-            return a.x == b.x ? 0 : a.x < b.x ? -1 : 1;
+            int index = order < SelfOrder ? order : order - 1;
+            coord = kernelCoord + NeighboursValue[index];
+            owner = default;
+            if ((sharedMask & (1u << index)) == 0u) return false;
+            return context.TryGetValue(coord, out owner) &&
+                owner.HasMeasuredSurfacePlane;
         }
 
         /// <summary>
@@ -687,13 +666,16 @@ namespace Genesis.RoomScan
         {
             float3 scaffold = ScaffoldPoint(kernelCoord, vertex);
             if (!state.HasMeasuredSurfacePlane) return scaffold;
-            Span<int3> coords = stackalloc int3[MaximumVertexOwners];
-            Span<KernelState> states = stackalloc KernelState[MaximumVertexOwners];
-            int count = CollectOwners(kernelCoord, state, context, neighbourMask,
-                vertex, coords, states);
+            uint shared = _vertexContacts[vertex] & neighbourMask;
             float3 sum = float3.zero;
-            for (int index = 0; index < count; index++)
-                sum += ProjectOntoPlane(scaffold, coords[index], states[index]);
+            int count = 0;
+            for (int order = 0; order < OwnerOrders; order++)
+            {
+                if (!OwnerAt(kernelCoord, state, context, shared, order,
+                        out int3 coord, out KernelState owner)) continue;
+                sum += ProjectOntoPlane(scaffold, coord, owner);
+                count++;
+            }
             return sum / count;
         }
 
@@ -702,15 +684,14 @@ namespace Genesis.RoomScan
             IReadOnlyDictionary<int3, KernelState> context, uint neighbourMask,
             int vertex)
         {
-            Span<int3> coords = stackalloc int3[MaximumVertexOwners];
-            Span<KernelState> states = stackalloc KernelState[MaximumVertexOwners];
-            int count = CollectOwners(kernelCoord, state, context, neighbourMask,
-                vertex, coords, states);
+            uint shared = _vertexContacts[vertex] & neighbourMask;
             float3 sum = float3.zero;
-            for (int index = 0; index < count; index++)
+            for (int order = 0; order < OwnerOrders; order++)
             {
-                KernelState.DecodeSurfacePlane(states[index].Flags,
-                    out float3 normal, out _);
+                if (!OwnerAt(kernelCoord, state, context, shared, order,
+                        out _, out KernelState owner)) continue;
+                KernelState.DecodeSurfacePlane(owner.Flags, out float3 normal,
+                    out _);
                 sum += normal;
             }
             return math.normalizesafe(sum, new float3(0f, 1f, 0f));
@@ -720,15 +701,14 @@ namespace Genesis.RoomScan
             IReadOnlyDictionary<int3, KernelState> context,
             uint neighbourMask, int vertex)
         {
-            Span<int3> coords = stackalloc int3[MaximumVertexOwners];
-            Span<KernelState> states = stackalloc KernelState[MaximumVertexOwners];
-            int count = CollectOwners(kernelCoord, state, context, neighbourMask,
-                vertex, coords, states);
+            uint shared = _vertexContacts[vertex] & neighbourMask;
             ulong red = 0, green = 0, blue = 0, total = 0;
-            for (int index = 0; index < count; index++)
+            for (int order = 0; order < OwnerOrders; order++)
             {
-                ulong weight = math.max(1u, states[index].ColorConfidence);
-                Color32 color = KernelState.UnpackColor(states[index].PackedColor);
+                if (!OwnerAt(kernelCoord, state, context, shared, order,
+                        out _, out KernelState owner)) continue;
+                ulong weight = math.max(1u, owner.ColorConfidence);
+                Color32 color = KernelState.UnpackColor(owner.PackedColor);
                 red += color.r * weight;
                 green += color.g * weight;
                 blue += color.b * weight;

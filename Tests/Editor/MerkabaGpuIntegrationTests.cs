@@ -143,7 +143,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(allBuffers.Max(), Is.EqualTo(64L * 1024 * 1024));
             Assert.That(allBuffers.Max(), Is.LessThanOrEqualTo(
                 128L * 1024 * 1024));
-            Assert.That(allBuffers.Sum(), Is.EqualTo(904630472L));
+            Assert.That(allBuffers.Sum(), Is.EqualTo(905154760L));
 
             Assert.That(MerkabaSpatial.OwnerRecordCount,
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
@@ -243,7 +243,7 @@ namespace Genesis.RoomScan.Tests
                 "M8SkinVertexPosition("));
             Assert.That(build, Does.Contain("[loop]"));
             Assert.That(build, Does.Contain(
-                "for (uint batch = 0u; batch < 4u; batch++)"));
+                "for (uint batchA = 0u; batchA < 4u; batchA++)"));
             Assert.That(build, Does.Not.Contain("M8FindBlock("));
             Assert.That(generated, Does.Contain(
                 "bool M8TryBuildMembranePatch"));
@@ -847,7 +847,7 @@ namespace Genesis.RoomScan.Tests
                     Does.Not.Contain(obsolete), obsolete);
             }
             Assert.That(native, Does.Contain(
-                "constexpr uint32_t kRenderSlotGroupCount = 128"));
+                "constexpr uint32_t kRenderSlotGroupCount = 256"));
             Assert.That(MerkabaGrid.ReadoutVisibleBufferCount,
                 Is.EqualTo(MerkabaSpatial.PhysicalTileCapacity));
             Assert.That(MerkabaNativeVulkanExecutor.ResourceCount,
@@ -942,7 +942,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(readout, Does.Contain("RWByteAddressBuffer _M8RenderVertices"));
             Assert.That(readout, Does.Contain("_M8RenderVertices.Store3(address"));
             Assert.That(readout, Does.Contain(
-                "live ? v + 3u : pageVertex"));
+                "_M8RenderIndices[M8SkinIndexSlot(indexBase + localIndex)] ="));
             Assert.That(shader, Does.Contain("half3(0.625h, 0.625h, 0.625h)"));
             Assert.That(shader, Does.Contain(
                 "round(saturate(input.packedColor.a) *"));

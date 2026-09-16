@@ -42,6 +42,12 @@ for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
         echo "FAIL: $kernel regressed to int64/integer div/mod" >&2
         exit 1
       fi
+      # Adreno rejects the kernel (vkCreateComputePipelines VK_ERROR_UNKNOWN)
+      # once it carries dynamically indexed private arrays of kernel states.
+      if grep -Eq 'OpTypeArray %KernelState' "$assembly"; then
+        echo "FAIL: $kernel carries a private KernelState array" >&2
+        exit 1
+      fi
       if ! grep -Eq 'OpExecutionMode .* LocalSize 128 1 1' "$assembly"; then
         echo "FAIL: $kernel is not the frozen 128-lane tile workgroup" >&2
         exit 1

@@ -91,7 +91,9 @@ checks = {
         "slotGroups" not in renderer,
     "native readout executes on the scanner queue":
         "if (kind == JobKind.Readout) return false;" not in native and
-        "AbiVersion = 4" in native and
+        "AbiVersion = 5" in native and
+        "kExecutorAbiVersion = 5;" in text(
+            "Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp") and
         "SubmitNativeReadoutBuild" in renderer,
     "device publication is confirmed by the native fence copy":
         "TryReadCompletion(_completionRecord)" in renderer and
@@ -168,6 +170,28 @@ def pipeline_begins_match() -> bool:
 
 checks["managed stage timing begins equal the plugin job boundaries"] = \
     pipeline_begins_match()
+checks["vertex owners are walked in canonical order without owner arrays"] = \
+    "M8SkinOwnerAt(" in readout and "M8_SKIN_MAX_OWNERS" not in readout and \
+    "OwnerAt(" in skin and "SelfOrder = 13" in skin
+checks["publication validates page ownership, not only index range"] = \
+    "M8_RENDER_OWNER_BASE" in readout and \
+    "InterlockedCompareExchange(\n            _M8RenderPageQueues[M8_RENDER_OWNER_BASE + page]" in readout and \
+    "(vertex >> M8_RENDER_PAGE_VERTEX_SHIFT)] !=" in readout
+checks["an unresolved halo keeps the scan transaction open"] = \
+    "unresolved != 0u;" in readout
+checks["a rejected BACK keeps FRONT and its own pages"] = \
+    "_previousPublished = false" not in renderer[renderer.index("void RejectPublication"):renderer.index("void RejectPublication")+600] and \
+    "_frontTileCount = VisibleTileCount" not in renderer and \
+    "_M8PreviousPublished" not in readout
+checks["native front-tile sweeps cover every physical tile slot"] = \
+    "kRenderSlotGroupCount = 256" in text(
+        "Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp") and \
+    "MerkabaSpatial.PhysicalTileCapacity / 128" in renderer
+checks["live vertex colour comes from the canonical owner record"] = \
+    "owner = M8LoadOwnerState(coord);" in readout
+checks["per-tile page chain bound is the contract's 2560"] = \
+    "RenderTileMaxPages = 2560" in grid and \
+    "M8_RENDER_TILE_MAX_PAGES 2560u" in text("Runtime/Shaders/MerkabaWorld.hlsl")
 checks["capacity failure makes BACK non-publishable"] = \
     "MERKABA_READOUT_FAILED : MERKABA_READOUT_PUBLISHED" in readout
 checks["publication is decided from the native completion copy"] = \

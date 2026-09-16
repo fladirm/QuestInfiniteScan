@@ -27,7 +27,7 @@ namespace Genesis.RoomScan
         internal const int RenderPageVertices = 64;
         internal const int RenderPageIndices = 256;
         internal const int RenderPageCapacity = 65536;
-        internal const int RenderTileMaxPages = 512;
+        internal const int RenderTileMaxPages = 2560;
         // Records carry a linked-list head; page links live in the allocator.
         internal const int RenderRecordWords = 8;
         internal const int RenderIndexHeader = 8;
@@ -38,8 +38,10 @@ namespace Genesis.RoomScan
             MerkabaSpatial.PhysicalTileCapacity * 2;
         internal const int PublicationSlotCount = 2;
         internal const int RenderControlWords = 8;
+        // Free stack, retire ring, allocation list (the page chains of the
+        // build), link table and page ownership of the validated publication.
         internal const int RenderPageQueueCount = RenderControlWords +
-            RenderPageCapacity * 4;
+            RenderPageCapacity * 5;
         internal const int ReadoutVertexCapacity = RenderPageCapacity *
             RenderPageVertices;
         internal const int ReadoutVertexStride = 16;

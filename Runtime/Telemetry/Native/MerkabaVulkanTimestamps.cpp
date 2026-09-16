@@ -2,6 +2,8 @@
 #include "IUnityGraphicsVulkan.h"
 #include "IUnityLog.h"
 
+#include <android/log.h>
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -110,14 +112,15 @@ namespace
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
 
-    constexpr uint32_t kExecutorAbiVersion = 4;
+    constexpr uint32_t kExecutorAbiVersion = 5;
     constexpr uint32_t kObservationPipelineEnd = 33;
     constexpr uint32_t kReadoutPipelineBegin = 33;
     constexpr uint32_t kFineErasePipelineBegin = 48;
     constexpr uint32_t kMaximumExecutorQueries =
         kMerkabaExecutorPipelineCount * 2 + 2;
     // 32768 physical tile slots in 256-lane groups.
-    constexpr uint32_t kRenderSlotGroupCount = 128;
+    // One thread per physical tile slot: 32768 / 128 groups.
+    constexpr uint32_t kRenderSlotGroupCount = 256;
 
     enum ExecutorJobKind : uint32_t
     {
@@ -305,21 +308,29 @@ namespace
     int g_eventBase = 0;
     bool g_eventsReserved = false;
 
+    // Every plugin message also goes to logcat under one tag, so a failed
+    // initialization is visible on the device even when the Unity log
+    // interface drops it.
+    constexpr const char* kLogcatTag = "MerkabaNative";
+
     void Log(const char* message)
     {
-        if (g_log != nullptr && message != nullptr)
+        if (message == nullptr)
+            return;
+        __android_log_print(ANDROID_LOG_INFO, kLogcatTag, "%s", message);
+        if (g_log != nullptr)
             UNITY_LOG(g_log, message);
     }
 
     void LogError(const char* operation, VkResult result)
     {
-        if (g_log == nullptr)
-            return;
         char message[384] = {};
         std::snprintf(message, sizeof(message),
             "Merkaba native scanner: %s failed VkResult=%d", operation,
             static_cast<int>(result));
-        UNITY_LOG_ERROR(g_log, message);
+        __android_log_print(ANDROID_LOG_ERROR, kLogcatTag, "%s", message);
+        if (g_log != nullptr)
+            UNITY_LOG_ERROR(g_log, message);
     }
 
     uint64_t MonotonicNs()
@@ -566,6 +577,14 @@ namespace
         {
             const MerkabaEmbeddedPipeline& embedded =
                 kMerkabaExecutorPipelines[index];
+            {
+                char message[256] = {};
+                std::snprintf(message, sizeof(message),
+                    "Merkaba native scanner: creating pipeline index=%u "
+                    "label=%s descriptors=%u", index, embedded.entryPoint,
+                    embedded.descriptorCount);
+                Log(message);
+            }
             std::vector<VkDescriptorSetLayoutBinding> bindings;
             bindings.reserve(embedded.descriptorCount);
             for (uint32_t descriptorIndex = 0;
@@ -614,6 +633,7 @@ namespace
                 nullptr, &module);
             if (result != VK_SUCCESS)
             {
+                LogError(embedded.entryPoint, result);
                 LogError("vkCreateShaderModule", result);
                 return false;
             }
@@ -634,6 +654,7 @@ namespace
             vkDestroyShaderModule(g_instance.device, module, nullptr);
             if (result != VK_SUCCESS)
             {
+                LogError(embedded.entryPoint, result);
                 LogError("vkCreateComputePipelines", result);
                 return false;
             }
@@ -1587,14 +1608,13 @@ namespace
         g_vulkan->ConfigureEvent(g_executorEventBase + 1, &submitConfig);
         g_vulkan->ConfigureEvent(g_executorEventBase + 2, &submitConfig);
         g_executorReady = true;
-        if (g_log != nullptr)
         {
             char message[384] = {};
             std::snprintf(message, sizeof(message),
                 "Merkaba native scanner ready: family=%u queue=1 "
                 "pipelines=%u queue0WaitsNative=0",
                 g_injectedQueueFamily, kMerkabaExecutorPipelineCount);
-            UNITY_LOG(g_log, message);
+            Log(message);
         }
         return true;
     }
@@ -1737,15 +1757,36 @@ namespace
         if (g_vulkan == nullptr)
             g_vulkan = g_interfaces->Get<IUnityGraphicsVulkanV2>();
         if (g_vulkan == nullptr)
+        {
+            Log("Merkaba native scanner unavailable: no Vulkan interface.");
             return;
+        }
         g_instance = g_vulkan->Instance();
         if (g_instance.device == VK_NULL_HANDLE ||
             g_instance.physicalDevice == VK_NULL_HANDLE)
+        {
+            Log("Merkaba native scanner: Vulkan device not created yet.");
             return;
+        }
 
         VkPhysicalDeviceProperties properties = {};
         vkGetPhysicalDeviceProperties(g_instance.physicalDevice, &properties);
         g_deviceProperties = properties;
+        {
+            char message[384] = {};
+            std::snprintf(message, sizeof(message),
+                "Merkaba native scanner: device=%s "
+                "maxComputeSharedMemorySize=%u "
+                "maxPerStageDescriptorStorageBuffers=%u "
+                "maxDescriptorSetStorageBuffers=%u "
+                "maxComputeWorkGroupInvocations=%u",
+                properties.deviceName,
+                properties.limits.maxComputeSharedMemorySize,
+                properties.limits.maxPerStageDescriptorStorageBuffers,
+                properties.limits.maxDescriptorSetStorageBuffers,
+                properties.limits.maxComputeWorkGroupInvocations);
+            Log(message);
+        }
         vkGetPhysicalDeviceMemoryProperties(g_instance.physicalDevice,
             &g_memoryProperties);
         uint32_t queueCount = 0;

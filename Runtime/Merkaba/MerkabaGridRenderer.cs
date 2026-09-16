@@ -225,8 +225,6 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_M8VisibleIndices");
         private static readonly int ReadoutRevisionId =
             Shader.PropertyToID("_M8ReadoutRevision");
-        private static readonly int PreviousPublishedId =
-            Shader.PropertyToID("_M8PreviousPublished");
         private static readonly int ResidencyChangedId =
             Shader.PropertyToID("_M8ResidencyChanged");
         private static readonly int RenderMutationQueueId =
@@ -648,7 +646,6 @@ namespace Genesis.RoomScan
             {
                 _buildInFlight = false;
                 _pendingBuild = default;
-                _previousPublished = false;
                 _canonicalDirty = true;
                 Logger.Warning("Merkaba readout completion request failed: " +
                     exception.Message);
@@ -695,8 +692,9 @@ namespace Genesis.RoomScan
             foreach (int kernel in new[]
                      {
                          _beginKernel, _warmKernel, _prepareReclaimKernel,
-                         _reclaimKernel, _applyReclaimKernel, _collectKernel,
-                         _buildKernel, _validateKernel
+                         _reclaimKernel, _applyReclaimKernel, _copyKernel,
+                         _collectKernel, _buildKernel, _recountKernel,
+                         _validateKernel
                      })
                 command.SetComputeBufferParam(readoutCompute, kernel,
                     RenderPageQueuesId, backPages);
@@ -802,8 +800,6 @@ namespace Genesis.RoomScan
                 query.Side);
             command.SetComputeIntParam(readoutCompute, ReadoutRevisionId,
                 unchecked((int)revision));
-            command.SetComputeIntParam(readoutCompute, PreviousPublishedId,
-                previousPublished ? 1 : 0);
             command.SetComputeIntParam(readoutCompute, ResidencyChangedId,
                 retryPendingTiles ? 1 : 0);
 
@@ -831,7 +827,6 @@ namespace Genesis.RoomScan
             values.Int("_M8QueryBlockRadius", query.Radius);
             values.Int("_M8QueryBlockSide", query.Side);
             values.UInt("_M8ReadoutRevision", ticket.Revision);
-            values.UInt("_M8PreviousPublished", _previousPublished ? 1u : 0u);
             values.UInt("_M8ResidencyChanged", _retryPendingTiles ? 1u : 0u);
             var resources = new IntPtr[
                 MerkabaNativeVulkanExecutor.ResourceCount];
@@ -953,9 +948,11 @@ namespace Genesis.RoomScan
         /// </summary>
         private void RejectPublication(ReadoutBuildTicket ticket)
         {
+            // FRONT, its tile count and _previousPublished stay exactly as
+            // they were: the draw keeps the last valid publication while the
+            // rejected BACK is completed by its next build.
             _buildInFlight = false;
             _pendingBuild = default;
-            _previousPublished = false;
             _canonicalDirty = true;
             _nextReadoutBuild = 0f;
         }
@@ -1236,9 +1233,11 @@ namespace Genesis.RoomScan
                 _statusReadbackPending = false;
                 if (request.hasError) return;
                 var counters = request.GetData<uint>();
+                // Telemetry only. _frontTileCount changes solely on the
+                // atomic publication swap; this counter may already hold the
+                // count of a BACK that was later rejected.
                 VisibleTileCount = ToInt(counters[
                     MerkabaGrid.CounterRenderPublishedTiles]);
-                _frontTileCount = VisibleTileCount;
                 _coverageIncomplete = counters[
                     MerkabaGrid.CounterReadoutUnresolved] != 0u;
                 if (_loadedCoverageReady != null && !_coverageIncomplete)

@@ -165,16 +165,23 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void UnpublishedBackReturnsItsFreshPages()
+        public void RejectedBackKeepsItsPagesAndCompletesWithoutLeak()
         {
             InstallWallTiles(new int3(0, 0, 0));
             Build();
             uint free = Control(MerkabaGrid.RenderControlFreePages);
+            int back = 1 - _front;
             MarkRenderDirty(SlotOf(new int3(0, 0, 0)));
             Build(publish: false);
-            Assert.That(Control(MerkabaGrid.RenderControlAllocCount),
-                Is.GreaterThan(0u));
+            // The rejected BACK still references the pages it allocated.
+            uint allocated = ControlOf(back, MerkabaGrid.RenderControlAllocCount);
+            Assert.That(allocated, Is.GreaterThan(0u));
+            Assert.That(ControlOf(back, MerkabaGrid.RenderControlFreePages),
+                Is.EqualTo((uint)MerkabaGrid.RenderPageCapacity - allocated));
+            // Its next build completes it: nothing is rebuilt, nothing leaks.
             Build();
+            Assert.That(_front, Is.EqualTo(back));
+            Assert.That(Counter(MerkabaGrid.CounterRenderRebuildTiles), Is.Zero);
             Assert.That(Control(MerkabaGrid.RenderControlFreePages),
                 Is.EqualTo(free));
         }
