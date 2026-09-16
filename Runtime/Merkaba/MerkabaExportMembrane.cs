@@ -16,11 +16,23 @@ namespace Genesis.RoomScan
         internal readonly uint PackedColor;
         internal readonly bool IsInferred;
         internal readonly bool IsTriangle;
+        // Shared-vertex triangles carry the canonical normal and colour of
+        // each corner; quads keep one normal and colour.
+        internal readonly float3 Normal10;
+        internal readonly float3 Normal11;
+        internal readonly uint PackedColor10;
+        internal readonly uint PackedColor11;
 
         internal MerkabaExportMembranePatch(int3 coord, float3 normal,
             float3 corner00, float3 corner10, float3 corner11, float3 corner01,
-            uint packedColor, bool isInferred, bool isTriangle = false)
+            uint packedColor, bool isInferred, bool isTriangle = false,
+            float3? normal10 = null, float3? normal11 = null,
+            uint? packedColor10 = null, uint? packedColor11 = null)
         {
+            Normal10 = normal10 ?? normal;
+            Normal11 = normal11 ?? normal;
+            PackedColor10 = packedColor10 ?? packedColor;
+            PackedColor11 = packedColor11 ?? packedColor;
             Coord = coord;
             Normal = normal;
             Corner00 = corner00;
@@ -155,32 +167,30 @@ namespace Genesis.RoomScan
                 MerkabaKernelSnapshot kernel = owners[ownerIndex];
                 uint neighbourMask = MerkabaSkin.CompatibleNeighbourMask(
                     kernel.Coord, kernel.State, context);
+                float3 facing = MerkabaSkin.Facing(kernel.Coord, kernel.State,
+                    context);
                 ReadOnlySpan<MerkabaSkin.Facelet> facelets =
                     MerkabaSkin.Facelets;
                 for (int faceletIndex = 0;
                      faceletIndex < facelets.Length; faceletIndex++)
                 {
                     MerkabaSkin.Facelet facelet = facelets[faceletIndex];
-                    if ((facelet.OccluderMask & neighbourMask) != 0u)
+                    if (!MerkabaSkin.FaceletVisible(facelet, neighbourMask,
+                            facing))
                         continue;
-                    float3 a = MerkabaSkin.VertexPosition(kernel.Coord,
-                        kernel.State, context, neighbourMask, facelet.A);
-                    float3 b = MerkabaSkin.VertexPosition(kernel.Coord,
-                        kernel.State, context, neighbourMask, facelet.B);
-                    float3 c = MerkabaSkin.VertexPosition(kernel.Coord,
-                        kernel.State, context, neighbourMask, facelet.C);
-                    float3 normal = math.normalizesafe(
-                        math.cross(b - a, c - a), new float3(0f, 1f, 0f));
-                    uint color = AverageColor(
-                        MerkabaSkin.VertexColor(kernel.Coord, kernel.State,
-                            context, neighbourMask, facelet.A),
-                        MerkabaSkin.VertexColor(kernel.Coord, kernel.State,
-                            context, neighbourMask, facelet.B),
-                        MerkabaSkin.VertexColor(kernel.Coord, kernel.State,
-                            context, neighbourMask, facelet.C));
+                    // Every corner is the canonical shared vertex: position,
+                    // normal and colour depend only on its owner sheets, so
+                    // the writer keys neighbouring kernels onto one vertex.
+                    ExportVertex a = SharedVertex(kernel, context, neighbourMask,
+                        facelet.A);
+                    ExportVertex b = SharedVertex(kernel, context, neighbourMask,
+                        facelet.B);
+                    ExportVertex c = SharedVertex(kernel, context, neighbourMask,
+                        facelet.C);
                     patches.Add(new MerkabaExportMembranePatch(
-                        kernel.Coord, normal, a, b, c, a,
-                        color, false, true));
+                        kernel.Coord, a.Normal, a.Position, b.Position,
+                        c.Position, a.Position, a.Color, false, true,
+                        b.Normal, c.Normal, b.Color, c.Color));
                 }
                 if (ownerIndex + 1 == owners.Count ||
                     (ownerIndex + 1) % 256 == 0)
@@ -199,6 +209,30 @@ namespace Genesis.RoomScan
                 canonical.ToArray(), measured.ToArray(), patches.Count, 0,
                 Array.Empty<int3>(), 0);
         }
+
+        private readonly struct ExportVertex
+        {
+            internal readonly float3 Position;
+            internal readonly float3 Normal;
+            internal readonly uint Color;
+
+            internal ExportVertex(float3 position, float3 normal, uint color)
+            {
+                Position = position;
+                Normal = normal;
+                Color = color;
+            }
+        }
+
+        private static ExportVertex SharedVertex(MerkabaKernelSnapshot kernel,
+            IReadOnlyDictionary<int3, KernelState> context, uint neighbourMask,
+            int vertex) => new(
+            MerkabaSkin.VertexPosition(kernel.Coord, kernel.State, context,
+                neighbourMask, vertex),
+            MerkabaSkin.VertexNormal(kernel.Coord, kernel.State, context,
+                neighbourMask, vertex),
+            MerkabaSkin.VertexColor(kernel.Coord, kernel.State, context,
+                neighbourMask, vertex));
 
         private static uint AverageColor(uint first, uint second, uint third)
         {

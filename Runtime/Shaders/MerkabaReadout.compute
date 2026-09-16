@@ -1078,58 +1078,148 @@ float3 M8SkinMeasuredShift(KernelState state)
     return normal * signedOffset;
 }
 
-// Canonical position of a boundary vertex: the measured shift is the mean over
-// the kernels that share it, so both sides of a boundary agree bit for bit.
-float3 M8SkinVertexPosition(int3 globalCoord, KernelState state,
-    uint neighbourMask, uint vertexIndex)
+// Scaffold point of a template vertex. The 50 mm support is topology only
+// and is never emitted as is.
+float3 M8SkinScaffoldPoint(int3 globalCoord, uint vertexIndex)
 {
-    int4 vertex = M8_SKIN_VERTICES[vertexIndex];
-    float3 basePosition = (float3)globalCoord * MERKABA_LATTICE_STEP +
-        (float3)vertex.xyz * (MERKABA_LATTICE_STEP * M8_SKIN_VERTEX_SCALE);
-    if (!M8HasSurfacePlane(state.flags)) return basePosition;
-    float3 shift = M8SkinMeasuredShift(state);
-    float weight = 1.0;
-    uint sharedMask = asuint(vertex.w) & neighbourMask;
+    return (float3)globalCoord * MERKABA_LATTICE_STEP +
+        (float3)M8_SKIN_VERTICES[vertexIndex].xyz *
+        (MERKABA_LATTICE_STEP * M8_SKIN_VERTEX_SCALE);
+}
+
+// P = Q + N (d - dot(Q - C, N)): the scaffold point projected onto one
+// owner's measured plane, which passes through C + N d.
+float3 M8SkinProjectOntoPlane(float3 scaffold, int3 ownerCoord,
+    KernelState owner)
+{
+    float3 normal;
+    float offset;
+    M8DecodeSurfacePlane(owner.flags, normal, offset);
+    float3 center = (float3)ownerCoord * MERKABA_LATTICE_STEP;
+    return scaffold + normal * (offset - dot(scaffold - center, normal));
+}
+
+#define M8_SKIN_MAX_OWNERS 8u
+
+bool M8SkinCoordBefore(int3 a, int3 b)
+{
+    if (a.z != b.z) return a.z < b.z;
+    if (a.y != b.y) return a.y < b.y;
+    return a.x < b.x;
+}
+
+// Owners of a boundary vertex in canonical lattice order: this kernel plus
+// every compatible contact neighbour with a measured plane. Both sides of a
+// shared boundary build the same sequence, so their floats agree bit for bit.
+uint M8SkinCollectOwners(int3 globalCoord, KernelState state,
+    uint neighbourMask, uint vertexIndex, out int3 coords[M8_SKIN_MAX_OWNERS],
+    out KernelState states[M8_SKIN_MAX_OWNERS])
+{
+    [unroll]
+    for (uint clear = 0u; clear < M8_SKIN_MAX_OWNERS; clear++)
+    {
+        coords[clear] = int3(0, 0, 0);
+        states[clear] = (KernelState)0;
+    }
+    uint count = 0u;
+    coords[0] = globalCoord;
+    states[0] = state;
+    count = 1u;
+    uint sharedMask = asuint(M8_SKIN_VERTICES[vertexIndex].w) & neighbourMask;
     [loop]
     for (uint index = 0u; index < M8_SKIN_NEIGHBOUR_COUNT; index++)
     {
         if ((sharedMask & (1u << index)) == 0u) continue;
+        if (count >= M8_SKIN_MAX_OWNERS) break;
+        int3 coord = globalCoord + M8_SKIN_NEIGHBOURS[index];
         KernelState neighbour;
         bool resolved;
-        if (!M8TryLoadMembraneState(globalCoord + M8_SKIN_NEIGHBOURS[index],
-                neighbour, resolved) || !resolved ||
+        if (!M8TryLoadMembraneState(coord, neighbour, resolved) || !resolved ||
             !M8HasSurfacePlane(neighbour.flags)) continue;
-        shift += M8SkinMeasuredShift(neighbour);
-        weight += 1.0;
+        // insertion in canonical order
+        uint slot = count;
+        [loop]
+        while (slot > 0u && M8SkinCoordBefore(coord, coords[slot - 1u]))
+        {
+            coords[slot] = coords[slot - 1u];
+            states[slot] = states[slot - 1u];
+            slot--;
+        }
+        coords[slot] = coord;
+        states[slot] = neighbour;
+        count++;
     }
-    return basePosition + shift / weight;
+    return count;
+}
+
+float3 M8SkinVertexPosition(int3 globalCoord, KernelState state,
+    uint neighbourMask, uint vertexIndex)
+{
+    float3 scaffold = M8SkinScaffoldPoint(globalCoord, vertexIndex);
+    if (!M8HasSurfacePlane(state.flags)) return scaffold;
+    int3 coords[M8_SKIN_MAX_OWNERS];
+    KernelState states[M8_SKIN_MAX_OWNERS];
+    uint count = M8SkinCollectOwners(globalCoord, state, neighbourMask,
+        vertexIndex, coords, states);
+    float3 sum = 0.0;
+    [loop]
+    for (uint index = 0u; index < count; index++)
+        sum += M8SkinProjectOntoPlane(scaffold, coords[index], states[index]);
+    return sum / (float)count;
+}
+
+// Direction the visible sheet faces: the known-free side when the evidence
+// resolves it, otherwise the measured normal itself.
+float3 M8SkinFacing(int3 globalCoord, KernelState state)
+{
+    bool unresolved;
+    int3 free = M8SkinFreeSide(globalCoord, state, unresolved);
+    if (any(free != 0)) return normalize((float3)free);
+    float3 normal;
+    float offset;
+    M8DecodeSurfacePlane(state.flags, normal, offset);
+    return normal;
+}
+
+// Outward normal of a template facelet in the scaffold frame.
+float3 M8SkinFaceletNormal(uint4 facelet)
+{
+    int3 a = M8_SKIN_VERTICES[facelet.x].xyz;
+    int3 b = M8_SKIN_VERTICES[facelet.y].xyz;
+    int3 c = M8_SKIN_VERTICES[facelet.z].xyz;
+    return normalize((float3)cross(b - a, c - a));
+}
+
+#define M8_SKIN_FACING_THRESHOLD 0.2
+
+// Published when no compatible neighbour covers it and it faces the sheet's
+// free side: the projected boundary is the sheet, never the scaffold ridges.
+bool M8SkinFaceletVisible(uint4 facelet, uint neighbourMask, float3 facing)
+{
+    return (facelet.w & neighbourMask) == 0u &&
+        dot(M8SkinFaceletNormal(facelet), facing) > M8_SKIN_FACING_THRESHOLD;
 }
 
 uint M8SkinVertexColor(int3 globalCoord, KernelState state,
     uint neighbourMask, uint vertexIndex)
 {
-    uint sharedMask = asuint(M8_SKIN_VERTICES[vertexIndex].w) & neighbourMask;
-    uint weight = max(1u, state.colorConfidence);
-    uint red = (state.packedColor & 255u) * weight;
-    uint green = ((state.packedColor >> 8u) & 255u) * weight;
-    uint blue = ((state.packedColor >> 16u) & 255u) * weight;
-    uint total = weight;
+    int3 coords[M8_SKIN_MAX_OWNERS];
+    KernelState states[M8_SKIN_MAX_OWNERS];
+    uint count = M8SkinCollectOwners(globalCoord, state, neighbourMask,
+        vertexIndex, coords, states);
+    uint red = 0u, green = 0u, blue = 0u, total = 0u;
     [loop]
-    for (uint index = 0u; index < M8_SKIN_NEIGHBOUR_COUNT; index++)
+    for (uint index = 0u; index < count; index++)
     {
-        if ((sharedMask & (1u << index)) == 0u) continue;
-        KernelState neighbour;
-        bool resolved;
-        if (!M8TryLoadMembraneState(globalCoord + M8_SKIN_NEIGHBOURS[index],
-                neighbour, resolved) || !resolved) continue;
-        uint neighbourWeight = max(1u, neighbour.colorConfidence);
-        red += (neighbour.packedColor & 255u) * neighbourWeight;
-        green += ((neighbour.packedColor >> 8u) & 255u) * neighbourWeight;
-        blue += ((neighbour.packedColor >> 16u) & 255u) * neighbourWeight;
-        total += neighbourWeight;
+        uint weight = max(1u, states[index].colorConfidence);
+        uint packed = states[index].packedColor;
+        red += (packed & 255u) * weight;
+        green += ((packed >> 8u) & 255u) * weight;
+        blue += ((packed >> 16u) & 255u) * weight;
+        total += weight;
     }
     // The gate forbids integer division here, so the mean uses a reciprocal.
-    float inverse = 1.0 / (float)total;
+    float inverse = 1.0 / (float)max(1u, total);
     uint r = min(255u, (uint)floor((float)red * inverse + 0.5));
     uint g = min(255u, (uint)floor((float)green * inverse + 0.5));
     uint b = min(255u, (uint)floor((float)blue * inverse + 0.5));
@@ -1137,7 +1227,7 @@ uint M8SkinVertexColor(int3 globalCoord, KernelState state,
 }
 
 // The used-vertex set of one kernel, as a bitfield over the skin vertices.
-void M8SkinUsedVertices(uint neighbourMask, out uint used[
+void M8SkinUsedVertices(uint neighbourMask, float3 facing, out uint used[
     M8_SKIN_VERTEX_MASK_WORDS], out uint triangleCount)
 {
     [unroll]
@@ -1148,7 +1238,7 @@ void M8SkinUsedVertices(uint neighbourMask, out uint used[
     for (uint facelet = 0u; facelet < M8_SKIN_FACELET_COUNT; facelet++)
     {
         uint4 entry = M8_SKIN_FACELETS[facelet];
-        if ((entry.w & neighbourMask) != 0u) continue;
+        if (!M8SkinFaceletVisible(entry, neighbourMask, facing)) continue;
         triangleCount++;
         used[entry.x >> 5u] |= 1u << (entry.x & 31u);
         used[entry.y >> 5u] |= 1u << (entry.y & 31u);
@@ -1302,6 +1392,7 @@ void BuildRenderTiles(uint3 groupId : SV_GroupID,
         bool unresolved = false;
         uint neighbourMask = 0u;
         uint triangleCount = 0u;
+        float3 facing = float3(0.0, 1.0, 0.0);
         uint used[M8_SKIN_VERTEX_MASK_WORDS];
         [unroll]
         for (uint clear = 0u; clear < M8_SKIN_VERTEX_MASK_WORDS; clear++)
@@ -1316,7 +1407,10 @@ void BuildRenderTiles(uint3 groupId : SV_GroupID,
                 M8HasSurfacePlane(state.flags);
             if (measured && M8TrySkinNeighbourMask(globalCoord, state,
                     neighbourMask, unresolved))
-                M8SkinUsedVertices(neighbourMask, used, triangleCount);
+            {
+                facing = M8SkinFacing(globalCoord, state);
+                M8SkinUsedVertices(neighbourMask, facing, used, triangleCount);
+            }
         }
         uint vertexCount = triangleCount != 0u ? M8SkinVertexCount(used) : 0u;
         gM8SkinCounts[thread] = triangleCount * 3u;
@@ -1403,7 +1497,8 @@ void BuildRenderTiles(uint3 groupId : SV_GroupID,
                 facelet++)
             {
                 uint4 entry = M8_SKIN_FACELETS[facelet];
-                if ((entry.w & neighbourMask) != 0u) continue;
+                if (!M8SkinFaceletVisible(entry, neighbourMask, facing))
+                    continue;
                 _M8RenderIndices[M8SkinIndexSlot(indexBase + localIndex)] =
                     M8SkinVertexSlot(vertexBase +
                         M8SkinVertexRank(used, entry.x));

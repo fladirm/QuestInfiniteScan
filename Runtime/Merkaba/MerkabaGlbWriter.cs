@@ -491,10 +491,10 @@ namespace Genesis.RoomScan
                 maximumCoord = math.max(maximumCoord, patch.Coord);
                 uint v0 = AddVertex(patch.Corner00, patch.Normal,
                     patch.PackedColor);
-                uint v1 = AddVertex(patch.Corner10, patch.Normal,
-                    patch.PackedColor);
-                uint v2 = AddVertex(patch.Corner11, patch.Normal,
-                    patch.PackedColor);
+                uint v1 = AddVertex(patch.Corner10, patch.Normal10,
+                    patch.PackedColor10);
+                uint v2 = AddVertex(patch.Corner11, patch.Normal11,
+                    patch.PackedColor11);
                 if (patch.IsTriangle)
                 {
                     AddTriangle(indices, v0, v2, v1);

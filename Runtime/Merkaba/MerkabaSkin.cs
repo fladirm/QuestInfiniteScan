@@ -593,70 +593,186 @@ namespace Genesis.RoomScan
         private static int3 NormalStep(float3 normal) =>
             MerkabaOverlapShell.NearestGridNormalStep(normal);
 
-        internal static int VisibleFaceletCount(uint neighbourMask)
+        internal static int VisibleFaceletCount(uint neighbourMask,
+            float3 facing)
         {
             int count = 0;
             foreach (Facelet facelet in _facelets)
-                if ((facelet.OccluderMask & neighbourMask) == 0u) count++;
+                if (FaceletVisible(facelet, neighbourMask, facing)) count++;
             return count;
         }
 
         /// <summary>
-        /// Canonical position of a boundary vertex. The measured shift is the
-        /// mean over the kernels sharing that vertex, so both sides of a shared
-        /// boundary compute the same point.
+        /// The owners of a boundary vertex: this kernel plus every compatible
+        /// contact neighbour with a measured plane, in canonical lattice order
+        /// so both sides of a shared boundary evaluate the same sequence.
+        /// </summary>
+        private static int CollectOwners(int3 kernelCoord, KernelState state,
+            IReadOnlyDictionary<int3, KernelState> context, uint neighbourMask,
+            int vertex, Span<int3> ownerCoords, Span<KernelState> ownerStates)
+        {
+            int count = 0;
+            uint shared = _vertexContacts[vertex] & neighbourMask;
+            InsertOwner(kernelCoord, state, ownerCoords, ownerStates, ref count);
+            for (int index = 0; index < NeighboursValue.Length; index++)
+            {
+                if ((shared & (1u << index)) == 0u) continue;
+                int3 coord = kernelCoord + NeighboursValue[index];
+                if (context.TryGetValue(coord, out KernelState neighbour) &&
+                    neighbour.HasMeasuredSurfacePlane)
+                    InsertOwner(coord, neighbour, ownerCoords, ownerStates,
+                        ref count);
+            }
+            return count;
+        }
+
+        private static void InsertOwner(int3 coord, KernelState owner,
+            Span<int3> ownerCoords, Span<KernelState> ownerStates,
+            ref int count)
+        {
+            if (count == ownerCoords.Length) return;
+            int index = count;
+            while (index > 0 && CompareCoords(coord, ownerCoords[index - 1]) < 0)
+            {
+                ownerCoords[index] = ownerCoords[index - 1];
+                ownerStates[index] = ownerStates[index - 1];
+                index--;
+            }
+            ownerCoords[index] = coord;
+            ownerStates[index] = owner;
+            count++;
+        }
+
+        internal const int MaximumVertexOwners = 8;
+
+        private static int CompareCoords(int3 a, int3 b)
+        {
+            if (a.z != b.z) return a.z < b.z ? -1 : 1;
+            if (a.y != b.y) return a.y < b.y ? -1 : 1;
+            return a.x == b.x ? 0 : a.x < b.x ? -1 : 1;
+        }
+
+        /// <summary>
+        /// Scaffold point of a template vertex: the 50 mm support is topology
+        /// only, so this point is never emitted as is.
+        /// </summary>
+        internal static float3 ScaffoldPoint(int3 kernelCoord, int vertex) =>
+            (float3)kernelCoord * MerkabaConstants.LatticeStep +
+            (float3)_vertices[vertex] * VertexUnit;
+
+        /// <summary>
+        /// Projection of a scaffold point onto one owner's measured plane:
+        /// P = Q + N (d - dot(Q - C, N)), with the plane through C + N d.
+        /// </summary>
+        internal static float3 ProjectOntoPlane(float3 scaffold, int3 ownerCoord,
+            KernelState owner)
+        {
+            KernelState.DecodeSurfacePlane(owner.Flags, out float3 normal,
+                out float offset);
+            float3 center = (float3)ownerCoord * MerkabaConstants.LatticeStep;
+            return scaffold + normal * (offset - math.dot(scaffold - center,
+                normal));
+        }
+
+        /// <summary>
+        /// Canonical position of a boundary vertex: the mean of its scaffold
+        /// point projected onto every owner's measured plane. Owners are the
+        /// compatible sheets only, so the two sides of a thin wall stay apart.
         /// </summary>
         internal static float3 VertexPosition(int3 kernelCoord,
             KernelState state, IReadOnlyDictionary<int3, KernelState> context,
             uint neighbourMask, int vertex)
         {
-            float3 basePosition = (float3)kernelCoord *
-                MerkabaConstants.LatticeStep +
-                (float3)_vertices[vertex] * VertexUnit;
-            if (!state.HasMeasuredSurfacePlane) return basePosition;
-            float3 shift = MeasuredShift(state);
-            float weight = 1f;
-            uint shared = _vertexContacts[vertex] & neighbourMask;
-            for (int index = 0; index < NeighboursValue.Length; index++)
+            float3 scaffold = ScaffoldPoint(kernelCoord, vertex);
+            if (!state.HasMeasuredSurfacePlane) return scaffold;
+            Span<int3> coords = stackalloc int3[MaximumVertexOwners];
+            Span<KernelState> states = stackalloc KernelState[MaximumVertexOwners];
+            int count = CollectOwners(kernelCoord, state, context, neighbourMask,
+                vertex, coords, states);
+            float3 sum = float3.zero;
+            for (int index = 0; index < count; index++)
+                sum += ProjectOntoPlane(scaffold, coords[index], states[index]);
+            return sum / count;
+        }
+
+        /// <summary>Mean measured normal of the vertex owners.</summary>
+        internal static float3 VertexNormal(int3 kernelCoord, KernelState state,
+            IReadOnlyDictionary<int3, KernelState> context, uint neighbourMask,
+            int vertex)
+        {
+            Span<int3> coords = stackalloc int3[MaximumVertexOwners];
+            Span<KernelState> states = stackalloc KernelState[MaximumVertexOwners];
+            int count = CollectOwners(kernelCoord, state, context, neighbourMask,
+                vertex, coords, states);
+            float3 sum = float3.zero;
+            for (int index = 0; index < count; index++)
             {
-                if ((shared & (1u << index)) == 0u) continue;
-                if (!context.TryGetValue(kernelCoord + NeighboursValue[index],
-                        out KernelState neighbour) ||
-                    !neighbour.HasMeasuredSurfacePlane) continue;
-                shift += MeasuredShift(neighbour);
-                weight += 1f;
+                KernelState.DecodeSurfacePlane(states[index].Flags,
+                    out float3 normal, out _);
+                sum += normal;
             }
-            return basePosition + shift / weight;
+            return math.normalizesafe(sum, new float3(0f, 1f, 0f));
         }
 
         internal static uint VertexColor(int3 kernelCoord, KernelState state,
             IReadOnlyDictionary<int3, KernelState> context,
             uint neighbourMask, int vertex)
         {
-            uint shared = _vertexContacts[vertex] & neighbourMask;
-            ulong weight = math.max(1u, state.ColorConfidence);
-            Color32 own = KernelState.UnpackColor(state.PackedColor);
-            ulong red = own.r * weight;
-            ulong green = own.g * weight;
-            ulong blue = own.b * weight;
-            ulong total = weight;
-            for (int index = 0; index < NeighboursValue.Length; index++)
+            Span<int3> coords = stackalloc int3[MaximumVertexOwners];
+            Span<KernelState> states = stackalloc KernelState[MaximumVertexOwners];
+            int count = CollectOwners(kernelCoord, state, context, neighbourMask,
+                vertex, coords, states);
+            ulong red = 0, green = 0, blue = 0, total = 0;
+            for (int index = 0; index < count; index++)
             {
-                if ((shared & (1u << index)) == 0u) continue;
-                if (!context.TryGetValue(kernelCoord + NeighboursValue[index],
-                        out KernelState neighbour)) continue;
-                ulong neighbourWeight = math.max(1u, neighbour.ColorConfidence);
-                Color32 color = KernelState.UnpackColor(neighbour.PackedColor);
-                red += color.r * neighbourWeight;
-                green += color.g * neighbourWeight;
-                blue += color.b * neighbourWeight;
-                total += neighbourWeight;
+                ulong weight = math.max(1u, states[index].ColorConfidence);
+                Color32 color = KernelState.UnpackColor(states[index].PackedColor);
+                red += color.r * weight;
+                green += color.g * weight;
+                blue += color.b * weight;
+                total += weight;
             }
+            if (total == 0) return state.PackedColor;
             return KernelState.PackColor(new Color32(
                 (byte)math.min(255ul, (red + total / 2ul) / total),
                 (byte)math.min(255ul, (green + total / 2ul) / total),
                 (byte)math.min(255ul, (blue + total / 2ul) / total), 255));
         }
+
+        /// <summary>
+        /// Direction the visible sheet faces: the known-free side when the
+        /// evidence resolves it, otherwise the measured normal itself.
+        /// </summary>
+        internal static float3 Facing(int3 coord, KernelState state,
+            IReadOnlyDictionary<int3, KernelState> context)
+        {
+            int3 free = FreeSide(coord, state, context);
+            if (!math.all(free == int3.zero))
+                return math.normalize((float3)free);
+            KernelState.DecodeSurfacePlane(state.Flags, out float3 normal, out _);
+            return normal;
+        }
+
+        /// <summary>Outward normal of a template facelet, scaffold frame.</summary>
+        internal static float3 FaceletNormal(Facelet facelet)
+        {
+            int3 a = _vertices[facelet.A];
+            int3 b = _vertices[facelet.B];
+            int3 c = _vertices[facelet.C];
+            return math.normalizesafe((float3)IntegerCross(b - a, c - a));
+        }
+
+        internal const float FacingThreshold = 0.2f;
+
+        /// <summary>
+        /// A facelet is published when no compatible neighbour covers it and
+        /// it faces the sheet's free side, so the projected boundary is the
+        /// sheet itself and never the scaffold's own ridges.
+        /// </summary>
+        internal static bool FaceletVisible(Facelet facelet, uint neighbourMask,
+            float3 facing) =>
+            (facelet.OccluderMask & neighbourMask) == 0u &&
+            math.dot(FaceletNormal(facelet), facing) > FacingThreshold;
 
         private static float3 MeasuredShift(KernelState state)
         {
