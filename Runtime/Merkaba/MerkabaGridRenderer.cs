@@ -593,7 +593,10 @@ namespace Genesis.RoomScan
                 _lifecycleGeneration, _sourceGeneration, _grid.ResidencyEpoch,
                 _grid.RenderResetGeneration, residencyQuery, cameraGrid);
             QueryShape query = ComputeQueryShape(cameraGrid);
-            int queryGroups = residencyQuery ? query.Groups : 0;
+            // The warm pass builds the publication list from the coverage
+            // sphere on every build; residencyQuery only asks it to also
+            // request loads, so it always runs over the whole query.
+            int queryGroups = query.Groups;
             // Tiles waiting for a COLD halo retry only after residency moved.
             _retryPendingTiles = _grid.ResidencyEpoch != _pendingRetryEpoch;
             _pendingRetryEpoch = _grid.ResidencyEpoch;
@@ -656,14 +659,15 @@ namespace Genesis.RoomScan
         /// <summary>Records one readout job on the graphics queue (editor).</summary>
         internal void RecordBuild(CommandBuffer command, int backSlot,
             uint revision, bool previousPublished, bool retryPendingTiles,
-            Vector3 cameraGridMeters, bool residencyQuery)
+            Vector3 cameraGridMeters)
         {
             if (!Initialize())
                 throw new InvalidOperationException(
                     "Merkaba readout is not initialized.");
             QueryShape query = ComputeQueryShape(cameraGridMeters);
+            // The warm pass always sweeps the whole coverage sphere.
             RecordBuild(command, backSlot, revision, previousPublished,
-                retryPendingTiles, query, residencyQuery ? query.Groups : 0);
+                retryPendingTiles, query, query.Groups);
         }
 
         private void RecordBuild(CommandBuffer command, int backSlot,
@@ -676,10 +680,9 @@ namespace Genesis.RoomScan
             ComputeBuffer front = _grid.GetM8RenderIndex(1 - backSlot);
             foreach (int kernel in new[]
                      {
-                         _beginKernel, _warmKernel, _collectKernel,
-                         _prepareKernel, _buildKernel, _publishKernel,
-                         _recountKernel,
-                         _finalizeKernel
+                         _beginKernel, _warmKernel, _copyKernel,
+                         _collectKernel, _prepareKernel, _buildKernel,
+                         _publishKernel, _recountKernel, _finalizeKernel
                      })
                 command.SetComputeBufferParam(readoutCompute, kernel,
                     RenderIndexBackId, back);

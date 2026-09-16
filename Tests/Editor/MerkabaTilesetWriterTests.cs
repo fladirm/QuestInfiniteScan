@@ -83,7 +83,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(viewer, Does.Contain("BeginAnnotationDrag(ray)"));
             Assert.That(viewer, Does.Contain("DeleteSelectedAnnotation()"));
             Assert.That(viewer, Does.Contain("DestroyTile(tile)"));
-            Assert.That(viewer, Does.Contain("_scanner.ReadoutDrawEnabled = false"));
+            Assert.That(viewer, Does.Not.Contain("_scanner.ReadoutDrawEnabled = false"));
             Assert.That(viewer, Does.Contain("RoomSpaceRoot.Instance"));
             Assert.That(viewer, Does.Contain("OneHandGrab"));
             Assert.That(viewer, Does.Contain("TwoHandGrab"));

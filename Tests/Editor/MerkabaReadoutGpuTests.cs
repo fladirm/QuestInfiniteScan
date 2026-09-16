@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using NUnit.Framework;
@@ -239,6 +240,8 @@ namespace Genesis.RoomScan.Tests
             _readout.SetInt("_M8FrontTileCount", (int)front[0]);
             _readout.SetBuffer(cull, "_M8RenderIndexFrontRead",
                 _grid.GetM8RenderIndex(_front));
+            _readout.SetBuffer(cull, "_M8RenderPageQueues",
+                _grid.GetM8RenderPageQueues(_front));
             _readout.SetBuffer(cull, "_M8VisiblePages", _grid.M8VisiblePages);
             _readout.SetBuffer(cull, "_M8CullControl", _grid.M8CullControl);
             _readout.SetBuffer(prepare, "_M8CullControl", _grid.M8CullControl);
@@ -246,7 +249,10 @@ namespace Genesis.RoomScan.Tests
                 _grid.M8RenderDrawArgs);
             _readout.SetBuffer(emit, "_M8VisiblePagesRead", _grid.M8VisiblePages);
             _readout.SetBuffer(emit, "_M8CullControlRead", _grid.M8CullControl);
-            _readout.SetBuffer(emit, "_M8VisibleIndices", _grid.M8RenderIndices);
+            _readout.SetBuffer(emit, "_M8VisibleIndices",
+                _grid.GetM8RenderIndices(_front));
+            _readout.SetBuffer(emit, "_M8RenderIndicesRead",
+                _grid.GetM8PublishedIndices(_front));
             _readout.Dispatch(cull, 1, 1, 1);
             _readout.Dispatch(prepare, 1, 1, 1);
             _readout.DispatchIndirect(emit, _grid.M8CullControl, sizeof(uint));
@@ -261,7 +267,8 @@ namespace Genesis.RoomScan.Tests
             var pages = new uint[nearPages];
             _grid.M8VisiblePages.GetData(pages, 0, 0, (int)nearPages);
             var indices = new uint[MerkabaGrid.RenderPageIndices];
-            _grid.M8RenderIndices.GetData(indices, 0, 0, indices.Length);
+            _grid.GetM8RenderIndices(_front).GetData(indices, 0, 0,
+                indices.Length);
             uint firstPage = pages[0] & 0xffffu;
             uint pageVertex = firstPage * (uint)MerkabaGrid.RenderPageVertices;
             // Published indices address shared vertices of the same tile.
@@ -279,7 +286,7 @@ namespace Genesis.RoomScan.Tests
             try
             {
                 _renderer.RecordBuild(command, back, ++_revision, _published,
-                    true, Vector3.zero, false);
+                    true, Vector3.zero);
                 Graphics.ExecuteCommandBuffer(command);
             }
             finally
@@ -329,6 +336,23 @@ namespace Genesis.RoomScan.Tests
             _grid.M8LoadStagingAddresses.SetData(addresses);
             _grid.M8LoadStagingStates.SetData(states);
             _grid.InstallLoadedTiles(addresses.Count);
+        }
+
+        /// <summary>
+        /// A canonical mutation of the tile: its publication version moves,
+        /// exactly as a journalled observation would move it.
+        /// </summary>
+        private void MarkTileDirty(int3 origin)
+        {
+            uint slot = SlotOf(origin);
+            var version = new uint[1];
+            _grid.M8RenderVersions.GetData(version, 0, (int)slot, 1);
+            version[0]++;
+            _grid.M8RenderVersions.SetData(version, 0, (int)slot, 1);
+            var runtime = new U4[1];
+            _grid.M8TileRecords.GetData(runtime, 0, (int)slot * 2 + 1, 1);
+            runtime[0].W |= 1u;
+            _grid.M8TileRecords.SetData(runtime, 0, (int)slot * 2 + 1, 1);
         }
 
         private uint SlotOf(int3 origin)
@@ -398,11 +422,83 @@ namespace Genesis.RoomScan.Tests
 
             $"pending={Counter(MerkabaGrid.CounterRenderPendingTiles)}";
 
-        private uint Control(int index)
+        private uint Control(int index) => ControlOf(_front, index);
+
+        private uint ControlOf(int slot, int index)
         {
             var value = new uint[1];
-            _grid.M8RenderPageQueues.GetData(value, 0, index, 1);
+            _grid.GetM8RenderPageQueues(slot).GetData(value, 0, index, 1);
             return value[0];
+        }
+
+        private uint[] Snapshot(int slot)
+        {
+            var pages = new uint[MerkabaGrid.RenderControlWords];
+            _grid.GetM8RenderPageQueues(slot).GetData(pages, 0, 0, pages.Length);
+            var records = new uint[MerkabaGrid.RenderIndexCount];
+            _grid.GetM8RenderIndex(slot).GetData(records);
+            var indices = new uint[MerkabaGrid.RenderPageIndices * 64];
+            _grid.GetM8PublishedIndices(slot).GetData(indices, 0, 0,
+                indices.Length);
+            var vertices = new uint[MerkabaGrid.RenderPageVertices * 64 * 4];
+            _grid.GetM8RenderVertices(slot).GetData(vertices, 0, 0,
+                vertices.Length);
+            return pages.Concat(records).Concat(indices).Concat(vertices)
+                .ToArray();
+        }
+
+        [Test]
+        public void PublicationSlotsOwnDisjointStorage()
+        {
+            Assert.That(_grid.GetM8RenderMesh(0), Is.Not.SameAs(
+                _grid.GetM8RenderMesh(1)));
+            Assert.That(_grid.GetM8RenderVertices(0), Is.Not.SameAs(
+                _grid.GetM8RenderVertices(1)));
+            Assert.That(_grid.GetM8RenderIndices(0), Is.Not.SameAs(
+                _grid.GetM8RenderIndices(1)));
+            Assert.That(_grid.GetM8RenderPageQueues(0), Is.Not.SameAs(
+                _grid.GetM8RenderPageQueues(1)));
+            Assert.That(_grid.GetM8PublishedIndices(0), Is.Not.SameAs(
+                _grid.GetM8PublishedIndices(1)));
+            Assert.That(_grid.GetM8RenderIndex(0), Is.Not.SameAs(
+                _grid.GetM8RenderIndex(1)));
+        }
+
+        [Test]
+        public void FrontStorageIsUntouchedWhileBackBuilds()
+        {
+            InstallWallTiles(new int3(0, 0, 0));
+            U4 first = Build();
+            Assert.That(first.Y, Is.EqualTo(MerkabaGrid.ReadoutPublishedStatus));
+            int front = _front;
+            uint[] before = Snapshot(front);
+            MarkTileDirty(new int3(0, 0, 0));
+            U4 second = Build();
+            Assert.That(second.Y, Is.EqualTo(MerkabaGrid.ReadoutPublishedStatus));
+            Assert.That(_front, Is.Not.EqualTo(front), "BACK became FRONT");
+            Assert.That(Snapshot(front), Is.EqualTo(before),
+                "the old FRONT changed while BACK was built");
+        }
+
+        [Test]
+        public void FailedBackNeverChangesFront()
+        {
+            InstallWallTiles(new int3(0, 0, 0));
+            U4 first = Build();
+            Assert.That(first.Y, Is.EqualTo(MerkabaGrid.ReadoutPublishedStatus));
+            int front = _front;
+            uint[] before = Snapshot(front);
+            // Starve the BACK allocator: the next build cannot place its tile.
+            int back = 1 - _front;
+            _grid.GetM8RenderPageQueues(back).SetData(new uint[] { 0u }, 0,
+                MerkabaGrid.RenderControlFreePages, 1);
+            MarkTileDirty(new int3(0, 0, 0));
+            U4 failed = Build(false);
+            Assert.That(failed.Y, Is.Not.EqualTo(
+                MerkabaGrid.ReadoutPublishedStatus));
+            Assert.That(_front, Is.EqualTo(front));
+            Assert.That(Snapshot(front), Is.EqualTo(before),
+                "a failed BACK touched FRONT");
         }
 
         private uint Counter(int index)

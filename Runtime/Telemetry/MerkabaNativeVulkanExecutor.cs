@@ -15,6 +15,12 @@ namespace Genesis.RoomScan
         private const float TimingLogIntervalSeconds = 5f;
         internal const int AbiVersion = 4;
         internal const int ResourceCount = 48;
+        // First pipeline of each job kind; must equal the plugin's
+        // kReadoutPipelineBegin / kFineErasePipelineBegin and the
+        // observation-retry start so stage timings keep their names.
+        internal const int ObservationRetryPipelineBegin = 13;
+        internal const int ReadoutPipelineBegin = 33;
+        internal const int FineErasePipelineBegin = 48;
         internal const int PipelineCount = 53;
         internal const int MaximumTimestampCount = PipelineCount * 2 + 2;
 
@@ -275,9 +281,10 @@ namespace Genesis.RoomScan
         {
             ulong mask = validBits >= 64 ? ulong.MaxValue :
                 validBits <= 0 ? 0UL : (1UL << validBits) - 1UL;
-            int first = kind == JobKind.Readout ? 33 :
-                kind == JobKind.FineErase ? 44 :
-                kind == JobKind.ObservationRetry ? 13 : 0;
+            int first = kind == JobKind.Readout ? ReadoutPipelineBegin :
+                kind == JobKind.FineErase ? FineErasePipelineBegin :
+                kind == JobKind.ObservationRetry ?
+                    ObservationRetryPipelineBegin : 0;
             int dispatchCount = (count - 2) / 2;
             for (int index = 0; index < dispatchCount; ++index)
             {

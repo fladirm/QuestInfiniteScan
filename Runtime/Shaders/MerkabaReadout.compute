@@ -1064,12 +1064,13 @@ float3 M8SkinMeasuredShift(KernelState state)
 }
 
 // Scaffold point of a templateIndex vertex. The 50 mm support is topology only
-// and is never emitted as is.
+// and is never emitted as is. The point is scaled from one integer canonical
+// coordinate so every kernel that shares the vertex computes the same bits.
 float3 M8SkinScaffoldPoint(int3 globalCoord, uint vertexIndex)
 {
-    return (float3)globalCoord * MERKABA_LATTICE_STEP +
-        (float3)M8_SKIN_VERTICES[vertexIndex].xyz *
-        (MERKABA_LATTICE_STEP * M8_SKIN_VERTEX_SCALE);
+    return (float3)(globalCoord * M8_SKIN_LATTICE_UNITS +
+        M8_SKIN_VERTICES[vertexIndex].xyz) *
+        (MERKABA_LATTICE_STEP / 6.0);
 }
 
 // P = Q + N (d - dot(Q - C, N)): the scaffold point projected onto one

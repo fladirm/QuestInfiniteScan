@@ -203,7 +203,19 @@ returns before anchor relocalizes -> "Room anchor not localized".
 only, not anchor tracked/stable; no TrackingOriginChangePending / trackingOriginUpdated
 handling; pause during unfinished resume clears `_resumeAfterPause`.
 
-## RISK-16 — the analytic skin is published and exported at full density; the artifact viewer collapses [OPEN, MEASURED 2026-09-16 20:51]
+## RISK-16 — the analytic skin is published and exported at full density; the artifact viewer collapses [FIXED IN CODE 2026-09-16, DEVICE ACCEPTANCE PENDING]
+
+Fix (review closure `1f39344`..`163b647`): vertices are projected onto the measured
+sheets (`P = Q + N (d - dot(Q - C, N))`, mean over the owner sheets in canonical order),
+only free-side-facing facelets survive, one physical vertex has one owner per tile,
+export keys neighbouring kernels onto one vertex, the publication is a strict two-slot
+FRONT/BACK ping-pong validated before the swap, a failed BACK never publishes, and the
+stage telemetry names follow the generator order. Contract tests:
+`MerkabaSkinContractTests` (sheet residual, no tilted facets, shared identities, no
+bridging edges) and `MerkabaReadoutGpuTests` (disjoint slots, FRONT untouched while
+BACK builds, failed BACK keeps FRONT).
+
+Original finding:
 
 Device evidence after `232b421` (clean install, one room scan):
 
@@ -241,7 +253,7 @@ guess:
    the tag as already safe, so a page retired in the very first publication can be
    recycled while FRONT still references it.
 
-## RISK-15 — the analytic skin is published at full density and the draw is now the bottleneck [OPEN, MEASURED 2026-09-16]
+## RISK-15 — the analytic skin is published at full density and the draw is now the bottleneck [SUPERSEDED BY RISK-16 FIX; the 0.012 ms BuildRenderTiles figure below was mislabelled telemetry, the true value was 43.6 ms avg]
 
 The boundary arrangement publishes 422 refined facelets over 210 shared vertices per
 measured kernel; an isolated kernel draws 422 triangles, a kernel inside a flat sheet

@@ -231,7 +231,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(integration, Does.Contain(
                 "M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u"));
             Assert.That(erase, Does.Contain(
-                "M8StoreKernelState(physicalSlot, kernelLocal, (KernelState)0)"));
+                "M8StoreKernelState(physicalSlot, kernelLocal, emptyState)"));
             Assert.That(erase, Does.Contain(
                 "InterlockedAnd(_M8TileBits[wordIndex].x, ~bit"));
             Assert.That(erase, Does.Contain(

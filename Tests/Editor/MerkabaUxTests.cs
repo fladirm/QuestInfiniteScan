@@ -278,9 +278,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Contain(
                 "#if defined(M8_CHECKER_READOUT)"));
             Assert.That(source, Does.Contain(
-                ": half3(1.0h, 0.0h, 1.0h);"));
-            Assert.That(source, Does.Contain(
-                "? half3(1.0h, 1.0h, 0.0h)"));
+                "? half3(0.02h, 0.025h, 0.035h)"));
+            Assert.That(source, Does.Contain(": (half3)iridescent;"));
             Assert.That(source, Does.Not.Contain("SampleSH"));
             Assert.That(source, Does.Not.Contain("GetMainLight"));
             Assert.That(source, Does.Not.Contain("normalWS"));
@@ -292,7 +291,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Not.Contain("fwidth"));
             Assert.That(source, Does.Not.Contain("pixelDistance"));
             Assert.That(source, Does.Contain(
-                "? input.color : half3(0.55h, 0.16h, 0.42h)"));
+                "? input.color : half3(0.625h, 0.625h, 0.625h)"));
 
             string renderer = File.ReadAllText(Path.GetFullPath(
                 "Packages/com.genesis.roomscan/Runtime/Merkaba/" +

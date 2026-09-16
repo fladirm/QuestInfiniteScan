@@ -2,6 +2,7 @@
 """Static closure gate for the M8 sparse readout publication cut."""
 from pathlib import Path
 import sys
+sys.dont_write_bytecode = True
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -145,6 +146,28 @@ def pipeline_names_match() -> bool:
 
 checks["managed stage names equal the generator order"] = \
     pipeline_names_match()
+
+
+def pipeline_begins_match() -> bool:
+    import re as _re
+    cpp = text("Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp")
+    pairs = (("kReadoutPipelineBegin", "ReadoutPipelineBegin"),
+             ("kFineErasePipelineBegin", "FineErasePipelineBegin"))
+    for cpp_name, managed_name in pairs:
+        cpp_value = _re.search(cpp_name + r" = (\d+);", cpp)
+        managed_value = _re.search(managed_name + r" = (\d+);", native)
+        if cpp_value is None or managed_value is None or \
+                cpp_value.group(1) != managed_value.group(1):
+            return False
+    retry = _re.search(r"kJobObservationRetry\)\s*\{\s*\*first = (\d+);", cpp)
+    managed_retry = _re.search(r"ObservationRetryPipelineBegin = (\d+);",
+        native)
+    return retry is not None and managed_retry is not None and \
+        retry.group(1) == managed_retry.group(1)
+
+
+checks["managed stage timing begins equal the plugin job boundaries"] = \
+    pipeline_begins_match()
 checks["capacity failure makes BACK non-publishable"] = \
     "MERKABA_READOUT_FAILED : MERKABA_READOUT_PUBLISHED" in readout
 checks["publication is decided from the native completion copy"] = \

@@ -654,11 +654,13 @@ namespace Genesis.RoomScan
 
         /// <summary>
         /// Scaffold point of a template vertex: the 50 mm support is topology
-        /// only, so this point is never emitted as is.
+        /// only, so this point is never emitted as is. The point is scaled
+        /// from one integer canonical coordinate so every kernel that shares
+        /// the vertex computes the same float bits for it.
         /// </summary>
         internal static float3 ScaffoldPoint(int3 kernelCoord, int vertex) =>
-            (float3)kernelCoord * MerkabaConstants.LatticeStep +
-            (float3)_vertices[vertex] * VertexUnit;
+            (float3)(kernelCoord * LatticeUnits + _vertices[vertex]) *
+            VertexUnit;
 
         /// <summary>
         /// Projection of a scaffold point onto one owner's measured plane:
@@ -824,6 +826,7 @@ namespace Genesis.RoomScan
             text.AppendLine("#define M8_SKIN_NEIGHBOUR_COUNT 26u");
             text.AppendLine("#define M8_SKIN_VERTEX_MASK_WORDS " +
                 ((_vertices.Length + 31) / 32) + "u");
+            text.AppendLine("#define M8_SKIN_LATTICE_UNITS " + LatticeUnits);
             text.AppendLine("#define M8_SKIN_VERTEX_SCALE (1.0 / 6.0)");
             text.AppendLine();
             text.AppendLine("static const int3 M8_SKIN_NEIGHBOURS[26] = {");

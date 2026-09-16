@@ -328,13 +328,15 @@ namespace Genesis.RoomScan.Tests
             string integration = RuntimeSource(
                 "Runtime/Shaders/MerkabaIntegration.compute");
             Assert.That(integration, Does.Contain(
-                "MerkabaProjectCameraUv(0u, worldSurface)"));
+                "MerkabaSampleStereoRgb(worldSurface, observedRgb)"));
             Assert.That(integration, Does.Contain(
-                "MerkabaProjectCameraUv(1u, worldSurface)"));
-            Assert.That(integration, Does.Contain(
-                "MerkabaSampleCameraRgb(0u, leftUv)"));
-            Assert.That(integration, Does.Contain(
-                "MerkabaSampleCameraRgb(1u, rightUv)"));
+                "if (acceptObservedColor && hasObservedRgb)"));
+            string stereoCamera = RuntimeSource(
+                "Runtime/Shaders/MerkabaStereoCamera.hlsl");
+            Assert.That(stereoCamera, Does.Contain(
+                "MerkabaSampleCameraRgb(0u, left)"));
+            Assert.That(stereoCamera, Does.Contain(
+                "MerkabaSampleCameraRgb(1u, right)"));
             Assert.That(integration, Does.Not.Contain(
                 "eyeSurfaceQuality[cameraEye]"));
             Assert.That(integration, Does.Not.Contain(
