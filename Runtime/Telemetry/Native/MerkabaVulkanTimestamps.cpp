@@ -192,6 +192,13 @@ namespace
         VkBuffer uniformBuffer = VK_NULL_HANDLE;
         VkDeviceMemory uniformMemory = VK_NULL_HANDLE;
         VkMemoryPropertyFlags uniformMemoryFlags = 0;
+        // Host-visible copy of the attempt completion records, written by the
+        // job itself behind its native fence. Publication is decided from it
+        // without any graphics-queue readback.
+        VkBuffer completionBuffer = VK_NULL_HANDLE;
+        VkDeviceMemory completionMemory = VK_NULL_HANDLE;
+        VkMemoryPropertyFlags completionMemoryFlags = 0;
+        void* completionMapped = nullptr;
         std::array<VkDeviceSize, kMerkabaExecutorPipelineCount>
             uniformOffsets = {};
         VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
@@ -725,6 +732,12 @@ namespace
             vkDestroyBuffer(g_instance.device, job->uniformBuffer, nullptr);
         if (job->uniformMemory != VK_NULL_HANDLE)
             vkFreeMemory(g_instance.device, job->uniformMemory, nullptr);
+        if (job->completionMapped != nullptr)
+            vkUnmapMemory(g_instance.device, job->completionMemory);
+        if (job->completionBuffer != VK_NULL_HANDLE)
+            vkDestroyBuffer(g_instance.device, job->completionBuffer, nullptr);
+        if (job->completionMemory != VK_NULL_HANDLE)
+            vkFreeMemory(g_instance.device, job->completionMemory, nullptr);
         if (job->queryPool != VK_NULL_HANDLE)
             vkDestroyQueryPool(g_instance.device, job->queryPool, nullptr);
         if (job->graphicsReady != VK_NULL_HANDLE)
@@ -858,6 +871,58 @@ namespace
             if (value.nameHash == hash)
                 return &value;
         return nullptr;
+    }
+
+    constexpr VkDeviceSize kCompletionRecordBytes = 32;
+
+    bool CreateJobCompletion(ExecutorJob* job)
+    {
+        VkBufferCreateInfo bufferInfo = {};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = kCompletionRecordBytes;
+        bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VkResult result = vkCreateBuffer(g_instance.device, &bufferInfo,
+            nullptr, &job->completionBuffer);
+        if (result != VK_SUCCESS)
+        {
+            FailJob(job, result, "vkCreateBuffer(completion)", false);
+            return false;
+        }
+        VkMemoryRequirements requirements = {};
+        vkGetBufferMemoryRequirements(g_instance.device,
+            job->completionBuffer, &requirements);
+        uint32_t memoryType = 0;
+        if (!FindMemoryType(requirements.memoryTypeBits,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &memoryType,
+                &job->completionMemoryFlags))
+        {
+            FailJob(job, VK_ERROR_FEATURE_NOT_PRESENT,
+                "host-visible completion memory", false);
+            return false;
+        }
+        VkMemoryAllocateInfo allocation = {};
+        allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocation.allocationSize = requirements.size;
+        allocation.memoryTypeIndex = memoryType;
+        result = vkAllocateMemory(g_instance.device, &allocation, nullptr,
+            &job->completionMemory);
+        if (result == VK_SUCCESS)
+            result = vkBindBufferMemory(g_instance.device,
+                job->completionBuffer, job->completionMemory, 0);
+        if (result == VK_SUCCESS)
+            result = vkMapMemory(g_instance.device, job->completionMemory, 0,
+                VK_WHOLE_SIZE, 0, &job->completionMapped);
+        if (result != VK_SUCCESS || job->completionMapped == nullptr)
+        {
+            job->completionMapped = nullptr;
+            FailJob(job, result, "completion allocation/map", false);
+            return false;
+        }
+        std::memset(job->completionMapped, 0,
+            static_cast<size_t>(kCompletionRecordBytes));
+        return true;
     }
 
     bool CreateJobUniforms(ExecutorJob* job)
@@ -1269,6 +1334,24 @@ namespace
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
             VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
             0, 1, &release, 0, nullptr, 0, nullptr);
+        if (job->completionBuffer != VK_NULL_HANDLE &&
+            job->buffers[kResourceAttemptCompletion].buffer != VK_NULL_HANDLE)
+        {
+            VkBufferCopy copy = {};
+            copy.srcOffset = 0;
+            copy.dstOffset = 0;
+            copy.size = kCompletionRecordBytes;
+            vkCmdCopyBuffer(job->commandBuffer,
+                job->buffers[kResourceAttemptCompletion].buffer,
+                job->completionBuffer, 1, &copy);
+            VkMemoryBarrier host = {};
+            host.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+            host.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            host.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+            vkCmdPipelineBarrier(job->commandBuffer,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT,
+                0, 1, &host, 0, nullptr, 0, nullptr);
+        }
         vkCmdWriteTimestamp(job->commandBuffer,
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, job->queryPool,
             job->queryCount - 1u);
@@ -1292,6 +1375,7 @@ namespace
         job->prepareStartNs = MonotonicNs();
         std::lock_guard<std::mutex> lock(g_executorMutex);
         bool complete = AccessJobResources(job) && CreateJobUniforms(job) &&
+            CreateJobCompletion(job) &&
             CreateJobDescriptors(job) && CreateJobCommandObjects(job) &&
             RecordJobCommand(job);
         if (complete)
@@ -1858,6 +1942,32 @@ extern "C"
     {
         return g_executorReady && offset >= 0 && offset < 3
             ? g_executorEventBase + offset : 0;
+    }
+
+    int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API
+    MerkabaExecutor_ReadCompletion(void* handle, uint32_t* record,
+        int recordCapacity)
+    {
+        ExecutorJob* job = static_cast<ExecutorJob*>(handle);
+        if (job == nullptr || record == nullptr || recordCapacity < 8 ||
+            job->completionMapped == nullptr)
+            return 0;
+        int state = job->state.load(std::memory_order_acquire);
+        if (state != kJobNativeComplete && state != kJobAcquiring &&
+            state != kJobComplete)
+            return 0;
+        if ((job->completionMemoryFlags &
+             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) == 0)
+        {
+            VkMappedMemoryRange range = {};
+            range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+            range.memory = job->completionMemory;
+            range.offset = 0;
+            range.size = VK_WHOLE_SIZE;
+            vkInvalidateMappedMemoryRanges(g_instance.device, 1, &range);
+        }
+        std::memcpy(record, job->completionMapped, 8 * sizeof(uint32_t));
+        return 1;
     }
 
     int UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API MerkabaExecutor_PollJob(

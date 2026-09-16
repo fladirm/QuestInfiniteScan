@@ -92,10 +92,10 @@ checks = {
         "if (kind == JobKind.Readout) return false;" not in native and
         "AbiVersion = 4" in native and
         "SubmitNativeReadoutBuild" in renderer,
-    "publication is confirmed by a fence, not a readback":
-        "PollPendingPublication" in renderer and
+    "device publication is confirmed by the native fence copy":
+        "TryReadCompletion(_completionRecord)" in renderer and
         "CreateGraphicsFence" in renderer and
-        "AsyncGPUReadback.Request(_grid.M8AttemptCompletion" not in renderer,
+        "Editor only" in renderer,
     "coverage radius is the world sphere":
         "ReadoutCoverageRadius = 6.4f" in renderer,
     "skin is one analytic authority, not a hardcoded table":
@@ -126,6 +126,34 @@ checks = {
         "ReadoutDrawEnabled = false" not in viewer and
         "FineMode = false" not in viewer,
 }
+
+def pipeline_names_match() -> bool:
+    import importlib.util, re as _re
+    spec = importlib.util.spec_from_file_location("gen",
+        ROOT / "Tools/unity/generate_merkaba_native_executor_shaders.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    generated = [pipeline.label for pipeline in module.PIPELINES]
+    block = native[native.index("PipelineNames ="):]
+    block = block[:block.index("};")]
+    managed = _re.findall(r'"([^"]+)"', block)
+    if managed != generated:
+        print("managed:", managed, file=sys.stderr)
+        print("generated:", generated, file=sys.stderr)
+    return managed == generated
+
+checks["managed stage names equal the generator order"] = \
+    pipeline_names_match()
+checks["capacity failure makes BACK non-publishable"] = \
+    "MERKABA_READOUT_FAILED : MERKABA_READOUT_PUBLISHED" in readout
+checks["publication is decided from the native completion copy"] = \
+    "MerkabaExecutor_ReadCompletion" in text(
+        "Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp") and \
+    "TryReadCompletion" in renderer and "RejectPublication" in renderer
+checks["skin classifies normals on the canonical 26-direction chart"] = \
+    "MerkabaOverlapShell.NearestGridNormalStep" in skin and \
+    "return MerkabaNearestGridNormalStep(normal);" in readout
 
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():

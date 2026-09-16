@@ -142,15 +142,18 @@ namespace Genesis.RoomScan
             "FinalizeObservation",
             "ClearTouchedSurfaceCandidates",
             "BeginRenderBuild",
-            "RequestWarmResidency",
+            "PrepareRenderReclaim",
             "ReclaimRenderPages",
             "ApplyRenderReclaim",
             "CopyRenderIndex",
             "MarkRenderRebuildTiles",
+            "ApplyRenderMutationJournal",
+            "RequestWarmResidency",
             "CollectRenderRebuildTiles",
             "PrepareRenderBuild",
             "BuildRenderTiles",
             "PublishRenderTileList",
+            "RecountRenderPatches",
             "FinalizeReadout",
             "ResetFineErase",
             "QueryFineEraseTiles",
@@ -316,6 +319,9 @@ namespace Genesis.RoomScan
             internal static extern int ReadTimings(IntPtr handle,
                 [Out] ulong[] timestamps, int timestampCapacity,
                 out double timestampPeriod, out int validBits);
+            [DllImport(Library, EntryPoint = "MerkabaExecutor_ReadCompletion")]
+            internal static extern int ReadCompletion(IntPtr handle,
+                [Out] uint[] record, int recordCapacity);
             [DllImport(Library, EntryPoint = "MerkabaExecutor_DestroyJob")]
             internal static extern int DestroyJob(IntPtr handle);
 #endif
@@ -423,6 +429,21 @@ namespace Genesis.RoomScan
 #else
                 error = "Native Vulkan executor is Android-only.";
                 return true;
+#endif
+            }
+
+            /// <summary>
+            /// The completion records copied by the job itself behind its
+            /// native fence: [0..3] observation, [4..7] readout.
+            /// </summary>
+            internal bool TryReadCompletion(uint[] record)
+            {
+                if (record == null || record.Length < 8) return false;
+#if !UNITY_EDITOR && UNITY_ANDROID
+                return _handle != IntPtr.Zero &&
+                    Native.ReadCompletion(_handle, record, record.Length) == 1;
+#else
+                return false;
 #endif
             }
 

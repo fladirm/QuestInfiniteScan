@@ -916,12 +916,8 @@ void M8StoreRenderVertex(uint vertex, float3 gridPosition, uint packedColor)
 // neighbours are unresolved and defer publication so FRONT remains coherent.
 int3 M8SkinNormalStep(float3 normal)
 {
-    float3 a = abs(normal);
-    if (a.x >= a.y && a.x >= a.z)
-        return int3(normal.x >= 0.0 ? 1 : -1, 0, 0);
-    if (a.y >= a.z)
-        return int3(0, normal.y >= 0.0 ? 1 : -1, 0);
-    return int3(0, 0, normal.z >= 0.0 ? 1 : -1);
+    // The canonical 26-direction chart, never a second classifier.
+    return MerkabaNearestGridNormalStep(normal);
 }
 
 bool M8SkinKnownFree(int3 coord, out bool unresolved)
@@ -1524,10 +1520,15 @@ void FinalizeReadout(uint id : SV_DispatchThreadID)
     uint unresolved = min(0x7fffffffu,
         _M8Counters[M8_COUNTER_READOUT_UNRESOLVED] +
         _M8Counters[M8_COUNTER_RENDER_PENDING_TILES]);
+    // A build that could not place every selected tile publishes nothing:
+    // FRONT stays and the scan transaction retries its readout.
+    bool failed = _M8Counters[M8_COUNTER_RENDER_CAPACITY_FAILED] != 0u ||
+        _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] != 0u ||
+        _M8Counters[M8_COUNTER_RENDER_VIEW_OVERFLOW] != 0u;
     if (_M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] ==
             MERKABA_READOUT_BUILDING)
-        _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] =
-            MERKABA_READOUT_PUBLISHED;
+        _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] = failed
+            ? MERKABA_READOUT_FAILED : MERKABA_READOUT_PUBLISHED;
     // The CPU publication decision reads only this record. Counters remain
     // diagnostics that a later scanner job may reset.
     _M8AttemptCompletion[1] = uint4(_M8ReadoutRevision,

@@ -589,15 +589,9 @@ namespace Genesis.RoomScan
             !state.IsOccupied &&
             state.OccupancyEvidence <= MerkabaConstants.ExportKnownFreeThreshold;
 
-        private static int3 NormalStep(float3 normal)
-        {
-            float3 magnitude = math.abs(normal);
-            if (magnitude.x >= magnitude.y && magnitude.x >= magnitude.z)
-                return new int3(normal.x >= 0f ? 1 : -1, 0, 0);
-            if (magnitude.y >= magnitude.z)
-                return new int3(0, normal.y >= 0f ? 1 : -1, 0);
-            return new int3(0, 0, normal.z >= 0f ? 1 : -1);
-        }
+        // The canonical 26-direction chart, never a second classifier.
+        private static int3 NormalStep(float3 normal) =>
+            MerkabaOverlapShell.NearestGridNormalStep(normal);
 
         internal static int VisibleFaceletCount(uint neighbourMask)
         {

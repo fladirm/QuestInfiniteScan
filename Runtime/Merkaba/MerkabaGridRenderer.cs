@@ -884,31 +884,63 @@ namespace Genesis.RoomScan
             if (!_nativeReadoutJob.Poll(out string error)) return;
             ReadoutBuildTicket ticket = _pendingBuild;
             // Release the serial native lane at its GPU fence. Publication is
-            // decided from the readout's own completion record.
-            _nativeReadoutJob.Dispose();
+            // decided from the readout's own completion record, copied by the
+            // job behind that fence.
+            MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob job =
+                _nativeReadoutJob;
             _nativeReadoutJob = null;
+            using var release = job;
             if (!string.IsNullOrEmpty(error))
             {
-                _buildInFlight = false;
-                _pendingBuild = default;
-                _previousPublished = false;
-                _canonicalDirty = true;
                 Logger.Error(error);
+                RejectPublication(ticket);
                 return;
             }
-            try
-            {
-                RequestReadoutCompletion(ticket);
-            }
-            catch (Exception exception)
-            {
-                _buildInFlight = false;
-                _pendingBuild = default;
-                _previousPublished = false;
-                _canonicalDirty = true;
-                Logger.Warning("Merkaba readout completion request failed: " +
-                    exception.Message);
-            }
+            bool valid = job.TryReadCompletion(_completionRecord) &&
+                DecidePublication(ticket, _completionRecord, 4);
+            if (!valid) RejectPublication(ticket);
+        }
+
+        private readonly uint[] _completionRecord = new uint[8];
+
+        /// <summary>
+        /// Adopts BACK as FRONT only when the readout itself reports a
+        /// published record for this revision. Anything else keeps FRONT.
+        /// </summary>
+        private bool DecidePublication(ReadoutBuildTicket ticket,
+            uint[] record, int offset)
+        {
+            if (record == null || record.Length < offset + 4) return false;
+            if (record[offset] != ticket.Revision ||
+                record[offset + 1] != MerkabaGrid.ReadoutPublishedStatus ||
+                ticket.RenderResetGeneration != _grid.RenderResetGeneration)
+                return false;
+            _buildInFlight = false;
+            _pendingBuild = default;
+            _cycleReadoutPending = false;
+            _frontReadout = ticket.Slot;
+            _frontTileCount = (int)Math.Min(record[offset + 2],
+                (uint)MerkabaSpatial.PhysicalTileCapacity);
+            _previousPublished = true;
+            bool backlog = (record[offset + 3] & ReadoutBacklogBit) != 0u;
+            if (backlog) _canonicalDirty = true;
+            if (ticket.ResidencyQuery) _residencyQueryRequested = false;
+            AdoptPublication();
+            return true;
+        }
+
+        /// <summary>
+        /// A failed BACK never changes FRONT. Its pages are reclaimed by the
+        /// next build and the scan transaction stays open until a readout
+        /// publishes, so no further scan mutates the world in between.
+        /// </summary>
+        private void RejectPublication(ReadoutBuildTicket ticket)
+        {
+            _buildInFlight = false;
+            _pendingBuild = default;
+            _previousPublished = false;
+            _canonicalDirty = true;
+            _nextReadoutBuild = 0f;
         }
 
         /// <summary>
@@ -930,20 +962,28 @@ namespace Genesis.RoomScan
                 !_pendingPublicationFence.passed) return;
             _hasPendingPublicationFence = false;
             ReadoutBuildTicket ticket = _pendingBuild;
-            _buildInFlight = false;
-            _pendingBuild = default;
-            _cycleReadoutPending = false;
-            if (ticket.RenderResetGeneration != _grid.RenderResetGeneration)
-            {
-                // Both slots were cleared under the build; FRONT stays.
-                _previousPublished = false;
-                _canonicalDirty = true;
-                return;
-            }
-            _frontReadout = ticket.Slot;
-            _previousPublished = true;
-            AdoptPublication();
-            if (ticket.ResidencyQuery) _residencyQueryRequested = false;
+            // Editor only: the graphics-queue build has no native completion
+            // copy, so the 16-byte record is read back after the fence.
+            uint lifecycle = _lifecycleGeneration;
+            AsyncGPUReadback.Request(_grid.M8AttemptCompletion, 16, 16,
+                request =>
+                {
+                    if (this == null || lifecycle != _lifecycleGeneration ||
+                        !_buildInFlight || ticket.Revision !=
+                        _pendingBuild.Revision)
+                        return;
+                    bool valid = !request.hasError;
+                    if (valid)
+                    {
+                        Unity.Collections.NativeArray<uint> data =
+                            request.GetData<uint>();
+                        for (int index = 0; index < 4; index++)
+                            _completionRecord[index] = data[index];
+                        valid = DecidePublication(ticket, _completionRecord,
+                            0);
+                    }
+                    if (!valid) RejectPublication(ticket);
+                });
         }
 
         /// <summary>
