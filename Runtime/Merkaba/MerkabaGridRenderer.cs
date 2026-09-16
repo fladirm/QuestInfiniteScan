@@ -30,6 +30,11 @@ namespace Genesis.RoomScan
         [SerializeField] private bool readoutDrawEnabled = true;
         [SerializeField] private bool checkerReadoutEnabled;
 
+        /// <summary>
+        /// Readout publishes a world sphere around the head, never a view.
+        /// Frustum, stereo visibility and occlusion are draw concerns.
+        /// </summary>
+        internal const float ReadoutCoverageRadius = 6.4f;
         private const float ResidencyQueryTranslation = 1f;
         private const uint ReadoutBacklogBit = 0x80000000u;
 
@@ -542,7 +547,7 @@ namespace Genesis.RoomScan
             _material.SetMatrix(GridToWorldId, gridToWorld);
             Vector3 cameraGrid = gridToWorld.inverse.MultiplyPoint3x4(
                 camera.transform.position);
-            float coverageDistance = renderDistance + readoutTranslationGuard;
+            float coverageDistance = ReadoutCoverageRadius;
             _grid.SetResidencyFocus(cameraGrid,
                 coverageDistance + MerkabaSpatial.BlockWorldSize);
 
@@ -729,8 +734,11 @@ namespace Genesis.RoomScan
                     MerkabaConstants.LatticeStep),
                 Mathf.FloorToInt(cameraGridMeters.z /
                     MerkabaConstants.LatticeStep));
-            float coverageDistance = renderDistance + readoutTranslationGuard;
-            float warmDistance = coverageDistance +
+            // Coverage is the world sphere; the guard only keeps residency
+            // ahead of head translation, and the halo resolves boundary
+            // topology one lattice layer past coverage.
+            float coverageDistance = ReadoutCoverageRadius;
+            float warmDistance = coverageDistance + readoutTranslationGuard +
                 MerkabaSpatial.BlockWorldSize;
             int radius = Mathf.CeilToInt(warmDistance /
                 MerkabaSpatial.BlockWorldSize) + 1;
@@ -755,7 +763,7 @@ namespace Genesis.RoomScan
             command.SetComputeFloatParam(readoutCompute, WarmDistanceId,
                 query.WarmDistance);
             command.SetComputeFloatParam(readoutCompute, DependencyDistanceId,
-                query.CoverageDistance);
+                query.CoverageDistance + MerkabaConstants.LatticeStep);
             command.SetComputeIntParams(readoutCompute, QueryCenterBlockId,
                 query.CenterBlock.x, query.CenterBlock.y, query.CenterBlock.z);
             command.SetComputeIntParam(readoutCompute, QueryBlockRadiusId,
@@ -974,8 +982,10 @@ namespace Genesis.RoomScan
                 metricDiagonal);
             command.SetComputeVectorParam(readoutCompute, GridMetricCrossId,
                 metricCross);
+            // Draw policy may shorten the view, never extend it past what the
+            // publication actually covers.
             command.SetComputeFloatParam(readoutCompute, RenderDistanceId,
-                renderDistance + readoutTranslationGuard);
+                Mathf.Min(renderDistance, ReadoutCoverageRadius));
             command.SetComputeIntParam(readoutCompute, FrontTileCountId,
                 frontTileCount);
             command.SetComputeVectorArrayParam(readoutCompute,
