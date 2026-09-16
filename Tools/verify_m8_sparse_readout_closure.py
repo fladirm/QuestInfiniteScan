@@ -54,10 +54,13 @@ checks = {
         "M8_COUNTER_RENDER_REBUILD_TILES" in readout and
         "MERKABA_M8_PHYSICAL_TILE_CAPACITY" in readout and
         "M8_RENDER_MUTATION_BATCH" not in readout,
-    "only positive-area axis contacts occlude the 25mm carrier":
-        "M8_SKIN_AXIS_NEIGHBOUR_COUNT" in readout and
-        "M8_SKIN_AXIS_NEIGHBOURS" in readout and
-        "M8_RENDER_AXIS_DEPENDENCY_MASK" in world,
+    "dirty closure covers all 26 neighbours":
+        "M8_RENDER_AXIS_DEPENDENCY_MASK" not in world and
+        "M8_RENDER_RESIDENCY_DEPENDENCY_MASK M8_RENDER_DEPENDENCY_MASK"
+        in world,
+    "journal entries carry a logical identity":
+        "M8_RENDER_JOURNAL_ENTRY_WORDS" in world and
+        "journalledIdentity" in readout,
     "live metric skin consumes measured signed plane offset":
         "M8SkinMeasuredShift" in readout and
         "M8SkinGridVertex(int3 globalCoord, KernelState state" in readout,

@@ -716,6 +716,16 @@ void CopyRenderIndex(uint id : SV_DispatchThreadID)
 }
 
 
+uint M8CurrentRenderIdentity(uint physicalSlot)
+{
+    uint4 meta = _M8TileRecords[M8TileMetaIndex(physicalSlot)];
+    uint refIndex = meta.x * MERKABA_M8_TILES_PER_CHUNK + meta.y;
+    return refIndex < MERKABA_M8_CHUNK_CAPACITY *
+        MERKABA_M8_TILES_PER_CHUNK &&
+        _M8ChunkTileRefsRead[refIndex] == physicalSlot + 1u
+        ? refIndex + 1u : 0u;
+}
+
 bool M8RenderJournalReserve(uint headCounter, uint tailCounter,
     out uint ticket)
 {
@@ -759,8 +769,11 @@ void M8RenderJournalQueueDirty(uint physicalSlot, uint dependencyBits)
             ~M8_RENDER_DIRTY_QUEUED, ignored);
         return;
     }
-    _M8RenderMutationQueue[M8_RENDER_JOURNAL_DIRTY_BASE +
-        (ticket & M8_RENDER_JOURNAL_MASK)] = physicalSlot;
+    uint entry = (ticket & M8_RENDER_JOURNAL_MASK) *
+        M8_RENDER_JOURNAL_ENTRY_WORDS;
+    _M8RenderMutationQueue[entry] = physicalSlot;
+    _M8RenderMutationQueue[entry + 1u] =
+        M8CurrentRenderIdentity(physicalSlot);
 }
 
 void M8MarkDependencyDirty(uint physicalSlot)
@@ -773,15 +786,6 @@ void M8MarkDependencyDirty(uint physicalSlot)
         M8CounterIncrement(M8_COUNTER_RENDER_DIRTY_MARKS);
 }
 
-uint M8CurrentRenderIdentity(uint physicalSlot)
-{
-    uint4 meta = _M8TileRecords[M8TileMetaIndex(physicalSlot)];
-    uint refIndex = meta.x * MERKABA_M8_TILES_PER_CHUNK + meta.y;
-    return refIndex < MERKABA_M8_CHUNK_CAPACITY *
-        MERKABA_M8_TILES_PER_CHUNK &&
-        _M8ChunkTileRefsRead[refIndex] == physicalSlot + 1u
-        ? refIndex + 1u : 0u;
-}
 
 void M8QueueRenderDependencies(uint physicalSlot, uint dependencyBits)
 {
@@ -819,10 +823,20 @@ void ApplyRenderMutationJournal(uint id : SV_DispatchThreadID)
     uint count = _M8Counters[M8_COUNTER_RENDER_JOURNAL_BATCH];
     if (id >= count) return;
     uint head = _M8Counters[M8_COUNTER_RENDER_JOURNAL_HEAD];
-    uint physicalSlot = _M8RenderMutationQueue[
-        M8_RENDER_JOURNAL_DIRTY_BASE +
-        ((head + id) & M8_RENDER_JOURNAL_MASK)];
+    uint entry = ((head + id) & M8_RENDER_JOURNAL_MASK) *
+        M8_RENDER_JOURNAL_ENTRY_WORDS;
+    uint physicalSlot = _M8RenderMutationQueue[entry];
+    uint journalledIdentity = _M8RenderMutationQueue[entry + 1u];
     if (physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) return;
+    // A slot recycled by eviction must never mark the tile that took it.
+    if (journalledIdentity != 0u &&
+        M8CurrentRenderIdentity(physicalSlot) != journalledIdentity)
+    {
+        uint stale;
+        InterlockedAnd(_M8TileRecords[M8TileRuntimeIndex(physicalSlot)].w,
+            ~M8_RENDER_DIRTY_QUEUED, stale);
+        return;
+    }
     uint previous;
     InterlockedAnd(_M8TileRecords[M8TileRuntimeIndex(physicalSlot)].w,
         ~(M8_RENDER_DIRTY_QUEUED | M8_RENDER_DEPENDENCY_MASK), previous);

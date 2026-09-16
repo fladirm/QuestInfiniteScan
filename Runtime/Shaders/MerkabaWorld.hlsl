@@ -60,8 +60,13 @@
 #define M8_RENDER_JOURNAL_CAPACITY 65536u
 #define M8_RENDER_JOURNAL_MASK (M8_RENDER_JOURNAL_CAPACITY - 1u)
 #define M8_RENDER_JOURNAL_DIRTY_BASE 0u
-#define M8_RENDER_JOURNAL_WORDS M8_RENDER_JOURNAL_CAPACITY
-#define M8_RENDER_AXIS_DEPENDENCY_MASK 0x0105a080u
+// One journal entry is (physical slot, logical identity); a slot recycled by
+// eviction can never mark the tile that took its place.
+#define M8_RENDER_JOURNAL_ENTRY_WORDS 2u
+#define M8_RENDER_JOURNAL_WORDS \
+    (M8_RENDER_JOURNAL_CAPACITY * M8_RENDER_JOURNAL_ENTRY_WORDS)
+// Residency changes move a whole tile, so they depend on all 26 neighbours.
+#define M8_RENDER_RESIDENCY_DEPENDENCY_MASK M8_RENDER_DEPENDENCY_MASK
 #define MERKABA_M8_LOAD_REQUEST_CAPACITY 262144u
 #define MERKABA_M8_LOAD_REQUEST_MASK 262143u
 #define MERKABA_M8_SURFACE_CANDIDATE_CAPACITY 2097152u
@@ -492,13 +497,25 @@ uint M8RenderBoundaryDependencyMask(uint kernelLocal)
     uint x = kernelLocal & 7u;
     uint y = (kernelLocal >> 3u) & 7u;
     uint z = (kernelLocal >> 6u) & 7u;
+    // A boundary mutation can change the shared skin of every neighbour tile
+    // its support and connectivity reach, so the closure is the full 26 set.
+    uint ordinal = 0u;
     uint mask = 0u;
-    if (z == 0u) mask |= 1u << (M8_RENDER_DEPENDENCY_SHIFT + 4u);
-    if (y == 0u) mask |= 1u << (M8_RENDER_DEPENDENCY_SHIFT + 10u);
-    if (x == 0u) mask |= 1u << (M8_RENDER_DEPENDENCY_SHIFT + 12u);
-    if (x == 7u) mask |= 1u << (M8_RENDER_DEPENDENCY_SHIFT + 13u);
-    if (y == 7u) mask |= 1u << (M8_RENDER_DEPENDENCY_SHIFT + 15u);
-    if (z == 7u) mask |= 1u << (M8_RENDER_DEPENDENCY_SHIFT + 21u);
+    [unroll]
+    for (int dz = -1; dz <= 1; dz++)
+    [unroll]
+    for (int dy = -1; dy <= 1; dy++)
+    [unroll]
+    for (int dx = -1; dx <= 1; dx++)
+    {
+        if (dx == 0 && dy == 0 && dz == 0) continue;
+        bool reaches = (dx >= 0 || x == 0u) && (dx <= 0 || x == 7u) &&
+            (dy >= 0 || y == 0u) && (dy <= 0 || y == 7u) &&
+            (dz >= 0 || z == 0u) && (dz <= 0 || z == 7u);
+        if (reaches)
+            mask |= 1u << (M8_RENDER_DEPENDENCY_SHIFT + ordinal);
+        ordinal++;
+    }
     return mask;
 }
 

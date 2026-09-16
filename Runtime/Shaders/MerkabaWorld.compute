@@ -88,6 +88,17 @@ bool M8ReserveRenderJournal(uint headCounter, uint tailCounter,
     return false;
 }
 
+// Logical identity of the tile a slot currently holds, 0 when it holds none.
+uint M8RenderIdentityOf(uint physicalSlot)
+{
+    uint4 meta = _M8TileRecords[M8TileMetaIndex(physicalSlot)];
+    uint refIndex = meta.x * MERKABA_M8_TILES_PER_CHUNK + meta.y;
+    return refIndex < MERKABA_M8_CHUNK_CAPACITY *
+        MERKABA_M8_TILES_PER_CHUNK &&
+        _M8ChunkTileRefs[refIndex] == physicalSlot + 1u
+        ? refIndex + 1u : 0u;
+}
+
 void M8JournalRenderSlot(uint physicalSlot, uint dependencyBits)
 {
     uint previous;
@@ -105,8 +116,10 @@ void M8JournalRenderSlot(uint physicalSlot, uint dependencyBits)
             ~M8_RENDER_DIRTY_QUEUED, ignored);
         return;
     }
-    _M8RenderMutationQueue[M8_RENDER_JOURNAL_DIRTY_BASE +
-        (ticket & M8_RENDER_JOURNAL_MASK)] = physicalSlot;
+    uint entry = (ticket & M8_RENDER_JOURNAL_MASK) *
+        M8_RENDER_JOURNAL_ENTRY_WORDS;
+    _M8RenderMutationQueue[entry] = physicalSlot;
+    _M8RenderMutationQueue[entry + 1u] = M8RenderIdentityOf(physicalSlot);
 }
 
 void M8JournalExistingRenderDirty(uint physicalSlot)
@@ -535,7 +548,7 @@ void SelectEvictionVictims(uint id : SV_DispatchThreadID)
         InterlockedCompareExchange(_M8ChunkTileRefs[tileRefIndex], expected,
             MERKABA_REF_COLD_ON_SSD, prior);
         if (prior != expected) return;
-        M8JournalRenderSlot(physicalSlot, M8_RENDER_AXIS_DEPENDENCY_MASK);
+        M8JournalRenderSlot(physicalSlot, M8_RENDER_RESIDENCY_DEPENDENCY_MASK);
         M8PushPhysicalTile(physicalSlot);
         uint ignored;
         InterlockedAdd(_M8Counters[M8_COUNTER_HOT_TILE_COUNT], 0xffffffffu,
@@ -604,7 +617,7 @@ void AcknowledgeWritebackBatch(uint id : SV_DispatchThreadID)
     InterlockedCompareExchange(_M8ChunkTileRefs[queued.y],
         MERKABA_REF_EVICTING, MERKABA_REF_COLD_ON_SSD, prior);
     if (prior != MERKABA_REF_EVICTING) return;
-    M8JournalRenderSlot(physicalSlot, M8_RENDER_AXIS_DEPENDENCY_MASK);
+    M8JournalRenderSlot(physicalSlot, M8_RENDER_RESIDENCY_DEPENDENCY_MASK);
     _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = M8_RUNTIME_CLEAN;
     M8PushPhysicalTile(physicalSlot);
     uint ignored;
@@ -819,7 +832,7 @@ void InstallLoadedTiles(uint3 groupId : SV_GroupID,
         // journal ticket is taken by SeedRenderLoadJournal right after it.
         uint previousRenderBits;
         InterlockedOr(_M8TileRecords[M8TileRuntimeIndex(gLoadSlot)].w,
-            M8_RENDER_DIRTY | M8_RENDER_AXIS_DEPENDENCY_MASK,
+            M8_RENDER_DIRTY | M8_RENDER_RESIDENCY_DEPENDENCY_MASK,
             previousRenderBits);
         uint ignored;
         InterlockedAdd(_M8Counters[M8_COUNTER_COLD_TILE_COUNT], 0xffffffffu,
