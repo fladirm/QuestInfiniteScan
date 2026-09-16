@@ -309,7 +309,10 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
     for (uint slot = 0u; slot < 12u; slot++)
         inBranch[slot] = valid[slot] && signatures[slot] == seedSignature &&
             all(coords[slot] == seedCoord);
-    [unroll]
+    // The outer expansion is a runtime loop (eleven passes at most); only
+    // the inner slot loops unroll, so every array index stays constant
+    // without the compiler cloning the body eleven times.
+    [loop]
     for (uint expansion = 0u; expansion < 11u; expansion++)
     {
         [unroll]
