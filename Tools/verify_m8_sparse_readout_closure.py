@@ -61,12 +61,16 @@ checks = {
     "journal entries carry a logical identity":
         "M8_RENDER_JOURNAL_ENTRY_WORDS" in world and
         "journalledIdentity" in readout,
-    "live metric skin consumes measured signed plane offset":
+    "live skin rides the measured signed plane offset":
         "M8SkinMeasuredShift" in readout and
-        "M8SkinGridVertex(int3 globalCoord, KernelState state" in readout,
-    "export metric skin consumes the same measured state/context resolver":
-        "kernel.Coord, kernel.State, context, facelet.A" in exporter and
-        "MerkabaSkin.FaceletColor" in exporter,
+        "M8SkinVertexPosition(int3 globalCoord" in readout,
+    "live skin publishes shared vertices and real indices":
+        "M8SkinUsedVertices" in readout and
+        "M8SkinVertexRank" in readout and
+        "_M8RenderIndices[M8SkinIndexSlot" in readout,
+    "export consumes the same boundary authority":
+        "MerkabaSkin.VertexPosition(kernel.Coord" in exporter and
+        "MerkabaSkin.VertexColor(kernel.Coord" in exporter,
     "departed view pages are retired":
         "M8_RENDER_VIEW_MARK" in readout and
         "M8_RENDER_RETIRE_BASE" in readout and
@@ -94,10 +98,15 @@ checks = {
         "AsyncGPUReadback.Request(_grid.M8AttemptCompletion" not in renderer,
     "coverage radius is the world sphere":
         "ReadoutCoverageRadius = 6.4f" in renderer,
-    "42/80 Skin SSOT remains canonical":
-        "VertexCount = 42" in skin and "FaceletCount = 80" in skin,
-    "75mm half-lattice skin placement is absent":
-        "0.5f * MerkabaConstants.LatticeStep" not in skin,
+    "skin is one analytic authority, not a hardcoded table":
+        "BuildBoundary()" in skin and "ConstraintsValue" in skin and
+        "SupportHalfUnits = 6" in skin,
+    "the support is 50 mm on the 25 mm lattice":
+        "LatticeUnits = 6" in skin and
+        "MerkabaConstants.LatticeStep / 6f" in skin,
+    "no field sampling or marching reconstruction in the readout":
+        "marching" not in readout.lower() and "SDF" not in readout and
+        "TrilinearField" not in readout,
     "CPU export uses same Skin SSOT":
         "MerkabaSkin.Facelets" in exporter and
         "MerkabaSkin.CompatibleNeighbourMask" in exporter,
