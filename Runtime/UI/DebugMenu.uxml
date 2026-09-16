@@ -364,7 +364,7 @@
                     class="quiet-action" />
                 <ui:Button name="btn-occlusion" text="Occlusion On"
                     class="quiet-action" />
-                <ui:Button name="btn-checker" text="Checker Off"
+                <ui:Button name="btn-checker" text="COLOR RGB"
                     class="quiet-action button-last" />
             </ui:VisualElement>
         </ui:Foldout>

@@ -1023,7 +1023,7 @@ namespace Genesis.RoomScan.UI
                 scanner.CheckerReadoutEnabled);
             if (_checker != null)
                 _checker.text = scanner.CheckerReadoutEnabled
-                    ? "Checker On" : "Checker Off";
+                    ? "COLOR COVERAGE" : "COLOR RGB";
             if (_artifactView != null)
                 _artifactView.text = _artifactViewer != null &&
                     _artifactViewer.IsOpen ? "GLB VIEW  ON" : "GLB VIEW  OFF";
