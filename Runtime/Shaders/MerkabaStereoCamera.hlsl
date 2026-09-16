@@ -52,6 +52,11 @@ float2 MerkabaProjectCameraUv(uint eye, float3 worldPosition)
         _MerkabaCameraCurrentResolutionRight);
 }
 
+bool MerkabaCameraUvValid(float2 uv)
+{
+    return all(isfinite(uv)) && all(uv >= 0.0) && all(uv <= 1.0);
+}
+
 float3 MerkabaSampleCameraRgb(uint eye, float2 uv)
 {
     if (eye == 0u)
@@ -59,6 +64,26 @@ float3 MerkabaSampleCameraRgb(uint eye, float2 uv)
             gsBilinearClampSampler, uv, 0).rgb;
     return _MerkabaCameraRgbRight.SampleLevel(
         gsBilinearClampSampler, uv, 0).rgb;
+}
+
+bool MerkabaSampleStereoRgb(float3 worldPosition, out float3 rgb)
+{
+    float3 sum = 0.0;
+    float weight = 0.0;
+    float2 left = MerkabaProjectCameraUv(0u, worldPosition);
+    if (MerkabaCameraUvValid(left))
+    {
+        sum += MerkabaSampleCameraRgb(0u, left);
+        weight += 1.0;
+    }
+    float2 right = MerkabaProjectCameraUv(1u, worldPosition);
+    if (MerkabaCameraUvValid(right))
+    {
+        sum += MerkabaSampleCameraRgb(1u, right);
+        weight += 1.0;
+    }
+    rgb = weight > 0.0 ? sum / weight : 0.0;
+    return weight > 0.0;
 }
 
 #endif

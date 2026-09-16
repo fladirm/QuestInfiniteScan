@@ -97,6 +97,7 @@ namespace Genesis.RoomScan
         private ulong _cameraCopyRetiredEpoch;
         private int _lastCameraCopySlot = -1;
         private Task _cameraCopyRetirementTask = Task.CompletedTask;
+        private bool _cameraFormatTelemetryLogged;
         private readonly Vector4[] _exclusionPositions = new Vector4[64];
         private readonly Vector4[] _scanCoveragePlanes =
             new Vector4[MerkabaMutationCoverage.PlaneCount];
@@ -379,6 +380,15 @@ namespace Genesis.RoomScan
                     CaptureOwner.PcaObservationCopy, timingRevision, command);
                 StoreCameraEye(command, slot, 0, frame.Left, timedSubmission);
                 StoreCameraEye(command, slot, 1, frame.Right, timedSubmission);
+                if (!_cameraFormatTelemetryLogged)
+                {
+                    _cameraFormatTelemetryLogged = true;
+                    Logger.Info("Merkaba stereo RGB source format " +
+                        $"left={frame.Left.Texture.graphicsFormat}/" +
+                        $"sRGB={frame.Left.Texture.isDataSRGB}, " +
+                        $"right={frame.Right.Texture.graphicsFormat}/" +
+                        $"sRGB={frame.Right.Texture.isDataSRGB}.");
+                }
                 // Provider-owned history copies, these immutable observation
                 // copies, and later M8 work share the graphics queue. Queue
                 // ordering publishes matching pixels and metadata without a

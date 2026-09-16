@@ -716,7 +716,13 @@ void InstallLoadedTiles(uint3 groupId : SV_GroupID,
         uint refIndex = meta.x * MERKABA_M8_TILES_PER_CHUNK + meta.y;
         _M8ChunkTileRefs[refIndex] = gLoadSlot + 1u;
         // A resident tile (and its halo neighbours) must be read out.
-        M8MarkRenderDirty(gLoadSlot);
+        // A new tile changes every shared boundary, so all 26 dependencies
+        // are recorded at once.
+        uint previousRenderBits;
+        InterlockedOr(_M8TileRecords[M8TileRuntimeIndex(gLoadSlot)].w,
+            M8_RENDER_DIRTY | M8_RENDER_DEPENDENCY_MASK, previousRenderBits);
+        if ((previousRenderBits & M8_RENDER_DIRTY) == 0u)
+            M8CounterIncrement(M8_COUNTER_RENDER_DIRTY_MARKS);
         uint ignored;
         InterlockedAdd(_M8Counters[M8_COUNTER_COLD_TILE_COUNT], 0xffffffffu,
             ignored);

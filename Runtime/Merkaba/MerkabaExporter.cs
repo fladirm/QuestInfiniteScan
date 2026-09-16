@@ -66,7 +66,8 @@ namespace Genesis.RoomScan
                     new Progress<OperationWorkProgress>(value =>
                         _scanner?.ReportOperation(
                             ScanOperationKind.ExportGlb, value));
-                await RequireActiveSessionAnchorAsync();
+                MerkabaSpatialBinding spatialBinding =
+                    await CaptureSpatialBindingAsync();
                 await _grid.FlushAllDirtyTilesAsync(progress);
                 await Task.Run(() =>
                 {
@@ -79,7 +80,7 @@ namespace Genesis.RoomScan
                 MerkabaGlbResult result;
                 using (var streamSession =
                            new MerkabaGlbWriter.StreamingSession(
-                           spoolDirectory))
+                           spoolDirectory, float3.zero, spatialBinding))
                 {
                     await StreamOwnedMembranesAsync(async (membrane, _, _, _) =>
                     {
@@ -441,13 +442,14 @@ namespace Genesis.RoomScan
             RoomAnchorManager anchor = await RequireActiveSessionAnchorAsync();
             Matrix4x4 anchorFromPackage = anchor.SpatialAnchorMatrix.inverse *
                 _grid.GridToWorldMatrix;
-            var binding = new MerkabaSpatialBinding(anchor.SpatialAnchorUuid,
-                anchorFromPackage);
+            var binding = new MerkabaSpatialBinding(
+                _persistence != null ? _persistence.ActiveSessionId : Guid.Empty,
+                anchor.SpatialAnchorUuid, anchorFromPackage);
             if (!binding.IsValid)
                 throw new InvalidOperationException(
                     "3D Tiles spatial registration is not finite.");
-            Logger.Info($"Merkaba 3D Tiles spatial binding " +
-                $"anchor={binding.AnchorUuid:D}, " +
+            Logger.Info($"Merkaba export spatial binding " +
+                $"session={binding.SessionId:D}, anchor={binding.AnchorUuid:D}, " +
                 $"packageOrigin={anchorFromPackage.GetColumn(3)}");
             return binding;
         }
@@ -585,10 +587,10 @@ namespace Genesis.RoomScan
                     // is read for their halo. A stored tile outside the ring
                     // is known space, never an artificial partition sink.
                     MerkabaTileAddress capturedOwner = ownerKey;
-                    local = await Task.Run(() => MerkabaExportMembrane.Build(
-                        MerkabaExportShell.Build(evidence), null,
-                        coord => IsOwnedByChunk(coord, capturedOwner),
-                        coord => !IsStoredTile(coord, available)));
+                    local = await Task.Run(() =>
+                        MerkabaExportMembrane.BuildSkin(
+                            MerkabaExportShell.Build(evidence), null,
+                            coord => IsOwnedByChunk(coord, capturedOwner)));
                 }
                 catch (Exception exception)
                 {

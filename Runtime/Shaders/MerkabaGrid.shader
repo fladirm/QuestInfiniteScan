@@ -135,7 +135,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 clip(_ScanOpacity - coverageThreshold);
 #endif
                 half3 color = input.hasRgb != 0u
-                    ? input.color : half3(0.55h, 0.16h, 0.42h);
+                    ? input.color : half3(0.625h, 0.625h, 0.625h);
 #if defined(M8_CHECKER_READOUT)
                 float3 surfaceAxis = abs(cross(ddx(input.worldPosition),
                     ddy(input.worldPosition)));

@@ -22,16 +22,18 @@ namespace Genesis.RoomScan
         internal const int StreamBatchCapacity = 32;
         internal const int WritebackBatchCapacity = 128;
         internal const uint ResidencySafeEpochs = 3u;
-        // Paged disposable readout (MerkabaWorld.hlsl M8_RENDER_*).
+        // Paged disposable union-skin readout (MerkabaWorld.hlsl M8_RENDER_*).
         internal const int RenderPagePatches = 16;
         internal const int RenderPageVertices = RenderPagePatches *
-            MerkabaOverlapShell.VerticesPerPatch;
+            MerkabaSkin.VerticesPerFacelet;
         internal const int RenderPageIndices = RenderPagePatches *
-            MerkabaOverlapShell.IndicesPerPatch;
+            MerkabaSkin.IndicesPerFacelet;
         internal const int RenderPageCapacity = 131072;
         internal const int RenderTileMaxPages =
-            MerkabaSpatial.KernelsPerTile / RenderPagePatches;
-        internal const int RenderRecordWords = 8 + RenderTileMaxPages;
+            MerkabaSpatial.KernelsPerTile * MerkabaSkin.FaceletCount /
+            RenderPagePatches;
+        // Records carry a linked-list head; page links live in the allocator.
+        internal const int RenderRecordWords = 8;
         internal const int RenderIndexHeader = 8;
         internal const int RenderTileListBase = RenderIndexHeader +
             MerkabaSpatial.PhysicalTileCapacity * RenderRecordWords;
@@ -39,7 +41,7 @@ namespace Genesis.RoomScan
             MerkabaSpatial.PhysicalTileCapacity;
         internal const int RenderControlWords = 8;
         internal const int RenderPageQueueCount = RenderControlWords +
-            RenderPageCapacity * 3;
+            RenderPageCapacity * 4;
         internal const int ReadoutVertexCapacity = RenderPageCapacity *
             RenderPageVertices;
         internal const int ReadoutVertexStride = 16;

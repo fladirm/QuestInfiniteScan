@@ -15,14 +15,22 @@ namespace Genesis.RoomScan
     /// </summary>
     internal readonly struct MerkabaSpatialBinding
     {
-        internal const int CurrentVersion = 1;
+        internal const int CurrentVersion = 2;
 
+        internal readonly Guid SessionId;
         internal readonly Guid AnchorUuid;
         internal readonly Matrix4x4 AnchorFromPackage;
 
         internal MerkabaSpatialBinding(Guid anchorUuid,
+            Matrix4x4 anchorFromPackage) :
+            this(Guid.Empty, anchorUuid, anchorFromPackage)
+        {
+        }
+
+        internal MerkabaSpatialBinding(Guid sessionId, Guid anchorUuid,
             Matrix4x4 anchorFromPackage)
         {
+            SessionId = sessionId;
             AnchorUuid = anchorUuid;
             AnchorFromPackage = anchorFromPackage;
         }
@@ -97,7 +105,9 @@ namespace Genesis.RoomScan
         internal const long DefaultTargetLeafBytes = 128L * 1024 * 1024;
         internal const long DefaultHardLeafBytes = 256L * 1024 * 1024;
         private const long GlbHeaderReserve = 2L * 1024;
-        private const long MeasuredPatchBytes = 4L * 28L + 6L * 4L;
+        private const long SkinFaceletBytes =
+            MerkabaSkin.VerticesPerFacelet * 28L +
+            MerkabaSkin.IndicesPerFacelet * 4L;
         private const string EmptyNodeGeometricError = "1e30";
 
         /// <summary>
@@ -391,7 +401,7 @@ namespace Genesis.RoomScan
             var items = new List<Item>(membrane.Patches.Count);
             for (int index = 0; index < membrane.Patches.Count; index++)
                 items.Add(new Item(membrane.Patches[index].Coord, index,
-                    MeasuredPatchBytes));
+                    SkinFaceletBytes));
             items.Sort(CompareItems);
             return items;
         }
@@ -516,11 +526,16 @@ namespace Genesis.RoomScan
         {
             json.Append(",\"extras\":{\"questMerkabaSpatialBinding\":{")
                 .Append("\"version\":")
-                .Append(MerkabaSpatialBinding.CurrentVersion)
-                .Append(",\"anchorUuid\":\"")
+                .Append(MerkabaSpatialBinding.CurrentVersion);
+            if (binding.SessionId != Guid.Empty)
+                json.Append(",\"sessionId\":\"")
+                    .Append(binding.SessionId.ToString("D",
+                        CultureInfo.InvariantCulture)).Append('"');
+            json.Append(",\"anchorUuid\":\"")
                 .Append(binding.AnchorUuid.ToString("D",
                     CultureInfo.InvariantCulture))
-                .Append("\",\"anchorFromPackage\":[");
+                .Append("\",\"coordinateSystem\":\"M8_UNITY_GRID_METERS\",")
+                .Append("\"anchorFromPackage\":[");
             for (int column = 0; column < 4; column++)
             for (int row = 0; row < 4; row++)
             {

@@ -29,8 +29,11 @@ namespace Genesis.RoomScan
         [SerializeField] private bool readoutDrawEnabled = true;
         [SerializeField] private bool checkerReadoutEnabled;
 
-        /// <summary>Tiles rebuilt by one job; the remainder stays dirty.</summary>
-        internal const int BuildTileCap = 2048;
+        /// <summary>
+        /// Hard real-time publication slice. Union-skin generation is cheap,
+        /// but no frame inherits an unbounded dirty-backlog dispatch.
+        /// </summary>
+        internal const int BuildTileCap = 4;
         private const float ResidencyQueryTranslation = 1f;
 
         private MerkabaGrid _grid;
@@ -957,6 +960,8 @@ namespace Genesis.RoomScan
                 CullGridPlanesId, gridCullPlanes);
             command.SetComputeBufferParam(readoutCompute, _cullKernel,
                 RenderIndexFrontReadId, frontIndex);
+            command.SetComputeBufferParam(readoutCompute, _cullKernel,
+                RenderPageQueuesId, _grid.M8RenderPageQueues);
             command.SetComputeBufferParam(readoutCompute, _cullKernel,
                 VisiblePagesId, _grid.M8VisiblePages);
             command.SetComputeBufferParam(readoutCompute, _cullKernel,

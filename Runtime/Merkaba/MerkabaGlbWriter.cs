@@ -127,6 +127,7 @@ namespace Genesis.RoomScan
             private readonly BinaryWriter _vertexWriter;
             private readonly BinaryWriter _indexWriter;
             private readonly float3 _localOrigin;
+            private readonly MerkabaSpatialBinding? _spatialBinding;
             private int _vertexCount;
             private int _indexCount;
             private int _primitiveCount;
@@ -140,11 +141,17 @@ namespace Genesis.RoomScan
             private bool _disposed;
 
             internal StreamingSession(string directory) :
-                this(directory, float3.zero)
+                this(directory, float3.zero, null)
             {
             }
 
-            internal StreamingSession(string directory, float3 localOrigin)
+            internal StreamingSession(string directory, float3 localOrigin) :
+                this(directory, localOrigin, null)
+            {
+            }
+
+            internal StreamingSession(string directory, float3 localOrigin,
+                MerkabaSpatialBinding? spatialBinding)
             {
                 if (string.IsNullOrWhiteSpace(directory))
                     throw new ArgumentException(
@@ -158,6 +165,7 @@ namespace Genesis.RoomScan
                         "GLB spool directory already exists: " + directory);
                 _directory = directory;
                 _localOrigin = localOrigin;
+                _spatialBinding = spatialBinding;
                 Directory.CreateDirectory(directory);
                 _vertices = Open("vertices.bin");
                 _indices = Open("indices.bin");
@@ -238,7 +246,8 @@ namespace Genesis.RoomScan
 
                 string json = BuildJson(_vertexCount, _indexCount,
                     binaryLength, verticesOffset, verticesLength,
-                    indicesOffset, indicesLength, _minimum, _maximum);
+                    indicesOffset, indicesLength, _minimum, _maximum,
+                    _spatialBinding);
                 byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
                 int paddedJsonLength = Align4(jsonBytes.Length);
                 long totalLength = checked(12L + 8L + paddedJsonLength + 8L +
@@ -357,7 +366,7 @@ namespace Genesis.RoomScan
 
             string json = BuildJson(plan.VertexCount, plan.IndexCount,
                 binaryLength, verticesOffset, verticesLength, indicesOffset,
-                indicesLength, plan.Minimum, plan.Maximum);
+                indicesLength, plan.Minimum, plan.Maximum, null);
             byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
             int paddedJsonLength = Align4(jsonBytes.Length);
             long totalLength = checked(12L + 8L + paddedJsonLength + 8L +
@@ -442,7 +451,10 @@ namespace Genesis.RoomScan
         private static GeometryPlan Plan(MerkabaExportMembraneResult membrane,
             float3 localOrigin, IProgress<OperationWorkProgress> progress)
         {
-            int primitiveCount = checked(membrane.Patches.Count * 2);
+            int primitiveCount = 0;
+            foreach (MerkabaExportMembranePatch patch in membrane.Patches)
+                primitiveCount = checked(primitiveCount +
+                    (patch.IsTriangle ? 1 : 2));
             int indexCapacity = CheckedIndexCountForPrimitiveCount(
                 primitiveCount);
             var vertices = new List<GeometryVertex>(Math.Min(indexCapacity,
@@ -483,11 +495,19 @@ namespace Genesis.RoomScan
                     patch.PackedColor);
                 uint v2 = AddVertex(patch.Corner11, patch.Normal,
                     patch.PackedColor);
-                uint v3 = AddVertex(patch.Corner01, patch.Normal,
-                    patch.PackedColor);
-                AddTriangle(indices, v0, v2, v1);
-                AddTriangle(indices, v0, v3, v2);
-                completedPrimitives += 2;
+                if (patch.IsTriangle)
+                {
+                    AddTriangle(indices, v0, v2, v1);
+                    completedPrimitives++;
+                }
+                else
+                {
+                    uint v3 = AddVertex(patch.Corner01, patch.Normal,
+                        patch.PackedColor);
+                    AddTriangle(indices, v0, v2, v1);
+                    AddTriangle(indices, v0, v3, v2);
+                    completedPrimitives += 2;
+                }
                 if (completedPrimitives == primitiveCount ||
                     (completedPrimitives & 0xffff) == 0)
                     Report(progress, ScanOperationStage.BuildingMerkabaGeometry,
@@ -557,12 +577,15 @@ namespace Genesis.RoomScan
         private static string BuildJson(int vertexCount, int indexCount,
             long binaryLength, long verticesOffset, long verticesLength,
             long indicesOffset, long indicesLength, Vector3 minimum,
-            Vector3 maximum)
+            Vector3 maximum, MerkabaSpatialBinding? spatialBinding)
         {
             string min = $"[{Number(minimum.x)},{Number(minimum.y)},{Number(minimum.z)}]";
             string max = $"[{Number(maximum.x)},{Number(maximum.y)},{Number(maximum.z)}]";
-            var json = new StringBuilder(1400);
-            json.Append("{\"asset\":{\"version\":\"2.0\",\"generator\":\"Quest Infinite Merkaba\"},");
+            var json = new StringBuilder(1600);
+            json.Append("{\"asset\":{\"version\":\"2.0\",\"generator\":\"Quest Infinite Merkaba\"");
+            if (spatialBinding.HasValue && spatialBinding.Value.IsValid)
+                AppendSpatialBinding(json, spatialBinding.Value);
+            json.Append("},");
             json.Append("\"scene\":0,\"scenes\":[{\"nodes\":[0]}],");
             json.Append("\"nodes\":[{\"name\":\"MerkabaGrid\",\"mesh\":0}],");
             json.Append("\"meshes\":[{\"name\":\"M8 Measured Membrane\",\"primitives\":[{");
@@ -588,6 +611,30 @@ namespace Genesis.RoomScan
             json.Append("{\"bufferView\":1,\"byteOffset\":0,\"componentType\":5125,\"count\":")
                 .Append(indexCount).Append(",\"type\":\"SCALAR\"}]}");
             return json.ToString();
+        }
+
+        private static void AppendSpatialBinding(StringBuilder json,
+            MerkabaSpatialBinding binding)
+        {
+            json.Append(",\"extras\":{\"questMerkabaSpatialBinding\":{")
+                .Append("\"version\":")
+                .Append(MerkabaSpatialBinding.CurrentVersion);
+            if (binding.SessionId != Guid.Empty)
+                json.Append(",\"sessionId\":\"")
+                    .Append(binding.SessionId.ToString("D",
+                        CultureInfo.InvariantCulture)).Append('"');
+            json.Append(",\"anchorUuid\":\"")
+                .Append(binding.AnchorUuid.ToString("D",
+                    CultureInfo.InvariantCulture))
+                .Append("\",\"coordinateSystem\":\"M8_UNITY_GRID_METERS\",")
+                .Append("\"anchorFromPackage\":[");
+            for (int column = 0; column < 4; column++)
+            for (int row = 0; row < 4; row++)
+            {
+                if (column != 0 || row != 0) json.Append(',');
+                json.Append(Number(binding.AnchorFromPackage[row, column]));
+            }
+            json.Append("]}}");
         }
 
         private static void BufferView(StringBuilder json, long offset,

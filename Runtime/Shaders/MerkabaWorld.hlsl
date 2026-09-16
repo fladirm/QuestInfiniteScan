@@ -10,16 +10,19 @@
 #define MERKABA_M8_TILE_BANK_SHIFT 13u
 #define MERKABA_M8_TILE_BANK_MASK 8191u
 #define MERKABA_M8_TILE_WORDS 16u
-// Paged disposable readout. One page holds 16 membrane patches (64
-// vertices); a tile of 512 kernels needs at most 32 pages.
+// Disposable union-skin pages. A page holds 16 independent triangles.
+// Tile records store one linked-list head instead of a fixed per-tile page
+// array, so the exact 512 * 80 facelet upper bound does not inflate every
+// FRONT/BACK record.
 #define M8_RENDER_PAGE_PATCHES 16u
-#define M8_RENDER_PAGE_VERTICES 64u
-#define M8_RENDER_PAGE_INDICES 96u
+#define M8_RENDER_PAGE_VERTICES 48u
+#define M8_RENDER_PAGE_INDICES 48u
 #define M8_RENDER_PAGE_CAPACITY 131072u
 #define M8_RENDER_PAGE_ID_MASK 0x1ffffu
-#define M8_RENDER_TILE_MAX_PAGES 32u
-#define M8_RENDER_RECORD_WORDS 40u
-#define M8_RENDER_RECORD_PAGE_BASE 8u
+#define M8_RENDER_PAGE_INVALID 0xffffffffu
+#define M8_RENDER_TILE_MAX_PAGES 2560u
+#define M8_RENDER_RECORD_WORDS 8u
+#define M8_RENDER_RECORD_FIRST_PAGE 6u
 #define M8_RENDER_INDEX_HEADER 8u
 #define M8_RENDER_TILE_LIST_BASE \
     (M8_RENDER_INDEX_HEADER + MERKABA_M8_PHYSICAL_TILE_CAPACITY * \
@@ -34,10 +37,15 @@
 #define M8_RENDER_RETIRE_BASE (M8_RENDER_CONTROL_WORDS + M8_RENDER_PAGE_CAPACITY)
 #define M8_RENDER_ALLOC_BASE \
     (M8_RENDER_CONTROL_WORDS + 2u * M8_RENDER_PAGE_CAPACITY)
+#define M8_RENDER_LINK_BASE \
+    (M8_RENDER_CONTROL_WORDS + 3u * M8_RENDER_PAGE_CAPACITY)
 // Tile runtime.w: disposable readout scheduling bits, never persisted.
+// Bits 3..28 are exact 26-neighbour boundary dependencies.
 #define M8_RENDER_DIRTY 1u
 #define M8_RENDER_PENDING 2u
 #define M8_RENDER_REBUILD 4u
+#define M8_RENDER_DEPENDENCY_SHIFT 3u
+#define M8_RENDER_DEPENDENCY_MASK 0x1ffffff8u
 #define MERKABA_M8_LOAD_REQUEST_CAPACITY 262144u
 #define MERKABA_M8_LOAD_REQUEST_MASK 262143u
 #define MERKABA_M8_SURFACE_CANDIDATE_CAPACITY 2097152u
@@ -435,9 +443,9 @@ void M8SignalResidencyChange()
     M8CounterIncrement(M8_COUNTER_RESIDENCY_EPOCH);
 }
 
-// The membrane of a tile depends on occupancy, the measured plane payload,
-// KNOWN-FREE separation and the emitted colour. Other evidence motion is
-// invisible to the readout and never schedules a rebuild.
+// Union skin depends on occupancy, measured-plane/free-side compatibility
+// and emitted colour. KNOWN-FREE threshold crossings are geometry inputs
+// because they select which overlapping sheet owns a shared boundary.
 bool M8RenderInputChanged(KernelState before, KernelState after)
 {
     const uint planeMask = 0xfffffffcu;
@@ -451,11 +459,52 @@ bool M8RenderInputChanged(KernelState before, KernelState after)
         ((before.packedColor ^ after.packedColor) & 0xfcfcfcfcu) != 0u;
 }
 
-void M8MarkRenderDirty(uint physicalSlot)
+bool M8RenderNeighbourInputChanged(KernelState before, KernelState after)
 {
+    const uint planeMask = 0xfffffffcu;
+    bool beforeFree = (before.flags & 1u) == 0u &&
+        before.evidence <= MERKABA_EXPORT_KNOWN_FREE;
+    bool afterFree = (after.flags & 1u) == 0u &&
+        after.evidence <= MERKABA_EXPORT_KNOWN_FREE;
+    return ((before.flags ^ after.flags) & 1u) != 0u ||
+        ((before.flags ^ after.flags) & planeMask) != 0u ||
+        beforeFree != afterFree;
+}
+
+uint M8RenderBoundaryDependencyMask(uint kernelLocal)
+{
+    uint x = kernelLocal & 7u;
+    uint y = (kernelLocal >> 3u) & 7u;
+    uint z = (kernelLocal >> 6u) & 7u;
+    uint ordinal = 0u;
+    uint mask = 0u;
+    [unroll]
+    for (int dz = -1; dz <= 1; dz++)
+    [unroll]
+    for (int dy = -1; dy <= 1; dy++)
+    [unroll]
+    for (int dx = -1; dx <= 1; dx++)
+    {
+        if (dx == 0 && dy == 0 && dz == 0) continue;
+        bool reaches = (dx >= 0 || x == 0u) && (dx <= 0 || x == 7u) &&
+            (dy >= 0 || y == 0u) && (dy <= 0 || y == 7u) &&
+            (dz >= 0 || z == 0u) && (dz <= 0 || z == 7u);
+        if (reaches)
+            mask |= 1u << (M8_RENDER_DEPENDENCY_SHIFT + ordinal);
+        ordinal++;
+    }
+    return mask;
+}
+
+void M8MarkRenderDirty(uint physicalSlot, uint kernelLocal,
+    bool affectsNeighbours)
+{
+    uint bits = M8_RENDER_DIRTY;
+    if (affectsNeighbours)
+        bits |= M8RenderBoundaryDependencyMask(kernelLocal);
     uint previous;
     InterlockedOr(_M8TileRecords[M8TileRuntimeIndex(physicalSlot)].w,
-        M8_RENDER_DIRTY, previous);
+        bits, previous);
     if ((previous & M8_RENDER_DIRTY) == 0u)
         M8CounterIncrement(M8_COUNTER_RENDER_DIRTY_MARKS);
 }

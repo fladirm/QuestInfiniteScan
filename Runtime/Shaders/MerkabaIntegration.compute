@@ -1479,18 +1479,17 @@ void IntegrateSurfaceCandidates(uint id : SV_DispatchThreadID)
         }
     }
     state.flags |= MERKABA_NEEDS_CARVE_FLAG;
-    float2 leftUv = MerkabaProjectCameraUv(0u, worldSurface);
-    float2 rightUv = MerkabaProjectCameraUv(1u, worldSurface);
-    float3 observedRgb = (MerkabaSampleCameraRgb(0u, leftUv) +
-        MerkabaSampleCameraRgb(1u, rightUv)) * 0.5;
-    if (acceptObservedColor)
+    float3 observedRgb;
+    bool hasObservedRgb = MerkabaSampleStereoRgb(worldSurface, observedRgb);
+    if (acceptObservedColor && hasObservedRgb)
         AccumulateColor(state, observedRgb,
             quality * measurementConfidence);
     M8StoreKernelState(physicalSlot, kernelLocal, state);
     EnsureCarveActive(physicalSlot, kernelLocal);
     _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
     if (M8RenderInputChanged(stateBefore, state))
-        M8MarkRenderDirty(physicalSlot);
+        M8MarkRenderDirty(physicalSlot, kernelLocal,
+            M8RenderNeighbourInputChanged(stateBefore, state));
 }
 
 uint M8ScanChildMask(int3 parentMin, int parentSpan)
@@ -2036,7 +2035,8 @@ void IntegrateCarveKernel(uint physicalSlot, uint kernelLocal)
             M8StoreKernelState(physicalSlot, kernelLocal, state);
             _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].y = 1u;
             if (M8RenderInputChanged(stateBefore, state))
-                M8MarkRenderDirty(physicalSlot);
+                M8MarkRenderDirty(physicalSlot, kernelLocal,
+                    M8RenderNeighbourInputChanged(stateBefore, state));
         }
     }
     else if (observationKind == 2)
@@ -2386,9 +2386,11 @@ void M8EraseFineKernel(uint physicalSlot, uint kernelLocal)
     }
     if (stateChanged)
     {
-        M8StoreKernelState(physicalSlot, kernelLocal, (KernelState)0);
-        if (M8RenderInputChanged(state, (KernelState)0))
-            M8MarkRenderDirty(physicalSlot);
+        KernelState emptyState = (KernelState)0;
+        M8StoreKernelState(physicalSlot, kernelLocal, emptyState);
+        if (M8RenderInputChanged(state, emptyState))
+            M8MarkRenderDirty(physicalSlot, kernelLocal,
+                M8RenderNeighbourInputChanged(state, emptyState));
     }
     if (stateChanged || occupied || carveActive ||
         (previousCandidate & bit) != 0u)

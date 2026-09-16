@@ -93,9 +93,6 @@ namespace Genesis.RoomScan.UI
         private readonly HashSet<Tile> _keptTiles = new();
         private readonly Plane[] _frustumPlanes = new Plane[6];
         private bool _indexLoadPending;
-        private bool _displaySuppressed;
-        private bool _savedReadoutEnabled;
-        private bool _savedFineMode;
         private bool _modelGrabActive;
         private bool _annotationPoseGrabActive;
         private bool _worldLocked = true;
@@ -354,19 +351,30 @@ namespace Genesis.RoomScan.UI
             }
         }
 
-        private string AnnotationPath
+        private string ArtifactStemPath
         {
             get
             {
-                string sessionPath = _scanner?.ActiveAnnotationsPath;
-                if (!string.IsNullOrWhiteSpace(sessionPath))
-                    return sessionPath;
                 string archive = _archivePath ?? _exporter.ViewerPackagePath;
-                return Path.Combine(Path.GetDirectoryName(archive),
-                    Path.GetFileNameWithoutExtension(archive) +
-                    ".annotations.json");
+                string stem = Path.Combine(Path.GetDirectoryName(archive),
+                    Path.GetFileNameWithoutExtension(archive));
+                if (_packageSpatialBinding.HasValue)
+                {
+                    Guid sessionId = _packageSpatialBinding.Value.SessionId;
+                    if (sessionId != Guid.Empty)
+                        return stem + "." + sessionId.ToString("N");
+                    Guid anchorId = _packageSpatialBinding.Value.AnchorUuid;
+                    if (anchorId != Guid.Empty)
+                        return stem + "." + anchorId.ToString("N");
+                }
+                return stem;
             }
         }
+
+        private string AnnotationPath => ArtifactStemPath + ".annotations.json";
+        private string DesignPath => ArtifactStemPath + ".design.json";
+        private string DesignLibraryPath => ArtifactStemPath + ".design-assets";
+        private string RegistrationPath => ArtifactStemPath + ".registration.json";
 
         private void Awake()
         {
@@ -382,11 +390,6 @@ namespace Genesis.RoomScan.UI
         {
             PollNoteKeyboard();
             if (!IsOpen || _modelRoot == null) return;
-            if (_scanner.IsScanning || _scanner.IsScanStarting)
-            {
-                Close();
-                return;
-            }
             HandleViewerInput();
             if (Time.unscaledTime >= _nextResidencyRefresh)
             {
@@ -459,13 +462,6 @@ namespace Genesis.RoomScan.UI
             var timer = System.Diagnostics.Stopwatch.StartNew();
             try
             {
-                if (_scanner.IsScanning || _scanner.IsScanStarting)
-                {
-                    bool stopped = await _scanner.QuiesceScanningAsync();
-                    if (!stopped)
-                        throw new InvalidOperationException(
-                            "Scanner GPU work did not retire for GLB View.");
-                }
                 if (generation != _generation || !isActiveAndEnabled)
                     return false;
 
@@ -474,20 +470,23 @@ namespace Genesis.RoomScan.UI
                 if (generation != _generation || !isActiveAndEnabled)
                     return false;
 
-                _savedReadoutEnabled = _scanner.ReadoutDrawEnabled;
-                _savedFineMode = _scanner.FineMode;
-                _scanner.ReadoutDrawEnabled = false;
-                _scanner.FineMode = false;
-                _displaySuppressed = true;
                 _savedQueriesHitBackfaces = Physics.queriesHitBackfaces;
                 Physics.queriesHitBackfaces = true;
                 _ownsQueriesHitBackfaces = true;
                 _archivePath = archivePath;
                 _packageSpatialBinding = package.SpatialBinding;
                 CreatePreview(package);
+                IsOpen = true;
+                if (_packageSpatialBinding.HasValue &&
+                    _packageSpatialBinding.Value.IsValid)
+                    await SetRoomAlignedAsync(true);
+                if (generation != _generation || !IsOpen ||
+                    !isActiveAndEnabled)
+                    return false;
+                if (!_roomAligned)
+                    TryLoadArtifactRegistration();
                 OpenSessionDesign();
                 LoadAnnotations();
-                IsOpen = true;
                 Status = $"GLB View · 0/{_tiles.Count} tiles";
                 RefreshResidency();
                 Logger.Info($"Merkaba GLB View index ready in " +
@@ -702,6 +701,7 @@ namespace Genesis.RoomScan.UI
         public void Close()
         {
             bool wasOpen = IsOpen;
+            if (wasOpen) SaveDesign();
             ++_generation;
             ++_alignmentRevision;
             _indexLoadPending = false;
@@ -721,7 +721,6 @@ namespace Genesis.RoomScan.UI
             {
                 _designLibrary?.CloseRuntime();
                 _designLibrary = null;
-                SaveDesign();
                 _paintEngine.Close();
             }
             _annotations.Clear();
@@ -757,12 +756,6 @@ namespace Genesis.RoomScan.UI
             _annotationPlaneMaterial = null;
             _backdropMaterial = null;
             _continuationMaterial = null;
-            if (_displaySuppressed && _scanner != null)
-            {
-                _scanner.ReadoutDrawEnabled = _savedReadoutEnabled;
-                _scanner.FineMode = _savedFineMode;
-            }
-            _displaySuppressed = false;
             _archivePath = null;
             _packageSpatialBinding = null;
             if (_ownsQueriesHitBackfaces)
@@ -777,7 +770,90 @@ namespace Genesis.RoomScan.UI
         {
             bool annotationsSaved = TrySaveAnnotations(false);
             bool paintSaved = _paintEngine == null || _paintEngine.Save();
-            return annotationsSaved && paintSaved;
+            bool registrationSaved = TrySaveArtifactRegistration();
+            return annotationsSaved && paintSaved && registrationSaved;
+        }
+
+        private bool TrySaveArtifactRegistration()
+        {
+            if (_modelRoot == null || _roomAligned ||
+                string.IsNullOrWhiteSpace(_archivePath))
+                return true;
+            try
+            {
+                var record = new ArtifactRegistrationFile
+                {
+                    format = "QuestMerkabaArtifactRegistration",
+                    version = 1,
+                    position = _modelRoot.localPosition,
+                    rotation = _modelRoot.localRotation,
+                    scale = _modelRoot.localScale
+                };
+                string path = RegistrationPath;
+                string directory = Path.GetDirectoryName(path);
+                if (string.IsNullOrWhiteSpace(directory))
+                    throw new IOException(
+                        "Artifact registration has no directory.");
+                Directory.CreateDirectory(directory);
+                string temporary = path + ".tmp";
+                byte[] bytes = Encoding.UTF8.GetBytes(
+                    JsonUtility.ToJson(record, true));
+                using (var stream = new FileStream(temporary, FileMode.Create,
+                           FileAccess.Write, FileShare.None, 16 * 1024,
+                           FileOptions.SequentialScan))
+                {
+                    stream.Write(bytes, 0, bytes.Length);
+                    stream.Flush(true);
+                }
+                MerkabaFilePublishing.Publish(temporary, path);
+                return true;
+            }
+            catch (Exception exception)
+            {
+                Logger.Warning("Could not save artifact registration: " +
+                    exception.Message);
+                return false;
+            }
+        }
+
+        private bool TryLoadArtifactRegistration()
+        {
+            string path = RegistrationPath;
+            if (!File.Exists(path) || _modelRoot == null) return false;
+            try
+            {
+                ArtifactRegistrationFile record =
+                    JsonUtility.FromJson<ArtifactRegistrationFile>(
+                        File.ReadAllText(path));
+                if (record == null ||
+                    record.format != "QuestMerkabaArtifactRegistration" ||
+                    record.version != 1 || !IsFinite(record.position) ||
+                    !IsFinite(record.scale) ||
+                    record.scale.x <= 0f || record.scale.y <= 0f ||
+                    record.scale.z <= 0f ||
+                    float.IsNaN(record.rotation.x) ||
+                    float.IsInfinity(record.rotation.x) ||
+                    float.IsNaN(record.rotation.y) ||
+                    float.IsInfinity(record.rotation.y) ||
+                    float.IsNaN(record.rotation.z) ||
+                    float.IsInfinity(record.rotation.z) ||
+                    float.IsNaN(record.rotation.w) ||
+                    float.IsInfinity(record.rotation.w))
+                    return false;
+                _worldLocked = true;
+                ApplyViewerFrame();
+                _modelRoot.localPosition = record.position;
+                _modelRoot.localRotation = record.rotation;
+                _modelRoot.localScale = record.scale;
+                Status = "GLB View restored persisted artifact registration";
+                return true;
+            }
+            catch (Exception exception)
+            {
+                Logger.Warning("Could not load artifact registration: " +
+                    exception.Message);
+                return false;
+            }
         }
 
         internal void RebindSessionDesign()
@@ -796,24 +872,15 @@ namespace Genesis.RoomScan.UI
             _designLibrary = null;
             _paintEngine.Save();
             _paintEngine.Close();
-            bool sessionAnchor = RoomSpaceRoot.RoomSpaceReady &&
-                _packageSpatialBinding.HasValue && _scanner != null &&
-                _scanner.ActiveAnchorUuid != Guid.Empty &&
-                _packageSpatialBinding.Value.AnchorUuid ==
-                _scanner.ActiveAnchorUuid;
-            Transform displayRoot = sessionAnchor ? _designDisplayRoot : null;
-            string path = _scanner?.ActiveDesignPath;
-            if (displayRoot == null || string.IsNullOrWhiteSpace(path))
-            {
-                Logger.Warning("Design paint is unavailable until the package " +
-                    "anchor matches the active scan session anchor.");
-                return;
-            }
-            _paintEngine.Open(displayRoot, previewShader, path,
-                _packageSpatialBinding.Value.AnchorFromPackage);
-            string libraryPath = _scanner?.DesignLibraryPath;
-            if (string.IsNullOrWhiteSpace(libraryPath)) return;
-            _designLibrary = new MerkabaDesignLibrary(libraryPath);
+
+            Transform displayRoot = _designDisplayRoot ?? _modelRoot;
+            if (displayRoot == null) return;
+            Matrix4x4 anchorFromPackage = _packageSpatialBinding.HasValue
+                ? _packageSpatialBinding.Value.AnchorFromPackage
+                : Matrix4x4.identity;
+            _paintEngine.Open(displayRoot, previewShader, DesignPath,
+                anchorFromPackage);
+            _designLibrary = new MerkabaDesignLibrary(DesignLibraryPath);
             _designLibrary.Open(_paintEngine.Document, displayRoot,
                 previewShader, _paintEngine.MarkDocumentChanged,
                 _paintEngine.BeginDocumentChange,
@@ -821,7 +888,11 @@ namespace Genesis.RoomScan.UI
                 _paintEngine.RollbackDocumentChange);
         }
 
-        private void OnPaintChanged() => _scanner?.MarkDesignDirty();
+        private void OnPaintChanged()
+        {
+            // Artifact design is owned by the artifact sidecars, never by the
+            // currently active scanner session.
+        }
 
         public void CycleAnnotationMode()
         {
@@ -848,7 +919,6 @@ namespace Genesis.RoomScan.UI
             _annotations.Remove(selected);
             _selectedAnnotationId = 0;
             RefreshAnnotationObjects();
-            _scanner?.MarkDesignDirty();
             Status = $"Deleted {selected.type} #{selected.id}";
         }
 
@@ -932,7 +1002,6 @@ namespace Genesis.RoomScan.UI
             if (string.Equals(annotation.note, note,
                     StringComparison.Ordinal)) return;
             annotation.note = note;
-            _scanner?.MarkDesignDirty();
         }
 
         public void SaveAnnotations()
@@ -1195,8 +1264,6 @@ namespace Genesis.RoomScan.UI
                 if (triggerHeld) ContinueMove(ray);
                 if (triggerUp)
                 {
-                    if (_moveOriginalPoints != null)
-                        _scanner?.MarkDesignDirty();
                     _moveOriginalPoints = null;
                     _moveHandleIndex = -1;
                 }
@@ -1324,7 +1391,6 @@ namespace Genesis.RoomScan.UI
         {
             if (!_annotationPoseGrabActive) return;
             _annotationPoseGrabActive = false;
-            _scanner?.MarkDesignDirty();
         }
 
         internal static bool TryBuildTwoHandFrame(Vector3 leftPosition,
@@ -2024,7 +2090,6 @@ namespace Genesis.RoomScan.UI
             _annotations.Add(annotation);
             _selectedAnnotationId = annotation.id;
             RefreshAnnotationObjects();
-            _scanner?.MarkDesignDirty();
             Status = $"Added {annotation.type} #{annotation.id}";
         }
 
@@ -2075,7 +2140,6 @@ namespace Genesis.RoomScan.UI
             _annotations.Add(annotation);
             _selectedAnnotationId = annotation.id;
             RefreshAnnotationObjects();
-            _scanner?.MarkDesignDirty();
             Status = $"Added {annotation.type} #{annotation.id}";
         }
 
@@ -2729,8 +2793,8 @@ namespace Genesis.RoomScan.UI
                 _annotations.AddRange(file.items);
                 _nextAnnotationId = Mathf.Max(file.nextId, 1);
                 bool migrated = false;
-                // The paint engine only opens when the package anchor is the
-                // active session anchor, so its frame is valid for import.
+                // Artifact paint owns its persisted frame; legacy annotation
+                // paint can migrate whenever this artifact has spatial binding.
                 bool canMigratePaint = _paintEngine != null &&
                     _paintEngine.IsOpen && _packageSpatialBinding.HasValue;
                 if (canMigratePaint)
@@ -3280,7 +3344,8 @@ namespace Genesis.RoomScan.UI
                 !TryFindJsonProperty(json, encoded.Start, encoded.End,
                     "version", out JsonSlice version) ||
                 !TryParseJsonInt(json, version, out int parsedVersion) ||
-                parsedVersion != MerkabaSpatialBinding.CurrentVersion ||
+                (parsedVersion != 1 &&
+                 parsedVersion != MerkabaSpatialBinding.CurrentVersion) ||
                 !TryFindJsonProperty(json, encoded.Start, encoded.End,
                     "anchorUuid", out JsonSlice anchorUuid) ||
                 !Guid.TryParse(ParseJsonString(json, anchorUuid),
@@ -3298,7 +3363,13 @@ namespace Genesis.RoomScan.UI
             {
                 return false;
             }
-            binding = new MerkabaSpatialBinding(uuid,
+            Guid sessionId = Guid.Empty;
+            if (parsedVersion >= 2 &&
+                TryFindJsonProperty(json, encoded.Start, encoded.End,
+                    "sessionId", out JsonSlice sessionIdValue))
+                Guid.TryParse(ParseJsonString(json, sessionIdValue),
+                    out sessionId);
+            binding = new MerkabaSpatialBinding(sessionId, uuid,
                 ReadColumnMajorMatrix(values));
             return binding.IsValid;
         }
@@ -4075,6 +4146,16 @@ namespace Genesis.RoomScan.UI
                 ControllerRotation = controllerRotation;
                 WorldPoints = worldPoints;
             }
+        }
+
+        [Serializable]
+        private sealed class ArtifactRegistrationFile
+        {
+            public string format;
+            public int version;
+            public Vector3 position;
+            public Quaternion rotation;
+            public Vector3 scale;
         }
 
         [Serializable]

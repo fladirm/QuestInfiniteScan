@@ -15,10 +15,11 @@ namespace Genesis.RoomScan
         internal readonly float3 Corner01;
         internal readonly uint PackedColor;
         internal readonly bool IsInferred;
+        internal readonly bool IsTriangle;
 
         internal MerkabaExportMembranePatch(int3 coord, float3 normal,
             float3 corner00, float3 corner10, float3 corner11, float3 corner01,
-            uint packedColor, bool isInferred)
+            uint packedColor, bool isInferred, bool isTriangle = false)
         {
             Coord = coord;
             Normal = normal;
@@ -28,6 +29,7 @@ namespace Genesis.RoomScan
             Corner01 = corner01;
             PackedColor = packedColor;
             IsInferred = isInferred;
+            IsTriangle = isTriangle;
         }
 
         internal float3 Corner(int index) => index switch
@@ -106,6 +108,90 @@ namespace Genesis.RoomScan
                 FreeReachable = freeReachable;
             }
         }
+
+        /// <summary>
+        /// Production export path: the same exact 42-vertex/80-facelet union
+        /// skin used by live readout. No independent membrane topology, CSG or
+        /// epsilon welding is introduced.
+        /// </summary>
+        internal static MerkabaExportMembraneResult BuildSkin(
+            MerkabaExportShellResult shell,
+            IProgress<OperationWorkProgress> progress = null,
+            Func<int3, bool> ownsCoordinate = null)
+        {
+            if (shell == null) throw new ArgumentNullException(nameof(shell));
+            var synthetic = new HashSet<int3>(shell.SyntheticCoordinates);
+            var context = new Dictionary<int3, KernelState>(
+                shell.EvidenceKernels.Length + shell.Kernels.Count);
+            foreach (MerkabaKernelSnapshot kernel in shell.EvidenceKernels)
+                context[kernel.Coord] = kernel.State;
+            foreach (MerkabaKernelSnapshot kernel in shell.Kernels)
+                if (!synthetic.Contains(kernel.Coord))
+                    context[kernel.Coord] = kernel.State;
+
+            var canonical = new List<int3>();
+            var measured = new List<int3>();
+            var owners = new List<MerkabaKernelSnapshot>();
+            foreach (MerkabaKernelSnapshot kernel in shell.Kernels)
+            {
+                if (synthetic.Contains(kernel.Coord) ||
+                    !kernel.State.IsOccupied)
+                    continue;
+                canonical.Add(kernel.Coord);
+                if (!kernel.State.HasMeasuredSurfacePlane) continue;
+                measured.Add(kernel.Coord);
+                if (ownsCoordinate == null || ownsCoordinate(kernel.Coord))
+                    owners.Add(kernel);
+            }
+            canonical.Sort(CompareCoords);
+            measured.Sort(CompareCoords);
+            owners.Sort((left, right) =>
+                CompareCoords(left.Coord, right.Coord));
+
+            var patches = new List<MerkabaExportMembranePatch>(
+                Math.Max(owners.Count * 8, 16));
+            for (int ownerIndex = 0; ownerIndex < owners.Count; ownerIndex++)
+            {
+                MerkabaKernelSnapshot kernel = owners[ownerIndex];
+                uint neighbourMask = MerkabaSkin.CompatibleNeighbourMask(
+                    kernel.Coord, kernel.State, context);
+                ReadOnlySpan<MerkabaSkin.Facelet> facelets =
+                    MerkabaSkin.Facelets;
+                for (int faceletIndex = 0;
+                     faceletIndex < facelets.Length; faceletIndex++)
+                {
+                    MerkabaSkin.Facelet facelet = facelets[faceletIndex];
+                    if ((facelet.OccluderMask & neighbourMask) != 0u)
+                        continue;
+                    float3 a = MerkabaSkin.GridPosition(
+                        kernel.Coord, facelet.A);
+                    float3 b = MerkabaSkin.GridPosition(
+                        kernel.Coord, facelet.B);
+                    float3 c = MerkabaSkin.GridPosition(
+                        kernel.Coord, facelet.C);
+                    float3 normal = MerkabaSkin.FaceNormal(facelet);
+                    patches.Add(new MerkabaExportMembranePatch(
+                        kernel.Coord, normal, a, b, c, a,
+                        kernel.State.PackedColor, false, true));
+                }
+                if (ownerIndex + 1 == owners.Count ||
+                    (ownerIndex + 1) % 256 == 0)
+                    progress?.Report(new OperationWorkProgress(
+                        ScanOperationStage.ExtractingMerkabaShell,
+                        ownerIndex + 1, owners.Count,
+                        $"Built {ownerIndex + 1}/{owners.Count} skin owners"));
+            }
+
+            if (patches.Count == 0 && ownsCoordinate == null)
+                throw new InvalidOperationException(
+                    "The M8 union skin has no resolvable measured facelets " +
+                    $"(occupied={canonical.Count}, measuredPlane={measured.Count}).");
+
+            return new MerkabaExportMembraneResult(patches,
+                canonical.ToArray(), measured.ToArray(), patches.Count, 0,
+                Array.Empty<int3>(), 0);
+        }
+
         internal static MerkabaExportMembraneResult Build(
             MerkabaExportShellResult shell,
             IProgress<OperationWorkProgress> progress = null,
