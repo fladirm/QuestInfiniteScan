@@ -203,6 +203,44 @@ returns before anchor relocalizes -> "Room anchor not localized".
 only, not anchor tracked/stable; no TrackingOriginChangePending / trackingOriginUpdated
 handling; pause during unfinished resume clears `_resumeAfterPause`.
 
+## RISK-16 — the analytic skin is published and exported at full density; the artifact viewer collapses [OPEN, MEASURED 2026-09-16 20:51]
+
+Device evidence after `232b421` (clean install, one room scan):
+
+```text
+export 3D Tiles "Scan 2026-09-16 20-42.zip"
+  zip 120.0 MB, unpacked 512 MB, 9 tiles
+  16 223 615 vertices / 6 772 144 triangles
+  largest tile 000003: 4 218 561 vertices / 1 731 532 triangles / 138.9 MB
+previous export (14:56, membrane-era skin)
+  2 393 330 vertices / 1 307 947 triangles, zip 15.1 MB
+ratio 6.8x vertices, 5.2x triangles, 8x package
+```
+
+The user reports the artifact viewer, which used to open instantly, now runs at about
+1 FPS when the model is displayed outside ALIGN, the live readout flickers, and lines
+appear between parts that are not connected.
+
+Readout compute itself is not the cost (`BuildRenderTiles` 0.012 ms avg, whole readout
+job 44 ms avg of which the measured stages are 0.1 ms, the rest is queue waiting);
+frames were 17-18/72 while scanning and 35-37/72 idle.
+
+Three candidate causes, none of them confirmed yet, listed so the next run does not
+guess:
+
+1. Density. 422 facelets over 210 shared vertices per measured kernel is the exact
+   boundary of the union of 50 mm supports, but sharing stops at the tile border and
+   coplanar facelets are merged only inside one support, so both the publication and
+   the export carry every interior ridge of the union.
+2. Export path. `BuildSkin` emits one `MerkabaExportMembranePatch` per facelet with its
+   own three corners, so the GLB writer welds nothing: 16.2 M vertices for 6.8 M
+   triangles is 2.4 vertices per triangle, i.e. almost no reuse.
+3. Stray lines. Indices that address a vertex slot of another kernel or of a recycled
+   page would draw exactly such connections. The first builds after a reset run with
+   `_safeReclaimGeneration` = 0 and retire tags = 0, where the modular comparison treats
+   the tag as already safe, so a page retired in the very first publication can be
+   recycled while FRONT still references it.
+
 ## RISK-15 — the analytic skin is published at full density and the draw is now the bottleneck [OPEN, MEASURED 2026-09-16]
 
 The boundary arrangement publishes 422 refined facelets over 210 shared vertices per
