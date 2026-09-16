@@ -14,7 +14,7 @@ namespace Genesis.RoomScan
     {
         private const float TimingLogIntervalSeconds = 5f;
         internal const int AbiVersion = 3;
-        internal const int ResourceCount = 45;
+        internal const int ResourceCount = 46;
         internal const int PipelineCount = 49;
         internal const int MaximumTimestampCount = PipelineCount * 2 + 2;
 
@@ -73,6 +73,7 @@ namespace Genesis.RoomScan
             RenderIndexBack,
             RenderIndexFront,
             RenderPageQueues,
+            RenderMutationQueue,
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -186,6 +187,10 @@ namespace Genesis.RoomScan
             int readoutQueryGroups, out MerkabaNativeVulkanJob job)
         {
             job = null;
+            // Sparse readout publication is source-compiled by Unity so its
+            // shader and C# ABI cannot diverge from the embedded ABI-3
+            // observation executor. The legacy native readout entry is barred.
+            if (kind == JobKind.Readout) return false;
             if (_activeJob != null || revision == 0u || resources == null ||
                 resources.Length != ResourceCount || uniforms == null)
                 return false;

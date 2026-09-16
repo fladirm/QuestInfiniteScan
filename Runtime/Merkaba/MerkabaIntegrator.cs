@@ -492,6 +492,8 @@ namespace Genesis.RoomScan
                             $"failure=0x{_grid.CompletedObservationFailure:x}");
                 LastObservationChangedReadout =
                     _grid.CompletedObservationChangedReadout;
+                if (LastObservationChangedReadout)
+                    _grid.SeedRenderMutationJournal(true, true);
                 return FinishObservation(_grid.CompletedObservationFailure);
             }
 
@@ -547,6 +549,7 @@ namespace Genesis.RoomScan
             _fineEraseAttemptInFlight = false;
             if (_grid.CompletedObservationToken == _fineEraseAttemptToken)
             {
+                _grid.SeedRenderMutationJournal(false, true);
                 _fineErasePrepared = false;
                 _fineEraseWaitingForDependency = false;
                 _fineEraseAttemptToken = 0u;

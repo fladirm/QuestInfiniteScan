@@ -50,6 +50,9 @@ namespace Genesis.RoomScan
         internal const int ReadoutVisibleBufferCount =
             MerkabaSpatial.PhysicalTileCapacity;
         internal const int RenderDrawArgumentCount = 5;
+        internal const int RenderMutationJournalCapacity = 65_536;
+        internal const int RenderMutationJournalCount =
+            RenderMutationJournalCapacity * 2;
         internal const int CounterCount = 119;
 
         internal const int CounterBlockCount = 0;
@@ -171,6 +174,9 @@ namespace Genesis.RoomScan
         private int _registerLoadedTileAddressesKernel;
         private int _benchmarkHashKernel;
         private int _initializeRenderPagesKernel;
+        private int _seedRenderTouchedJournalKernel;
+        private int _seedRenderCarveJournalKernel;
+        private int _seedRenderLoadJournalKernel;
 
         private ComputeBuffer _m8HashEntries;
         private ComputeBuffer _m8OwnerRecords;
@@ -208,6 +214,7 @@ namespace Genesis.RoomScan
         private GraphicsBuffer _m8RenderIndices;
         private readonly ComputeBuffer[] _m8RenderIndex = new ComputeBuffer[2];
         private ComputeBuffer _m8RenderPageQueues;
+        private ComputeBuffer _m8RenderMutationQueue;
         private ComputeBuffer _m8VisiblePages;
         private ComputeBuffer _m8CullControl;
         private ComputeBuffer _m8RenderDrawArgs;
@@ -264,6 +271,8 @@ namespace Genesis.RoomScan
         internal ComputeBuffer GetM8RenderIndex(int slot) =>
             _m8RenderIndex[ValidateReadoutSlot(slot)];
         internal ComputeBuffer M8RenderPageQueues => _m8RenderPageQueues;
+        internal ComputeBuffer M8RenderMutationQueue =>
+            _m8RenderMutationQueue;
         internal ComputeBuffer M8VisiblePages => _m8VisiblePages;
         internal ComputeBuffer M8CullControl => _m8CullControl;
         internal ComputeBuffer M8RenderDrawArgs => _m8RenderDrawArgs;
@@ -353,6 +362,8 @@ namespace Genesis.RoomScan
                 _m8FrameDispatchArgs);
             Set(MerkabaNativeVulkanExecutor.Resource.RenderPageQueues,
                 _m8RenderPageQueues);
+            Set(MerkabaNativeVulkanExecutor.Resource.RenderMutationQueue,
+                _m8RenderMutationQueue);
         }
 
         internal bool GpuReady => _gpuReady;
@@ -457,6 +468,8 @@ namespace Genesis.RoomScan
                         sizeof(uint));
                 _m8RenderPageQueues = Allocate(RenderPageQueueCount,
                     sizeof(uint));
+                _m8RenderMutationQueue = Allocate(RenderMutationJournalCount,
+                    sizeof(uint));
                 _m8VisiblePages = Allocate(RenderPageCapacity, sizeof(uint));
                 _m8CullControl = Allocate(4, sizeof(uint),
                     ComputeBufferType.IndirectArguments);
@@ -497,8 +510,29 @@ namespace Genesis.RoomScan
                 BindWorldBuffers(worldCompute, _failLoadedTilesKernel);
                 BindWorldBuffers(worldCompute, _registerLoadedTileAddressesKernel);
                 BindWorldBuffers(worldCompute, _initializeRenderPagesKernel);
+                BindWorldBuffers(worldCompute,
+                    _seedRenderTouchedJournalKernel);
+                BindWorldBuffers(worldCompute,
+                    _seedRenderCarveJournalKernel);
+                BindWorldBuffers(worldCompute,
+                    _seedRenderLoadJournalKernel);
                 worldCompute.SetBuffer(_initializeRenderPagesKernel,
                     "_M8RenderPageQueues", _m8RenderPageQueues);
+                foreach (int kernel in new[]
+                         {
+                             _selectEvictionVictimsKernel,
+                             _acknowledgeWritebackBatchKernel,
+                             _installLoadedTilesKernel,
+                             _seedRenderTouchedJournalKernel,
+                             _seedRenderCarveJournalKernel,
+                             _seedRenderLoadJournalKernel
+                         })
+                    worldCompute.SetBuffer(kernel, "_M8RenderMutationQueue",
+                        _m8RenderMutationQueue);
+                worldCompute.SetBuffer(_seedRenderTouchedJournalKernel,
+                    "_M8TouchedTileQueue", _m8TouchedTileQueue);
+                worldCompute.SetBuffer(_seedRenderCarveJournalKernel,
+                    "_M8CarveTilesRead", _m8CarveTiles);
                 worldCompute.SetBuffer(_benchmarkHashKernel,
                     "_M8HashBenchmarkOutput", _m8HashBenchmarkOutput);
                 worldCompute.SetBuffer(_prepareAllocatedClearKernel,
@@ -567,6 +601,24 @@ namespace Genesis.RoomScan
                 "BenchmarkM8Pcg3d", MerkabaGpuStage.WorldQuery);
             _initializeRenderPagesKernel =
                 worldCompute.FindKernel("InitializeRenderPageStack");
+            _seedRenderTouchedJournalKernel =
+                worldCompute.FindKernel("SeedRenderTouchedJournal");
+            _seedRenderCarveJournalKernel =
+                worldCompute.FindKernel("SeedRenderCarveJournal");
+            _seedRenderLoadJournalKernel =
+                worldCompute.FindKernel("SeedRenderLoadJournal");
+        }
+
+        internal void SeedRenderMutationJournal(bool includeTouched,
+            bool includeCarve)
+        {
+            if (!GpuSubmissionAllowed) return;
+            if (includeTouched)
+                worldCompute.DispatchIndirect(_seedRenderTouchedJournalKernel,
+                    _m8ObservationDispatchArgs);
+            if (includeCarve)
+                worldCompute.DispatchIndirect(_seedRenderCarveJournalKernel,
+                    _m8CarveDispatchArgs);
         }
 
         private ComputeBuffer Allocate(int count, int stride,
@@ -740,6 +792,7 @@ namespace Genesis.RoomScan
             worldCompute.SetInt(StreamBatchCountId, count);
             worldCompute.Dispatch(_prepareLoadedTilesKernel, 1, 1, 1);
             worldCompute.Dispatch(_installLoadedTilesKernel, count, 1, 1);
+            worldCompute.Dispatch(_seedRenderLoadJournalKernel, count, 1, 1);
         }
 
         internal void FailLoadedTiles(int count)
@@ -1077,6 +1130,7 @@ namespace Genesis.RoomScan
             _m8TileRecords = null;
             _m8RenderIndex[0] = _m8RenderIndex[1] = null;
             _m8RenderPageQueues = null;
+            _m8RenderMutationQueue = null;
             _m8VisiblePages = null;
             _m8CullControl = null;
             _m8RenderDrawArgs = null;

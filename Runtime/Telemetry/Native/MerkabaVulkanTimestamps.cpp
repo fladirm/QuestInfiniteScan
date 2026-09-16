@@ -62,6 +62,7 @@ namespace
         kResourceRenderIndexBack,
         kResourceRenderIndexFront,
         kResourceRenderPageQueues,
+        kResourceRenderMutationQueue,
         kResourceCount,
     };
 
