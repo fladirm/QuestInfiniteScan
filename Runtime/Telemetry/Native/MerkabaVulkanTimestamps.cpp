@@ -109,10 +109,10 @@ namespace
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
 
-    constexpr uint32_t kExecutorAbiVersion = 3;
+    constexpr uint32_t kExecutorAbiVersion = 4;
     constexpr uint32_t kObservationPipelineEnd = 33;
     constexpr uint32_t kReadoutPipelineBegin = 33;
-    constexpr uint32_t kFineErasePipelineBegin = 44;
+    constexpr uint32_t kFineErasePipelineBegin = 47;
     constexpr uint32_t kMaximumExecutorQueries =
         kMerkabaExecutorPipelineCount * 2 + 2;
     // 32768 physical tile slots in 256-lane groups.
@@ -150,6 +150,7 @@ namespace
         uint32_t depthGroupsY;
         uint32_t queryGroups;
         uint32_t readoutQueryGroups;
+        uint32_t readoutFrontGroups;
     };
 
     enum ExecutorJobState : int
@@ -187,6 +188,7 @@ namespace
         uint32_t depthGroupsY = 0;
         uint32_t queryGroups = 0;
         uint32_t readoutQueryGroups = 0;
+        uint32_t readoutFrontGroups = 0;
         VkBuffer uniformBuffer = VK_NULL_HANDLE;
         VkDeviceMemory uniformMemory = VK_NULL_HANDLE;
         VkMemoryPropertyFlags uniformMemoryFlags = 0;
@@ -1196,6 +1198,10 @@ namespace
             vkCmdDispatch(job->commandBuffer, job->readoutQueryGroups, 1, 1);
         else if (std::strcmp(pipeline.dispatch, "render_slots") == 0)
             vkCmdDispatch(job->commandBuffer, kRenderSlotGroupCount, 1, 1);
+        else if (std::strcmp(pipeline.dispatch, "front_tiles") == 0)
+            vkCmdDispatch(job->commandBuffer,
+                job->readoutFrontGroups == 0u ? 1u : job->readoutFrontGroups,
+                1, 1);
         else if (std::strcmp(pipeline.dispatch, "observation_indirect") == 0)
             vkCmdDispatchIndirect(job->commandBuffer,
                 job->buffers[kResourceObservationDispatchArgs].buffer, 0);
@@ -1779,7 +1785,8 @@ extern "C"
             descriptor->depthGroupsX > 65535 ||
             descriptor->depthGroupsY > 65535 ||
             descriptor->queryGroups > 65535 ||
-            descriptor->readoutQueryGroups > 65535)
+            descriptor->readoutQueryGroups > 65535 ||
+            descriptor->readoutFrontGroups > 65535)
             return nullptr;
         if (descriptor->kind == kJobObservationNew &&
             (descriptor->depthGroupsX == 0 ||
@@ -1817,6 +1824,7 @@ extern "C"
         job->depthGroupsY = descriptor->depthGroupsY;
         job->queryGroups = descriptor->queryGroups;
         job->readoutQueryGroups = descriptor->readoutQueryGroups;
+        job->readoutFrontGroups = descriptor->readoutFrontGroups;
         std::lock_guard<std::mutex> lock(g_executorMutex);
         g_executorJobs.push_back(job);
         return job;

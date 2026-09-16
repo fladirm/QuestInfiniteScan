@@ -13,9 +13,9 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        internal const int AbiVersion = 3;
+        internal const int AbiVersion = 4;
         internal const int ResourceCount = 47;
-        internal const int PipelineCount = 49;
+        internal const int PipelineCount = 52;
         internal const int MaximumTimestampCount = PipelineCount * 2 + 2;
 
         internal enum JobKind : uint
@@ -103,6 +103,7 @@ namespace Genesis.RoomScan
             internal uint DepthGroupsY;
             internal uint QueryGroups;
             internal uint ReadoutQueryGroups;
+            internal uint ReadoutFrontGroups;
         }
 
         private static readonly string[] PipelineNames =
@@ -185,13 +186,10 @@ namespace Genesis.RoomScan
         internal static bool TryCreateJob(JobKind kind, uint revision,
             IntPtr[] resources, MerkabaNativeUniformTable uniforms,
             int depthGroupsX, int depthGroupsY, int queryGroups,
-            int readoutQueryGroups, out MerkabaNativeVulkanJob job)
+            int readoutQueryGroups, out MerkabaNativeVulkanJob job,
+            int readoutFrontGroups = 0)
         {
             job = null;
-            // Sparse readout publication is source-compiled by Unity so its
-            // shader and C# ABI cannot diverge from the embedded ABI-3
-            // observation executor. The legacy native readout entry is barred.
-            if (kind == JobKind.Readout) return false;
             if (_activeJob != null || revision == 0u || resources == null ||
                 resources.Length != ResourceCount || uniforms == null)
                 return false;
@@ -199,6 +197,7 @@ namespace Genesis.RoomScan
             ValidateDispatch(depthGroupsY);
             ValidateDispatch(queryGroups);
             ValidateDispatch(readoutQueryGroups);
+            ValidateDispatch(readoutFrontGroups);
 #if !UNITY_EDITOR && UNITY_ANDROID
             if (!IsAvailable) return false;
             uniforms.Build(out UniformValue[] values, out byte[] data);
@@ -226,6 +225,8 @@ namespace Genesis.RoomScan
                     DepthGroupsY = checked((uint)depthGroupsY),
                     QueryGroups = checked((uint)queryGroups),
                     ReadoutQueryGroups = checked((uint)readoutQueryGroups),
+                    ReadoutFrontGroups =
+                        checked((uint)readoutFrontGroups),
                 };
                 IntPtr handle = Native.CreateJob(ref descriptor);
                 if (handle == IntPtr.Zero) return false;

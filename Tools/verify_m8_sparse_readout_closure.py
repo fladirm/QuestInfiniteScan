@@ -84,8 +84,16 @@ checks = {
         "_M8RenderBuildTileCap" not in readout,
     "32k render-slot dispatch removed":
         "slotGroups" not in renderer,
-    "native stale readout cannot execute":
-        "if (kind == JobKind.Readout) return false;" in native,
+    "native readout executes on the scanner queue":
+        "if (kind == JobKind.Readout) return false;" not in native and
+        "AbiVersion = 4" in native and
+        "SubmitNativeReadoutBuild" in renderer,
+    "publication is confirmed by a fence, not a readback":
+        "PollPendingPublication" in renderer and
+        "CreateGraphicsFence" in renderer and
+        "AsyncGPUReadback.Request(_grid.M8AttemptCompletion" not in renderer,
+    "coverage radius is the world sphere":
+        "ReadoutCoverageRadius = 6.4f" in renderer,
     "42/80 Skin SSOT remains canonical":
         "VertexCount = 42" in skin and "FaceletCount = 80" in skin,
     "75mm half-lattice skin placement is absent":

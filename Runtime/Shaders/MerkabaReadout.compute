@@ -67,11 +67,17 @@ float4 _M8CullGridPlanes[12];
 uint _M8ReadoutRevision;
 uint _M8PreviousPublished;
 uint _M8ResidencyChanged;
-uint _M8FrontTileCount;
 // Publication generation of the build being recorded, and the newest
 // generation no frame can still be drawing.
 uint _M8RetireGeneration;
 uint _M8SafeReclaimGeneration;
+
+// Published tile count of the FRONT generation.
+uint M8FrontTileCount()
+{
+    return min(_M8RenderIndexFrontRead[0],
+        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
+}
 
 uint M8RecordBase(uint physicalSlot)
 {
@@ -712,7 +718,7 @@ void ApplyRenderReclaim(uint id : SV_DispatchThreadID)
 [numthreads(128, 1, 1)]
 void CopyRenderIndex(uint id : SV_DispatchThreadID)
 {
-    if (id >= _M8FrontTileCount) return;
+    if (id >= M8FrontTileCount()) return;
     uint physicalSlot = _M8RenderIndexFrontRead[
         M8_RENDER_TILE_LIST_BASE + id];
     if (physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) return;
@@ -853,7 +859,7 @@ void ApplyRenderMutationJournal(uint id : SV_DispatchThreadID)
 [numthreads(128, 1, 1)]
 void CollectRenderRebuildTiles(uint id : SV_DispatchThreadID)
 {
-    if (id >= _M8FrontTileCount) return;
+    if (id >= M8FrontTileCount()) return;
     uint physicalSlot = _M8RenderIndexFrontRead[
         M8_RENDER_TILE_LIST_BASE + id];
     if (physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) return;
@@ -1551,7 +1557,7 @@ void CullRenderTiles(uint3 groupId : SV_GroupID,
     uint listIndex = groupId.x * M8_CULL_GROUP_THREADS + lane;
     uint base = 0u;
     uint pages = 0u;
-    if (listIndex < _M8FrontTileCount)
+    if (listIndex < M8FrontTileCount())
     {
         uint slot = _M8RenderIndexFrontRead[M8_RENDER_TILE_LIST_BASE +
             listIndex];

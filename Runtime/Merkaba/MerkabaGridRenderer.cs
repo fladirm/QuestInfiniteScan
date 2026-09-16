@@ -74,6 +74,8 @@ namespace Genesis.RoomScan
         private uint _safeReclaimGeneration;
         private readonly Queue<(GraphicsFence Fence, uint Generation)>
             _publicationFences = new();
+        private GraphicsFence _pendingPublicationFence;
+        private bool _hasPendingPublicationFence;
         private int _frontTileCount;
         private bool _previousPublished;
         private uint _sourceGeneration = 1u;
@@ -222,8 +224,6 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_M8RenderIndicesRead");
         private static readonly int VisibleIndicesId =
             Shader.PropertyToID("_M8VisibleIndices");
-        private static readonly int FrontTileCountId =
-            Shader.PropertyToID("_M8FrontTileCount");
         private static readonly int ReadoutRevisionId =
             Shader.PropertyToID("_M8ReadoutRevision");
         private static readonly int PreviousPublishedId =
@@ -541,6 +541,7 @@ namespace Genesis.RoomScan
                 return;
 
             PollNativeReadoutBuild();
+            PollPendingPublication();
             if (_grid.RenderResetGeneration != _renderResetGeneration)
             {
                 // The world and both publication slots were cleared.
@@ -600,6 +601,9 @@ namespace Genesis.RoomScan
             // Tiles waiting for a COLD halo retry only after residency moved.
             _retryPendingTiles = _grid.ResidencyEpoch != _pendingRetryEpoch;
             _pendingRetryEpoch = _grid.ResidencyEpoch;
+#if !UNITY_EDITOR && UNITY_ANDROID
+            SubmitNativeReadoutBuild(ticket, query, query.Groups);
+#else
             CommandBuffer command = CommandBufferPool.Get(
                 "Merkaba M8 readout build");
             bool submitted = false;
@@ -650,6 +654,7 @@ namespace Genesis.RoomScan
                 Logger.Warning("Merkaba readout completion request failed: " +
                     exception.Message);
             }
+#endif
         }
 
         /// <summary>Records one readout job on the graphics queue (editor).</summary>
@@ -686,8 +691,6 @@ namespace Genesis.RoomScan
                      { _copyKernel, _warmKernel, _collectKernel })
                 command.SetComputeBufferParam(readoutCompute, kernel,
                     RenderIndexFrontReadId, front);
-            command.SetComputeIntParam(readoutCompute, FrontTileCountId,
-                _frontTileCount);
             command.DispatchComputeProfiled(readoutCompute, _beginKernel,
                 1, 1, 1);
             command.DispatchComputeProfiled(readoutCompute,
@@ -696,7 +699,9 @@ namespace Genesis.RoomScan
                 _grid.M8FrameDispatchArgs);
             command.DispatchComputeProfiled(readoutCompute,
                 _applyReclaimKernel, 1, 1, 1);
-            int frontGroups = Mathf.Max(1, (_frontTileCount + 127) / 128);
+            // The kernels read the published tile count themselves, so the
+            // dispatch is a fixed slot sweep and no CPU value gates it.
+            int frontGroups = MerkabaSpatial.PhysicalTileCapacity / 128;
             command.DispatchComputeProfiled(readoutCompute, _copyKernel,
                 frontGroups, 1, 1);
             command.DispatchComputeProfiled(readoutCompute, _markKernel,
@@ -791,6 +796,88 @@ namespace Genesis.RoomScan
                 unchecked((int)_safeReclaimGeneration));
         }
 
+#if !UNITY_EDITOR && UNITY_ANDROID
+        /// <summary>
+        /// Records the readout on the native scanner queue so the producer
+        /// never occupies the graphics queue that draws FRONT at 72 Hz.
+        /// </summary>
+        private void SubmitNativeReadoutBuild(ReadoutBuildTicket ticket,
+            QueryShape query, int queryGroups)
+        {
+            if (MerkabaNativeVulkanExecutor.HasJobInFlight) return;
+            var values = new MerkabaNativeUniformTable();
+            values.Vector3("_M8CameraGridMeters", query.CameraGridMeters);
+            values.Vector3("_M8GridMetricDiagonal", query.MetricDiagonal);
+            values.Vector3("_M8GridMetricCross", query.MetricCross);
+            values.Float("_M8RenderDistance", query.CoverageDistance);
+            values.Float("_M8WarmDistance", query.WarmDistance);
+            values.Float("_M8DependencyDistance",
+                query.CoverageDistance + MerkabaConstants.LatticeStep);
+            values.Int3("_M8QueryCenterBlock", query.CenterBlock.x,
+                query.CenterBlock.y, query.CenterBlock.z);
+            values.Int("_M8QueryBlockRadius", query.Radius);
+            values.Int("_M8QueryBlockSide", query.Side);
+            values.UInt("_M8ReadoutRevision", ticket.Revision);
+            values.UInt("_M8PreviousPublished", _previousPublished ? 1u : 0u);
+            values.UInt("_M8ResidencyChanged", _retryPendingTiles ? 1u : 0u);
+            values.UInt("_M8RetireGeneration", _publicationGeneration - 1u);
+            values.UInt("_M8SafeReclaimGeneration", _safeReclaimGeneration);
+            var resources = new IntPtr[
+                MerkabaNativeVulkanExecutor.ResourceCount];
+            _grid.FillNativeExecutorWorldResources(resources);
+            resources[(int)MerkabaNativeVulkanExecutor.Resource
+                .RenderVertices] = _grid.M8RenderVertices
+                .GetNativeBufferPtr();
+            resources[(int)MerkabaNativeVulkanExecutor.Resource
+                .RenderIndexBack] = _grid.GetM8RenderIndex(ticket.Slot)
+                .GetNativeBufferPtr();
+            resources[(int)MerkabaNativeVulkanExecutor.Resource
+                .RenderIndexFront] = _grid.GetM8RenderIndex(1 - ticket.Slot)
+                .GetNativeBufferPtr();
+            int frontGroups = MerkabaSpatial.PhysicalTileCapacity / 128;
+            if (!MerkabaNativeVulkanExecutor.TryCreateJob(
+                    MerkabaNativeVulkanExecutor.JobKind.Readout,
+                    ticket.Revision, resources, values, 0, 0, 0,
+                    queryGroups, out var nativeJob,
+                    frontGroups))
+                return;
+
+            CommandBuffer command = CommandBufferPool.Get(
+                "Merkaba native readout submit");
+            bool recorded = false;
+            _buildInFlight = true;
+            _pendingBuild = ticket;
+            try
+            {
+                nativeJob.RecordPrepareAndSubmit(command);
+                recorded = true;
+                Graphics.ExecuteCommandBuffer(command);
+                _nativeReadoutJob = nativeJob;
+                OnBuildSubmitted(ticket);
+            }
+            catch (Exception exception)
+            {
+                if (recorded)
+                {
+                    _nativeReadoutJob = nativeJob;
+                    OnBuildSubmitted(ticket);
+                    Logger.Error("Merkaba native readout submission became " +
+                        "uncertain; BACK remains quarantined: " +
+                        exception.Message);
+                    return;
+                }
+                nativeJob.CancelBeforeExecution();
+                nativeJob.Dispose();
+                _buildInFlight = false;
+                _pendingBuild = default;
+            }
+            finally
+            {
+                CommandBufferPool.Release(command);
+            }
+        }
+#endif
+
         private void PollNativeReadoutBuild()
         {
             if (_nativeReadoutJob == null) return;
@@ -824,64 +911,39 @@ namespace Genesis.RoomScan
             }
         }
 
+        /// <summary>
+        /// Publication is confirmed by a GPU fence, never by reading the
+        /// completion record back on the hot path.
+        /// </summary>
         private void RequestReadoutCompletion(ReadoutBuildTicket ticket)
         {
-            AsyncGPUReadback.Request(_grid.M8AttemptCompletion, 16, 16,
-                request => CompleteReadoutBuild(ticket, request));
+            _pendingBuild = ticket;
+            _pendingPublicationFence = Graphics.CreateGraphicsFence(
+                GraphicsFenceType.CPUSynchronisation,
+                SynchronisationStageFlags.AllGPUOperations);
+            _hasPendingPublicationFence = true;
         }
 
-        private void CompleteReadoutBuild(ReadoutBuildTicket ticket,
-            AsyncGPUReadbackRequest request)
+        private void PollPendingPublication()
         {
-            if (this == null || ticket.LifecycleGeneration !=
-                _lifecycleGeneration)
-                return;
-            if (!_buildInFlight || ticket.Revision != _pendingBuild.Revision ||
-                ticket.Slot != _pendingBuild.Slot)
-                return;
-
+            if (!_hasPendingPublicationFence ||
+                !_pendingPublicationFence.passed) return;
+            _hasPendingPublicationFence = false;
+            ReadoutBuildTicket ticket = _pendingBuild;
             _buildInFlight = false;
             _pendingBuild = default;
-            bool valid = !request.hasError &&
-                ticket.RenderResetGeneration == _grid.RenderResetGeneration;
-            Unity.Collections.NativeArray<uint> record = valid
-                ? request.GetData<uint>() : default;
-            valid &= valid && record.Length == 4 &&
-                record[0] == ticket.Revision &&
-                record[1] == MerkabaGrid.ReadoutPublishedStatus;
-            if (!valid)
+            _cycleReadoutPending = false;
+            if (ticket.RenderResetGeneration != _grid.RenderResetGeneration)
             {
-                // BACK is never adopted; its fresh pages are reclaimed by the
-                // next build and FRONT keeps drawing. The scan transaction
-                // closes anyway, so the producer never deadlocks on it.
+                // Both slots were cleared under the build; FRONT stays.
                 _previousPublished = false;
                 _canonicalDirty = true;
-                _cycleReadoutPending = false;
                 return;
             }
-
             _frontReadout = ticket.Slot;
-            _frontTileCount = (int)Math.Min(record[2],
-                (uint)MerkabaSpatial.PhysicalTileCapacity);
             _previousPublished = true;
-            _cycleReadoutPending = false;
             AdoptPublication();
-            bool backlog = (record[3] & ReadoutBacklogBit) != 0u;
-            uint unresolved = record[3] & ~ReadoutBacklogBit;
-            if (backlog)
-                _canonicalDirty = true;
-            if (ticket.ResidencyQuery)
-                _coverageIncomplete = unresolved != 0u;
-            if (_loadedCoverageReady != null && ticket.ResidencyQuery &&
-                unresolved == 0u &&
-                unchecked((int)(ticket.SourceGeneration -
-                    _loadedCoverageSourceGeneration)) >= 0)
-            {
-                TaskCompletionSource<bool> ready = _loadedCoverageReady;
-                _loadedCoverageReady = null;
-                _loadedCoverageSourceGeneration = 0u;
-                ready.TrySetResult(true);
-            }
+            if (ticket.ResidencyQuery) _residencyQueryRequested = false;
         }
 
         /// <summary>
@@ -916,7 +978,7 @@ namespace Genesis.RoomScan
             frontTileCount = 0;
             gridCullPlanes = null;
             if (camera == null || !_initialized || _grid == null ||
-                scanOpacity <= 0.001f || _frontTileCount <= 0)
+                scanOpacity <= 0.001f || !_previousPublished)
                 return false;
 
             frontIndex = _grid.GetM8RenderIndex(_frontReadout);
@@ -994,8 +1056,6 @@ namespace Genesis.RoomScan
             // publication actually covers.
             command.SetComputeFloatParam(readoutCompute, RenderDistanceId,
                 Mathf.Min(renderDistance, ReadoutCoverageRadius));
-            command.SetComputeIntParam(readoutCompute, FrontTileCountId,
-                frontTileCount);
             command.SetComputeVectorArrayParam(readoutCompute,
                 CullGridPlanesId, gridCullPlanes);
             command.SetComputeBufferParam(readoutCompute, _cullKernel,
@@ -1019,7 +1079,7 @@ namespace Genesis.RoomScan
                 VisibleIndicesId, indices);
             command.SetComputeBufferParam(readoutCompute, _emitVisibleKernel,
                 PublishedIndicesReadId, _grid.M8PublishedIndices);
-            int groups = Mathf.Max(1, (frontTileCount + 127) / 128);
+            int groups = MerkabaSpatial.PhysicalTileCapacity / 128;
             command.DispatchComputeProfiled(readoutCompute, _cullKernel,
                 groups, 1, 1);
             command.DispatchComputeProfiled(readoutCompute,
@@ -1123,6 +1183,16 @@ namespace Genesis.RoomScan
                 var counters = request.GetData<uint>();
                 VisibleTileCount = ToInt(counters[
                     MerkabaGrid.CounterRenderPublishedTiles]);
+                _frontTileCount = VisibleTileCount;
+                _coverageIncomplete = counters[
+                    MerkabaGrid.CounterReadoutUnresolved] != 0u;
+                if (_loadedCoverageReady != null && !_coverageIncomplete)
+                {
+                    TaskCompletionSource<bool> ready = _loadedCoverageReady;
+                    _loadedCoverageReady = null;
+                    _loadedCoverageSourceGeneration = 0u;
+                    ready.TrySetResult(true);
+                }
                 VisiblePrimitiveCount = ToInt(counters[
                     MerkabaGrid.CounterLogicalPrimitives]);
                 LateDrawColdMisses = ToInt(counters[
