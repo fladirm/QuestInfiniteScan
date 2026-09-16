@@ -48,14 +48,12 @@
 #define M8_RENDER_DEPENDENCY_SHIFT 3u
 #define M8_RENDER_DEPENDENCY_MASK 0x1ffffff8u
 #define M8_RENDER_DIRTY_QUEUED 0x20000000u
-#define M8_RENDER_PENDING_QUEUED 0x40000000u
+#define M8_RENDER_VIEW_MARK 0x40000000u
 #define M8_RENDER_JOURNAL_CAPACITY 65536u
 #define M8_RENDER_JOURNAL_MASK (M8_RENDER_JOURNAL_CAPACITY - 1u)
 #define M8_RENDER_JOURNAL_DIRTY_BASE 0u
-#define M8_RENDER_JOURNAL_PENDING_BASE M8_RENDER_JOURNAL_CAPACITY
-#define M8_RENDER_JOURNAL_WORDS (2u * M8_RENDER_JOURNAL_CAPACITY)
-#define M8_RENDER_MUTATION_BATCH 4u
-#define M8_RENDER_JOURNAL_DRAIN_LIMIT 32u
+#define M8_RENDER_JOURNAL_WORDS M8_RENDER_JOURNAL_CAPACITY
+#define M8_RENDER_AXIS_DEPENDENCY_MASK 0x0105a080u
 #define MERKABA_M8_LOAD_REQUEST_CAPACITY 262144u
 #define MERKABA_M8_LOAD_REQUEST_MASK 262143u
 #define MERKABA_M8_SURFACE_CANDIDATE_CAPACITY 2097152u
@@ -175,12 +173,12 @@
 #define M8_COUNTER_CARVE_HALO_LOAD_REQUEST 98u
 #define M8_COUNTER_RENDER_DIRTY_MARKS 99u
 #define M8_COUNTER_RENDER_REBUILD_TILES 100u
-#define M8_COUNTER_RENDER_BUILD_OVERFLOW 101u
+#define M8_COUNTER_RENDER_JOURNAL_BATCH 101u
 #define M8_COUNTER_RENDER_JOURNAL_HEAD 102u
 #define M8_COUNTER_RENDER_JOURNAL_TAIL 103u
-#define M8_COUNTER_RENDER_DELTA_COUNT 104u
-#define M8_COUNTER_RENDER_PENDING_HEAD 105u
-#define M8_COUNTER_RENDER_PENDING_TAIL 106u
+#define M8_COUNTER_RENDER_VIEW_OVERFLOW 104u
+#define M8_COUNTER_RENDER_RESERVED_105 105u
+#define M8_COUNTER_RENDER_RESERVED_106 106u
 #define M8_COUNTER_RENDER_JOURNAL_OVERFLOW 107u
 #define M8_COUNTER_RENDER_PENDING_TILES 108u
 #define M8_COUNTER_RENDER_CAPACITY_FAILED 109u
@@ -486,23 +484,13 @@ uint M8RenderBoundaryDependencyMask(uint kernelLocal)
     uint x = kernelLocal & 7u;
     uint y = (kernelLocal >> 3u) & 7u;
     uint z = (kernelLocal >> 6u) & 7u;
-    uint ordinal = 0u;
     uint mask = 0u;
-    [unroll]
-    for (int dz = -1; dz <= 1; dz++)
-    [unroll]
-    for (int dy = -1; dy <= 1; dy++)
-    [unroll]
-    for (int dx = -1; dx <= 1; dx++)
-    {
-        if (dx == 0 && dy == 0 && dz == 0) continue;
-        bool reaches = (dx >= 0 || x == 0u) && (dx <= 0 || x == 7u) &&
-            (dy >= 0 || y == 0u) && (dy <= 0 || y == 7u) &&
-            (dz >= 0 || z == 0u) && (dz <= 0 || z == 7u);
-        if (reaches)
-            mask |= 1u << (M8_RENDER_DEPENDENCY_SHIFT + ordinal);
-        ordinal++;
-    }
+    if (z == 0u) mask |= 1u << (M8_RENDER_DEPENDENCY_SHIFT + 4u);
+    if (y == 0u) mask |= 1u << (M8_RENDER_DEPENDENCY_SHIFT + 10u);
+    if (x == 0u) mask |= 1u << (M8_RENDER_DEPENDENCY_SHIFT + 12u);
+    if (x == 7u) mask |= 1u << (M8_RENDER_DEPENDENCY_SHIFT + 13u);
+    if (y == 7u) mask |= 1u << (M8_RENDER_DEPENDENCY_SHIFT + 15u);
+    if (z == 7u) mask |= 1u << (M8_RENDER_DEPENDENCY_SHIFT + 21u);
     return mask;
 }
 

@@ -4,10 +4,12 @@
 #pragma kernel ApplyRenderReclaim
 #pragma kernel CopyRenderIndex
 #pragma kernel MarkRenderRebuildTiles
+#pragma kernel ApplyRenderMutationJournal
 #pragma kernel CollectRenderRebuildTiles
 #pragma kernel PrepareRenderBuild
 #pragma kernel BuildRenderTiles
 #pragma kernel PublishRenderTileList
+#pragma kernel RecountRenderPatches
 #pragma kernel FinalizeReadout
 #pragma kernel CullRenderTiles
 #pragma kernel PrepareVisibleIndices
@@ -101,6 +103,29 @@ void M8RequestWarmLoad(uint tileRefIndex, uint chunkIndex, uint tileLocal,
     if (lateDraw) M8CounterIncrement(M8_COUNTER_LATE_DRAW_COLD_MISSES);
 }
 
+void M8AppendPageQueue(uint queueBase, uint control, uint page)
+{
+    uint index;
+    InterlockedAdd(_M8RenderPageQueues[control], 1u, index);
+    if (index < M8_RENDER_PAGE_CAPACITY)
+        _M8RenderPageQueues[queueBase + index] = page;
+}
+
+void M8RetireBackRecordPages(uint base)
+{
+    uint pages = min(_M8RenderIndexBack[base + 1u],
+        M8_RENDER_TILE_MAX_PAGES);
+    uint page = _M8RenderIndexBack[base + M8_RENDER_RECORD_FIRST_PAGE];
+    for (uint ordinal = 0u;
+        ordinal < pages && page != M8_RENDER_PAGE_INVALID; ordinal++)
+    {
+        uint next = _M8RenderPageQueues[M8_RENDER_LINK_BASE + page];
+        M8AppendPageQueue(M8_RENDER_RETIRE_BASE,
+            M8_RENDER_CONTROL_RETIRE_COUNT, page);
+        page = next;
+    }
+}
+
 [numthreads(1, 1, 1)]
 void BeginRenderBuild(uint id : SV_DispatchThreadID)
 {
@@ -118,11 +143,13 @@ void BeginRenderBuild(uint id : SV_DispatchThreadID)
     _M8Counters[M8_COUNTER_READOUT_PLANE_LEGACY_INVALID] = 0u;
     _M8Counters[M8_COUNTER_READOUT_EMITTED_VERTICES] = 0u;
     _M8Counters[M8_COUNTER_RENDER_REBUILD_TILES] = 0u;
-    _M8Counters[M8_COUNTER_RENDER_BUILD_OVERFLOW] = 0u;
+    _M8Counters[M8_COUNTER_RENDER_VIEW_OVERFLOW] = 0u;
     _M8Counters[M8_COUNTER_RENDER_PENDING_TILES] = 0u;
     _M8Counters[M8_COUNTER_RENDER_CAPACITY_FAILED] = 0u;
     _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] = MERKABA_READOUT_BUILDING;
     _M8Counters[M8_COUNTER_FRAME_EPOCH] += 1u;
+    _M8RenderIndexBack[0] = 0u;
+    _M8RenderIndexBack[1] = 0u;
     uint reclaim = _M8PreviousPublished != 0u
         ? _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_COUNT]
         : _M8RenderPageQueues[M8_RENDER_CONTROL_ALLOC_COUNT];
@@ -285,6 +312,83 @@ void RequestWarmResidency(uint3 groupId : SV_GroupID, uint thread : SV_GroupInde
                 }
                 if (!M8IsHotRef(tileRef) && inDraw)
                     M8CounterIncrement(M8_COUNTER_READOUT_UNRESOLVED);
+                if (M8IsHotRef(tileRef) && inDraw)
+                {
+                    uint physicalSlot = M8PhysicalSlot(tileRef);
+                    uint base = M8RecordBase(physicalSlot);
+                    uint currentIdentity = tileRefIndex + 1u;
+                    uint frontIdentity = _M8RenderIndexFrontRead[base + 2u];
+                    uint previousBits;
+                    InterlockedOr(_M8TileRecords[
+                        M8TileRuntimeIndex(physicalSlot)].w,
+                        M8_RENDER_VIEW_MARK, previousBits);
+
+                    uint listIndex;
+                    InterlockedAdd(_M8RenderIndexBack[0], 1u, listIndex);
+                    if (listIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+                    {
+                        _M8RenderIndexBack[
+                            M8_RENDER_TILE_LIST_BASE + listIndex] = physicalSlot;
+                        if (frontIdentity == currentIdentity)
+                        {
+                            [unroll]
+                            for (uint word = 0u; word < M8_RENDER_RECORD_WORDS;
+                                 word++)
+                                _M8RenderIndexBack[base + word] =
+                                    _M8RenderIndexFrontRead[base + word];
+                        }
+                        else
+                        {
+                            if (frontIdentity != 0u)
+                            {
+                                uint oldPages = min(
+                                    _M8RenderIndexFrontRead[base + 1u],
+                                    M8_RENDER_TILE_MAX_PAGES);
+                                uint oldPage = _M8RenderIndexFrontRead[
+                                    base + M8_RENDER_RECORD_FIRST_PAGE];
+                                for (uint ordinal = 0u;
+                                    ordinal < oldPages &&
+                                    oldPage != M8_RENDER_PAGE_INVALID;
+                                    ordinal++)
+                                {
+                                    uint next = _M8RenderPageQueues[
+                                        M8_RENDER_LINK_BASE + oldPage];
+                                    M8AppendPageQueue(M8_RENDER_RETIRE_BASE,
+                                        M8_RENDER_CONTROL_RETIRE_COUNT,
+                                        oldPage);
+                                    oldPage = next;
+                                }
+                            }
+                            _M8RenderIndexBack[base + 0u] = 0u;
+                            _M8RenderIndexBack[base + 1u] = 0u;
+                            _M8RenderIndexBack[base + 2u] = 0u;
+                            _M8RenderIndexBack[
+                                base + M8_RENDER_RECORD_FIRST_PAGE] =
+                                M8_RENDER_PAGE_INVALID;
+                        }
+                        _M8RenderIndexBack[
+                            base + M8_RENDER_RECORD_LIST_SLOT] = listIndex + 1u;
+
+                        uint bits = _M8TileRecords[
+                            M8TileRuntimeIndex(physicalSlot)].w;
+                        bool needsBuild = frontIdentity != currentIdentity ||
+                            (bits & M8_RENDER_DIRTY) != 0u ||
+                            (_M8ResidencyChanged != 0u &&
+                             (bits & M8_RENDER_PENDING) != 0u);
+                        if (needsBuild)
+                        {
+                            uint workIndex;
+                            InterlockedAdd(_M8Counters[
+                                M8_COUNTER_RENDER_REBUILD_TILES], 1u, workIndex);
+                            if (workIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
+                                _M8VisibleTiles[workIndex] =
+                                    uint2(physicalSlot, 0u);
+                            else
+                                _M8Counters[
+                                    M8_COUNTER_RENDER_VIEW_OVERFLOW] = 1u;
+                        }
+                    }
+                }
                 if (inDraw) visibleChunk = true;
             }
         }
@@ -530,37 +634,18 @@ void ApplyRenderReclaim(uint id : SV_DispatchThreadID)
     _M8RenderPageQueues[M8_RENDER_CONTROL_ALLOC_COUNT] = 0u;
 }
 
-[numthreads(64, 1, 1)]
+[numthreads(128, 1, 1)]
 void CopyRenderIndex(uint id : SV_DispatchThreadID)
 {
-    if (id < M8_RENDER_INDEX_HEADER)
-        _M8RenderIndexBack[id] = _M8RenderIndexFrontRead[id];
-
-    uint deltaCount = min(
-        _M8Counters[M8_COUNTER_RENDER_DELTA_COUNT],
-        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
-    for (uint delta = id; delta < deltaCount; delta += 64u)
-    {
-        uint2 entry = _M8VisibleTilesRead[delta];
-        uint physicalSlot = entry.x;
-        if (physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) continue;
-        uint base = M8RecordBase(physicalSlot);
-        [unroll]
-        for (uint word = 0u; word < M8_RENDER_RECORD_WORDS; word++)
-            _M8RenderIndexBack[base + word] =
-                _M8RenderIndexFrontRead[base + word];
-        if (entry.y != 0u)
-        {
-            uint listIndex = entry.y - 1u;
-            if (listIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-                _M8RenderIndexBack[M8_RENDER_TILE_LIST_BASE + listIndex] =
-                    _M8RenderIndexFrontRead[
-                        M8_RENDER_TILE_LIST_BASE + listIndex];
-        }
-    }
-    if (id == 0u)
-        _M8Counters[M8_COUNTER_RENDER_DELTA_COUNT] = 0u;
+    if (id >= _M8FrontTileCount) return;
+    uint physicalSlot = _M8RenderIndexFrontRead[
+        M8_RENDER_TILE_LIST_BASE + id];
+    if (physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) return;
+    uint ignored;
+    InterlockedAnd(_M8TileRecords[M8TileRuntimeIndex(physicalSlot)].w,
+        ~M8_RENDER_VIEW_MARK, ignored);
 }
+
 
 bool M8RenderJournalReserve(uint headCounter, uint tailCounter,
     out uint ticket)
@@ -609,36 +694,14 @@ void M8RenderJournalQueueDirty(uint physicalSlot, uint dependencyBits)
         (ticket & M8_RENDER_JOURNAL_MASK)] = physicalSlot;
 }
 
-void M8RenderJournalQueuePending(uint physicalSlot)
+void M8MarkDependencyDirty(uint physicalSlot)
 {
+    if (physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) return;
     uint previous;
     InterlockedOr(_M8TileRecords[M8TileRuntimeIndex(physicalSlot)].w,
-        M8_RENDER_PENDING | M8_RENDER_PENDING_QUEUED, previous);
-    if ((previous & M8_RENDER_PENDING_QUEUED) != 0u) return;
-    uint ticket;
-    if (!M8RenderJournalReserve(M8_COUNTER_RENDER_PENDING_HEAD,
-            M8_COUNTER_RENDER_PENDING_TAIL, ticket))
-    {
-        uint ignored;
-        InterlockedAnd(_M8TileRecords[M8TileRuntimeIndex(physicalSlot)].w,
-            ~M8_RENDER_PENDING_QUEUED, ignored);
-        return;
-    }
-    _M8RenderMutationQueue[M8_RENDER_JOURNAL_PENDING_BASE +
-        (ticket & M8_RENDER_JOURNAL_MASK)] = physicalSlot;
-}
-
-bool M8RenderSelectUnique(uint physicalSlot, inout uint selected)
-{
-    if (physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) return false;
-    [unroll]
-    for (uint index = 0u; index < M8_RENDER_MUTATION_BATCH; index++)
-        if (index < selected && _M8VisibleTiles[index].x == physicalSlot)
-            return false;
-    if (selected >= M8_RENDER_MUTATION_BATCH) return false;
-    _M8VisibleTiles[selected] = uint2(physicalSlot, 0u);
-    selected++;
-    return true;
+        M8_RENDER_DIRTY, previous);
+    if ((previous & M8_RENDER_DIRTY) == 0u)
+        M8CounterIncrement(M8_COUNTER_RENDER_DIRTY_MARKS);
 }
 
 uint M8CurrentRenderIdentity(uint physicalSlot)
@@ -665,88 +728,53 @@ void M8QueueRenderDependencies(uint physicalSlot, uint dependencyBits)
         uint slot = M8ResolveMembraneTile(context,
             M8MembraneTileOffset(gridIndex));
         if (slot < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-            M8RenderJournalQueueDirty(slot, 0u);
+            M8MarkDependencyDirty(slot);
     }
 }
 
 [numthreads(1, 1, 1)]
 void MarkRenderRebuildTiles(uint id : SV_DispatchThreadID)
 {
-    uint selected = 0u;
-
-    if (_M8ResidencyChanged != 0u)
-    {
-        uint head = _M8Counters[M8_COUNTER_RENDER_PENDING_HEAD];
-        uint tail = _M8Counters[M8_COUNTER_RENDER_PENDING_TAIL];
-        uint consumed = 0u;
-        while (head != tail && selected < M8_RENDER_MUTATION_BATCH &&
-               consumed < M8_RENDER_JOURNAL_DRAIN_LIMIT)
-        {
-            uint slot = _M8RenderMutationQueue[
-                M8_RENDER_JOURNAL_PENDING_BASE +
-                (head & M8_RENDER_JOURNAL_MASK)];
-            head++;
-            consumed++;
-            if (slot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) continue;
-            uint ignored;
-            InterlockedAnd(_M8TileRecords[M8TileRuntimeIndex(slot)].w,
-                ~M8_RENDER_PENDING_QUEUED, ignored);
-            uint bits = _M8TileRecords[M8TileRuntimeIndex(slot)].w;
-            if ((bits & M8_RENDER_PENDING) == 0u) continue;
-            M8RenderSelectUnique(slot, selected);
-        }
-        _M8Counters[M8_COUNTER_RENDER_PENDING_HEAD] = head;
-    }
-
     uint head = _M8Counters[M8_COUNTER_RENDER_JOURNAL_HEAD];
     uint tail = _M8Counters[M8_COUNTER_RENDER_JOURNAL_TAIL];
-    uint consumed = 0u;
-    while (head != tail && selected < M8_RENDER_MUTATION_BATCH &&
-           consumed < M8_RENDER_JOURNAL_DRAIN_LIMIT)
-    {
-        uint slot = _M8RenderMutationQueue[M8_RENDER_JOURNAL_DIRTY_BASE +
-            (head & M8_RENDER_JOURNAL_MASK)];
-        head++;
-        consumed++;
-        if (slot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) continue;
-        uint ignored;
-        InterlockedAnd(_M8TileRecords[M8TileRuntimeIndex(slot)].w,
-            ~M8_RENDER_DIRTY_QUEUED, ignored);
-        uint bits = _M8TileRecords[M8TileRuntimeIndex(slot)].w;
-        uint frontIdentity =
-            _M8RenderIndexFrontRead[M8RecordBase(slot) + 2u];
-        uint currentIdentity = M8CurrentRenderIdentity(slot);
-        if ((bits & M8_RENDER_DIRTY) == 0u &&
-            frontIdentity == currentIdentity)
-            continue;
-        M8QueueRenderDependencies(slot,
-            bits & M8_RENDER_DEPENDENCY_MASK);
-        M8RenderSelectUnique(slot, selected);
-    }
-    _M8Counters[M8_COUNTER_RENDER_JOURNAL_HEAD] = head;
-    _M8Counters[M8_COUNTER_RENDER_REBUILD_TILES] = selected;
+    uint count = min(tail - head, M8_RENDER_JOURNAL_CAPACITY);
+    _M8Counters[M8_COUNTER_RENDER_JOURNAL_BATCH] = count;
+    _M8FrameDispatchArgs[0] = max(1u, (count + 63u) >> 6u);
+    _M8FrameDispatchArgs[1] = 1u;
+    _M8FrameDispatchArgs[2] = 1u;
 }
 
-[numthreads(1, 1, 1)]
+[numthreads(64, 1, 1)]
+void ApplyRenderMutationJournal(uint id : SV_DispatchThreadID)
+{
+    uint count = _M8Counters[M8_COUNTER_RENDER_JOURNAL_BATCH];
+    if (id >= count) return;
+    uint head = _M8Counters[M8_COUNTER_RENDER_JOURNAL_HEAD];
+    uint physicalSlot = _M8RenderMutationQueue[
+        M8_RENDER_JOURNAL_DIRTY_BASE +
+        ((head + id) & M8_RENDER_JOURNAL_MASK)];
+    if (physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) return;
+    uint previous;
+    InterlockedAnd(_M8TileRecords[M8TileRuntimeIndex(physicalSlot)].w,
+        ~(M8_RENDER_DIRTY_QUEUED | M8_RENDER_DEPENDENCY_MASK), previous);
+    M8QueueRenderDependencies(physicalSlot,
+        previous & M8_RENDER_DEPENDENCY_MASK);
+}
+
+[numthreads(128, 1, 1)]
 void CollectRenderRebuildTiles(uint id : SV_DispatchThreadID)
 {
-    // Kept as an entry point for serialized asset compatibility. Sparse
-    // selection is completed by MarkRenderRebuildTiles; no slot sweep occurs.
-}
-
-void M8AppendPageQueue(uint queueBase, uint control, uint page)
-{
-    uint index;
-    InterlockedAdd(_M8RenderPageQueues[control], 1u, index);
-    if (index < M8_RENDER_PAGE_CAPACITY)
-        _M8RenderPageQueues[queueBase + index] = page;
-}
-
-void M8RetireBackRecordPages(uint base)
-{
-    uint pages = min(_M8RenderIndexBack[base + 1u],
+    if (id >= _M8FrontTileCount) return;
+    uint physicalSlot = _M8RenderIndexFrontRead[
+        M8_RENDER_TILE_LIST_BASE + id];
+    if (physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) return;
+    uint bits = _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].w;
+    if ((bits & M8_RENDER_VIEW_MARK) != 0u) return;
+    uint base = M8RecordBase(physicalSlot);
+    uint pages = min(_M8RenderIndexFrontRead[base + 1u],
         M8_RENDER_TILE_MAX_PAGES);
-    uint page = _M8RenderIndexBack[base + M8_RENDER_RECORD_FIRST_PAGE];
+    uint page = _M8RenderIndexFrontRead[
+        base + M8_RENDER_RECORD_FIRST_PAGE];
     for (uint ordinal = 0u;
         ordinal < pages && page != M8_RENDER_PAGE_INVALID; ordinal++)
     {
@@ -755,13 +783,26 @@ void M8RetireBackRecordPages(uint base)
             M8_RENDER_CONTROL_RETIRE_COUNT, page);
         page = next;
     }
+    _M8RenderIndexBack[base + 0u] = 0u;
+    _M8RenderIndexBack[base + 1u] = 0u;
+    _M8RenderIndexBack[base + 2u] = 0u;
+    _M8RenderIndexBack[base + M8_RENDER_RECORD_FIRST_PAGE] =
+        M8_RENDER_PAGE_INVALID;
+    _M8RenderIndexBack[base + M8_RENDER_RECORD_LIST_SLOT] = 0u;
 }
 
 [numthreads(1, 1, 1)]
 void PrepareRenderBuild(uint id : SV_DispatchThreadID)
 {
+    uint journalCount = _M8Counters[M8_COUNTER_RENDER_JOURNAL_BATCH];
+    uint journalHead = _M8Counters[M8_COUNTER_RENDER_JOURNAL_HEAD] +
+        journalCount;
+    _M8Counters[M8_COUNTER_RENDER_JOURNAL_HEAD] = journalHead;
+    if (journalHead == _M8Counters[M8_COUNTER_RENDER_JOURNAL_TAIL])
+        _M8Counters[M8_COUNTER_RENDER_JOURNAL_OVERFLOW] = 0u;
+    _M8Counters[M8_COUNTER_RENDER_JOURNAL_BATCH] = 0u;
     uint tiles = min(_M8Counters[M8_COUNTER_RENDER_REBUILD_TILES],
-        M8_RENDER_MUTATION_BATCH);
+        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
     _M8Counters[M8_COUNTER_VISIBLE_TILE_COUNT] = tiles;
     _M8FrameDispatchArgs[0] = tiles;
     _M8FrameDispatchArgs[1] = 1u;
@@ -836,9 +877,9 @@ bool M8TrySkinNeighbourMask(int3 globalCoord, KernelState main,
     neighbourMask = 0u;
     unresolved = false;
     [unroll]
-    for (uint neighbour = 0u; neighbour < M8_SKIN_NEIGHBOUR_COUNT;
-        neighbour++)
+    for (uint axis = 0u; axis < M8_SKIN_AXIS_NEIGHBOUR_COUNT; axis++)
     {
+        uint neighbour = M8_SKIN_AXIS_NEIGHBOURS[axis];
         int3 relative = globalCoord + M8_SKIN_NEIGHBOURS[neighbour] -
             gM8MembraneTileOrigin;
         int3 tileOffset = int3(relative.x < 0 ? -1 : relative.x >= 8 ? 1 : 0,
@@ -881,33 +922,122 @@ bool M8TrySkinNeighbourMask(int3 globalCoord, KernelState main,
 uint M8SkinVisibleFaceletCount(uint neighbourMask)
 {
     uint count = 0u;
-    [unroll]
+    // Rolled: Unity's Vulkan compiler refuses to unroll the enclosing
+    // four-phase tile walk when these 80-step loops are unrolled inside it.
+    [loop]
     for (uint facelet = 0u; facelet < M8_SKIN_FACELET_COUNT; facelet++)
         if ((M8_SKIN_FACELETS[facelet].w & neighbourMask) == 0u)
             count++;
     return count;
 }
 
-float3 M8SkinGridVertex(int3 globalCoord, uint vertexIndex)
+float3 M8SkinMeasuredShift(KernelState state)
 {
-    return ((float3)globalCoord +
-        (float3)M8_SKIN_HALF_VERTICES[vertexIndex] * 0.5) *
-        MERKABA_LATTICE_STEP;
+    float3 normal;
+    float signedOffset;
+    M8DecodeSurfacePlane(state.flags, normal, signedOffset);
+    return normal * signedOffset;
+}
+
+bool M8SkinAxisOffset(int3 halfVertex, out int3 offset)
+{
+    if (halfVertex.x == -3) { offset = int3(-1,0,0); return true; }
+    if (halfVertex.x ==  3) { offset = int3( 1,0,0); return true; }
+    if (halfVertex.y == -3) { offset = int3(0,-1,0); return true; }
+    if (halfVertex.y ==  3) { offset = int3(0, 1,0); return true; }
+    if (halfVertex.z == -3) { offset = int3(0,0,-1); return true; }
+    if (halfVertex.z ==  3) { offset = int3(0,0, 1); return true; }
+    offset = int3(0,0,0);
+    return false;
+}
+
+bool M8SkinSharedNeighbour(int3 globalCoord, KernelState state,
+    uint vertexIndex, out KernelState neighbour)
+{
+    neighbour = (KernelState)0;
+    int3 offset;
+    if (!M8SkinAxisOffset(M8_SKIN_HALF_VERTICES[vertexIndex], offset))
+        return false;
+    bool resolved;
+    if (!M8TryLoadMembraneState(globalCoord + offset, neighbour, resolved) ||
+        !resolved || (neighbour.flags & MERKABA_OCCUPIED_FLAG) == 0u ||
+        !M8HasSurfacePlane(neighbour.flags))
+        return false;
+    bool unresolved;
+    return M8SkinCompatible(globalCoord, state, globalCoord + offset,
+        neighbour, unresolved) && !unresolved;
+}
+
+float3 M8SkinGridVertex(int3 globalCoord, KernelState state,
+    uint vertexIndex)
+{
+    float3 basePosition = (float3)globalCoord * MERKABA_LATTICE_STEP +
+        (float3)M8_SKIN_HALF_VERTICES[vertexIndex] *
+        (MERKABA_LATTICE_STEP * M8_SKIN_HALF_VERTEX_SCALE);
+    float3 shift = M8SkinMeasuredShift(state);
+    KernelState neighbour;
+    if (M8SkinSharedNeighbour(globalCoord, state, vertexIndex, neighbour))
+        shift = (shift + M8SkinMeasuredShift(neighbour)) * 0.5;
+    return basePosition + shift;
+}
+
+uint M8SkinBlendColor(uint a, uint aWeight, uint b, uint bWeight)
+{
+    if (aWeight == 0u) return bWeight == 0u ? a : b;
+    if (bWeight == 0u) return a;
+    // The gate forbids integer division in BuildRenderTiles, so the
+    // confidence blend uses a reciprocal with the same rounding.
+    float inverse = 1.0 / (float)(aWeight + bWeight);
+    uint ar = a & 255u, ag = (a >> 8u) & 255u, ab = (a >> 16u) & 255u;
+    uint br = b & 255u, bg = (b >> 8u) & 255u, bb = (b >> 16u) & 255u;
+    uint r = (uint)floor((float)(ar * aWeight + br * bWeight) *
+        inverse + 0.5);
+    uint g = (uint)floor((float)(ag * aWeight + bg * bWeight) *
+        inverse + 0.5);
+    uint bl = (uint)floor((float)(ab * aWeight + bb * bWeight) *
+        inverse + 0.5);
+    return min(r, 255u) | (min(g, 255u) << 8u) | (min(bl, 255u) << 16u) |
+        0xff000000u;
+}
+
+uint M8SkinVertexColor(int3 globalCoord, KernelState state, uint vertexIndex)
+{
+    KernelState neighbour;
+    if (!M8SkinSharedNeighbour(globalCoord, state, vertexIndex, neighbour))
+        return state.packedColor;
+    return M8SkinBlendColor(state.packedColor, state.colorConfidence,
+        neighbour.packedColor, neighbour.colorConfidence);
+}
+
+uint M8SkinFaceletColor(int3 globalCoord, KernelState state, uint4 facelet)
+{
+    uint a = M8SkinVertexColor(globalCoord, state, facelet.x);
+    uint b = M8SkinVertexColor(globalCoord, state, facelet.y);
+    uint c = M8SkinVertexColor(globalCoord, state, facelet.z);
+    const float third = 1.0 / 3.0;
+    uint r = (uint)floor((float)((a & 255u) + (b & 255u) + (c & 255u)) *
+        third + 0.5);
+    uint g = (uint)floor((float)(((a >> 8u) & 255u) + ((b >> 8u) & 255u) +
+        ((c >> 8u) & 255u)) * third + 0.5);
+    uint bl = (uint)floor((float)(((a >> 16u) & 255u) + ((b >> 16u) & 255u) +
+        ((c >> 16u) & 255u)) * third + 0.5);
+    return r | (g << 8u) | (bl << 16u) | 0xff000000u;
 }
 
 void M8EmitSkinFacelet(int3 globalCoord, uint faceletIndex,
-    uint packedColor, uint primitiveIndex)
+    KernelState state, uint primitiveIndex)
 {
     uint page = gM8MembranePageIds[primitiveIndex >> 4u];
     uint vertex = page * M8_RENDER_PAGE_VERTICES +
         (primitiveIndex & (M8_RENDER_PAGE_PATCHES - 1u)) * 3u;
     uint4 facelet = M8_SKIN_FACELETS[faceletIndex];
+    uint packedColor = M8SkinFaceletColor(globalCoord, state, facelet);
     M8StoreRenderVertex(vertex + 0u,
-        M8SkinGridVertex(globalCoord, facelet.x), packedColor);
+        M8SkinGridVertex(globalCoord, state, facelet.x), packedColor);
     M8StoreRenderVertex(vertex + 1u,
-        M8SkinGridVertex(globalCoord, facelet.y), packedColor);
+        M8SkinGridVertex(globalCoord, state, facelet.y), packedColor);
     M8StoreRenderVertex(vertex + 2u,
-        M8SkinGridVertex(globalCoord, facelet.z), packedColor);
+        M8SkinGridVertex(globalCoord, state, facelet.z), packedColor);
 }
 
 bool M8TakeRenderPages(uint pagesNeeded)
@@ -1126,13 +1256,13 @@ void BuildRenderTiles(uint3 groupId : SV_GroupID,
         if (faceletCount != 0u && gM8MembraneCanEmit != 0u)
         {
             uint localFacelet = 0u;
-            [unroll]
+            [loop]
             for (uint facelet = 0u; facelet < M8_SKIN_FACELET_COUNT;
                 facelet++)
             {
                 if ((M8_SKIN_FACELETS[facelet].w & neighbourMask) != 0u)
                     continue;
-                M8EmitSkinFacelet(globalCoord, facelet, state.packedColor,
+                M8EmitSkinFacelet(globalCoord, facelet, state,
                     gM8MembraneBatchBase + gM8SkinPrefix[thread] +
                         localFacelet);
                 localFacelet++;
@@ -1160,7 +1290,9 @@ void BuildRenderTiles(uint3 groupId : SV_GroupID,
             InterlockedAnd(_M8TileRecords[
                 M8TileRuntimeIndex(physicalSlot)].w,
                 ~M8_RENDER_DIRTY, ignoredCount);
-            M8RenderJournalQueuePending(physicalSlot);
+            InterlockedOr(_M8TileRecords[
+                M8TileRuntimeIndex(physicalSlot)].w, M8_RENDER_PENDING,
+                ignoredCount);
             M8CounterIncrement(M8_COUNTER_RENDER_PENDING_TILES);
         }
         else
@@ -1195,83 +1327,26 @@ void BuildRenderTiles(uint3 groupId : SV_GroupID,
 [numthreads(1, 1, 1)]
 void PublishRenderTileList(uint id : SV_DispatchThreadID)
 {
-    uint selected = min(_M8Counters[M8_COUNTER_RENDER_REBUILD_TILES],
-        M8_RENDER_MUTATION_BATCH);
-    uint tileCount = min(_M8RenderIndexBack[0],
+    uint tiles = min(_M8RenderIndexBack[0],
         MERKABA_M8_PHYSICAL_TILE_CAPACITY);
-    uint patchCount = _M8RenderIndexBack[1];
-    uint deltaCount = selected;
+    _M8RenderIndexBack[0] = tiles;
+    _M8RenderIndexBack[1] = 0u;
+    _M8FrameDispatchArgs[0] = max(1u, (tiles + 127u) >> 7u);
+    _M8FrameDispatchArgs[1] = 1u;
+    _M8FrameDispatchArgs[2] = 1u;
+}
 
-    for (uint index = 0u; index < selected; index++)
-    {
-        uint2 work = _M8VisibleTiles[index];
-        uint physicalSlot = work.x;
-        bool succeeded = work.y != 0u;
-        _M8VisibleTiles[index].y = 0u;
-        if (!succeeded ||
-            physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-            continue;
-
-        uint base = M8RecordBase(physicalSlot);
-        uint oldPatches = _M8RenderIndexFrontRead[base + 0u];
-        uint newPatches = _M8RenderIndexBack[base + 0u];
-        bool oldActive = oldPatches != 0u &&
-            _M8RenderIndexFrontRead[base + 2u] != 0u;
-        bool newActive = newPatches != 0u &&
-            _M8RenderIndexBack[base + 2u] != 0u;
-        patchCount = patchCount >= oldPatches
-            ? patchCount - oldPatches + newPatches
-            : newPatches;
-
-        uint changedListSlot = 0u;
-        if (!oldActive && newActive)
-        {
-            if (tileCount < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-            {
-                _M8RenderIndexBack[M8_RENDER_TILE_LIST_BASE + tileCount] =
-                    physicalSlot;
-                _M8RenderIndexBack[
-                    base + M8_RENDER_RECORD_LIST_SLOT] = tileCount + 1u;
-                changedListSlot = tileCount + 1u;
-                tileCount++;
-            }
-        }
-        else if (oldActive && !newActive && tileCount != 0u)
-        {
-            uint listSlot =
-                _M8RenderIndexBack[base + M8_RENDER_RECORD_LIST_SLOT];
-            if (listSlot != 0u && listSlot <= tileCount)
-            {
-                uint removeIndex = listSlot - 1u;
-                uint lastIndex = tileCount - 1u;
-                if (removeIndex != lastIndex)
-                {
-                    uint moved = _M8RenderIndexBack[
-                        M8_RENDER_TILE_LIST_BASE + lastIndex];
-                    _M8RenderIndexBack[
-                        M8_RENDER_TILE_LIST_BASE + removeIndex] = moved;
-                    if (moved < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-                    {
-                        uint movedBase = M8RecordBase(moved);
-                        _M8RenderIndexBack[movedBase +
-                            M8_RENDER_RECORD_LIST_SLOT] = removeIndex + 1u;
-                        if (deltaCount <
-                            MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-                            _M8VisibleTiles[deltaCount++] =
-                                uint2(moved, removeIndex + 1u);
-                    }
-                    changedListSlot = removeIndex + 1u;
-                }
-                tileCount = lastIndex;
-            }
-            _M8RenderIndexBack[base + M8_RENDER_RECORD_LIST_SLOT] = 0u;
-        }
-        _M8VisibleTiles[index].y = changedListSlot;
-    }
-
-    _M8RenderIndexBack[0] = tileCount;
-    _M8RenderIndexBack[1] = patchCount;
-    _M8Counters[M8_COUNTER_RENDER_DELTA_COUNT] = deltaCount;
+[numthreads(128, 1, 1)]
+void RecountRenderPatches(uint id : SV_DispatchThreadID)
+{
+    uint tiles = _M8RenderIndexBack[0];
+    if (id >= tiles) return;
+    uint physicalSlot = _M8RenderIndexBack[
+        M8_RENDER_TILE_LIST_BASE + id];
+    if (physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) return;
+    uint patches = _M8RenderIndexBack[M8RecordBase(physicalSlot) + 0u];
+    uint ignored;
+    InterlockedAdd(_M8RenderIndexBack[1], patches, ignored);
 }
 
 [numthreads(1, 1, 1)]
@@ -1287,7 +1362,8 @@ void FinalizeReadout(uint id : SV_DispatchThreadID)
     uint dirtyHead = _M8Counters[M8_COUNTER_RENDER_JOURNAL_HEAD];
     uint dirtyTail = _M8Counters[M8_COUNTER_RENDER_JOURNAL_TAIL];
     uint backlog = dirtyTail != dirtyHead ||
-        _M8Counters[M8_COUNTER_RENDER_JOURNAL_OVERFLOW] != 0u
+        _M8Counters[M8_COUNTER_RENDER_JOURNAL_OVERFLOW] != 0u ||
+        _M8Counters[M8_COUNTER_RENDER_VIEW_OVERFLOW] != 0u
         ? 0x80000000u : 0u;
     uint unresolved = min(0x7fffffffu,
         _M8Counters[M8_COUNTER_READOUT_UNRESOLVED] +

@@ -51,8 +51,7 @@ namespace Genesis.RoomScan
             MerkabaSpatial.PhysicalTileCapacity;
         internal const int RenderDrawArgumentCount = 5;
         internal const int RenderMutationJournalCapacity = 65_536;
-        internal const int RenderMutationJournalCount =
-            RenderMutationJournalCapacity * 2;
+        internal const int RenderMutationJournalCount = RenderMutationJournalCapacity;
         internal const int CounterCount = 119;
 
         internal const int CounterBlockCount = 0;

@@ -34,18 +34,45 @@ checks = {
     "render journal has dedicated GPU storage":
         "RenderMutationJournalCount" in grid and
         "_m8RenderMutationQueue" in grid,
+    "25mm carrier uses one sixth lattice half-vertex unit":
+        "MerkabaConstants.LatticeStep / 6f" in skin,
     "integrator seals observation delta into journal":
         "SeedRenderMutationJournal(true, true)" in integrator,
     "fine erase seals its delta into journal":
         "SeedRenderMutationJournal(false, true)" in integrator,
-    "readout mirrors prior delta rather than all slots":
-        "M8_COUNTER_RENDER_DELTA_COUNT" in readout and
-        "void CopyRenderIndex" in readout,
+    "readout working set is rebuilt from current camera coverage":
+        "_M8RenderIndexBack[0] = 0u" in readout and
+        "M8_RENDER_VIEW_MARK" in readout and
+        "RequestWarmResidency" in readout,
     "readout consumes mutation journal":
         "M8_COUNTER_RENDER_JOURNAL_HEAD" in readout and
-        "M8RenderJournalQueueDirty" in readout,
-    "publication list is sparse":
-        "[numthreads(1, 1, 1)]\nvoid PublishRenderTileList" in readout,
+        "ApplyRenderMutationJournal" in readout,
+    "journal is not the render scheduler":
+        "M8_RENDER_MUTATION_BATCH" not in world and
+        "M8_RENDER_JOURNAL_DRAIN_LIMIT" not in world,
+    "view dirty tiles dispatch without an arbitrary tile cap":
+        "M8_COUNTER_RENDER_REBUILD_TILES" in readout and
+        "MERKABA_M8_PHYSICAL_TILE_CAPACITY" in readout and
+        "M8_RENDER_MUTATION_BATCH" not in readout,
+    "only positive-area axis contacts occlude the 25mm carrier":
+        "M8_SKIN_AXIS_NEIGHBOUR_COUNT" in readout and
+        "M8_SKIN_AXIS_NEIGHBOURS" in readout and
+        "M8_RENDER_AXIS_DEPENDENCY_MASK" in world,
+    "live metric skin consumes measured signed plane offset":
+        "M8SkinMeasuredShift" in readout and
+        "M8SkinGridVertex(int3 globalCoord, KernelState state" in readout,
+    "export metric skin consumes the same measured state/context resolver":
+        "kernel.Coord, kernel.State, context, facelet.A" in exporter and
+        "MerkabaSkin.FaceletColor" in exporter,
+    "departed view pages are retired":
+        "M8_RENDER_VIEW_MARK" in readout and
+        "M8_RENDER_RETIRE_BASE" in readout and
+        "void CollectRenderRebuildTiles" in readout,
+    "scanner pending work does not starve graphics-queue readout":
+        "HasPendingObservation" not in renderer and
+        "HasPendingFineErase" not in renderer,
+    "patch recount is parallel over current view":
+        "void RecountRenderPatches" in readout,
     "legacy per-kernel overlap oracle absent from live path":
         '#include "MerkabaOverlapShell.generated.hlsl"' not in readout and
         "M8TryBuildMembranePatch" not in readout,
@@ -58,6 +85,8 @@ checks = {
         "if (kind == JobKind.Readout) return false;" in native,
     "42/80 Skin SSOT remains canonical":
         "VertexCount = 42" in skin and "FaceletCount = 80" in skin,
+    "75mm half-lattice skin placement is absent":
+        "0.5f * MerkabaConstants.LatticeStep" not in skin,
     "CPU export uses same Skin SSOT":
         "MerkabaSkin.Facelets" in exporter and
         "MerkabaSkin.CompatibleNeighbourMask" in exporter,

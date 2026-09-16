@@ -164,15 +164,19 @@ namespace Genesis.RoomScan
                     if ((facelet.OccluderMask & neighbourMask) != 0u)
                         continue;
                     float3 a = MerkabaSkin.GridPosition(
-                        kernel.Coord, facelet.A);
+                        kernel.Coord, kernel.State, context, facelet.A);
                     float3 b = MerkabaSkin.GridPosition(
-                        kernel.Coord, facelet.B);
+                        kernel.Coord, kernel.State, context, facelet.B);
                     float3 c = MerkabaSkin.GridPosition(
-                        kernel.Coord, facelet.C);
-                    float3 normal = MerkabaSkin.FaceNormal(facelet);
+                        kernel.Coord, kernel.State, context, facelet.C);
+                    float3 fallbackNormal = MerkabaSkin.FaceNormal(facelet);
+                    float3 normal = math.normalizesafe(
+                        math.cross(b - a, c - a), fallbackNormal);
+                    uint color = MerkabaSkin.FaceletColor(
+                        kernel.Coord, kernel.State, context, facelet);
                     patches.Add(new MerkabaExportMembranePatch(
                         kernel.Coord, normal, a, b, c, a,
-                        kernel.State.PackedColor, false, true));
+                        color, false, true));
                 }
                 if (ownerIndex + 1 == owners.Count ||
                     (ownerIndex + 1) % 256 == 0)

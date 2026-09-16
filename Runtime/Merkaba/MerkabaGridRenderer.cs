@@ -22,7 +22,7 @@ namespace Genesis.RoomScan
         [SerializeField] private ComputeShader readoutCompute;
         [SerializeField] private Shader renderShader;
         [SerializeField, Range(2f, 24f)] private float renderDistance = 12f;
-        [SerializeField, Range(5f, 30f)] private float readoutBuildHz = 15f;
+        [SerializeField, Range(5f, 72f)] private float readoutBuildHz = 30f;
         [SerializeField, Range(0f, 4f)]
         private float readoutTranslationGuard = 1f;
         [SerializeField, Range(0f, 1f)] private float scanOpacity = 1f;
@@ -41,10 +41,12 @@ namespace Genesis.RoomScan
         private int _applyReclaimKernel;
         private int _copyKernel;
         private int _markKernel;
+        private int _applyMutationKernel;
         private int _collectKernel;
         private int _prepareKernel;
         private int _buildKernel;
         private int _publishKernel;
+        private int _recountKernel;
         private int _finalizeKernel;
         private int _cullKernel;
         private int _prepareVisibleKernel;
@@ -413,6 +415,8 @@ namespace Genesis.RoomScan
                 "CopyRenderIndex", MerkabaGpuStage.ReadoutBuild);
             _markKernel = readoutCompute.FindProfiledKernel(
                 "MarkRenderRebuildTiles", MerkabaGpuStage.ReadoutBuild);
+            _applyMutationKernel = readoutCompute.FindProfiledKernel(
+                "ApplyRenderMutationJournal", MerkabaGpuStage.ReadoutBuild);
             _collectKernel = readoutCompute.FindProfiledKernel(
                 "CollectRenderRebuildTiles", MerkabaGpuStage.ReadoutBuild);
             _prepareKernel = readoutCompute.FindProfiledKernel(
@@ -421,6 +425,8 @@ namespace Genesis.RoomScan
                 "BuildRenderTiles", MerkabaGpuStage.ReadoutBuild);
             _publishKernel = readoutCompute.FindProfiledKernel(
                 "PublishRenderTileList", MerkabaGpuStage.ReadoutBuild);
+            _recountKernel = readoutCompute.FindProfiledKernel(
+                "RecountRenderPatches", MerkabaGpuStage.ReadoutBuild);
             _finalizeKernel = readoutCompute.FindProfiledKernel(
                 "FinalizeReadout", MerkabaGpuStage.ReadoutBuild);
             _cullKernel = readoutCompute.FindProfiledKernel(
@@ -433,8 +439,8 @@ namespace Genesis.RoomScan
                      {
                          _beginKernel, _warmKernel, _reclaimKernel,
                          _applyReclaimKernel, _copyKernel, _markKernel,
-                         _collectKernel,
-                         _prepareKernel, _buildKernel, _publishKernel,
+                         _applyMutationKernel, _collectKernel,
+                         _prepareKernel, _buildKernel, _publishKernel, _recountKernel,
                          _finalizeKernel
                      })
             {
@@ -452,7 +458,8 @@ namespace Genesis.RoomScan
                 readoutCompute.SetBuffer(kernel, AttemptCompletionId,
                     _grid.M8AttemptCompletion);
             }
-            foreach (int kernel in new[] { _markKernel, _buildKernel })
+            foreach (int kernel in new[]
+                     { _markKernel, _applyMutationKernel, _buildKernel })
                 readoutCompute.SetBuffer(kernel, RenderMutationQueueId,
                     _grid.M8RenderMutationQueue);
             _material = new Material(renderShader)
@@ -495,12 +502,10 @@ namespace Genesis.RoomScan
             _grid.SetResidencyFocus(cameraGrid,
                 coverageDistance + MerkabaSpatial.BlockWorldSize);
 
-            bool scannerWork = _integrator != null &&
-                (_integrator.HasPendingObservation ||
-                 _integrator.HasAttemptInFlight ||
-                 _integrator.HasPendingFineErase ||
-                 _integrator.HasFineEraseAttemptInFlight);
-            bool queueBusy = _buildInFlight || scannerWork ||
+            // Unity compute submissions are ordered on the graphics queue.
+            // Pending/in-flight scanner work must not starve readout; only the
+            // native executor owns buffers outside that queue.
+            bool queueBusy = _buildInFlight ||
                 MerkabaNativeVulkanExecutor.HasJobInFlight ||
                 _nativeReadoutJob != null || _grid.StorageControlReady;
             // Head motion alone never rebuilds geometry. Entering new
@@ -545,7 +550,7 @@ namespace Genesis.RoomScan
                 timedSubmission = MerkabaGpuTimestamps.TryAcquire(
                     CaptureOwner.ReadoutBuild, revision, command);
                 RecordBuild(command, ticket.Slot, revision, _previousPublished,
-                    _retryPendingTiles, query, queryGroups);
+                    _retryPendingTiles, query, query.Groups);
                 MerkabaGpuTimestamps.End(CaptureOwner.ReadoutBuild, command,
                     timedSubmission);
                 Graphics.ExecuteCommandBuffer(command);
@@ -609,34 +614,44 @@ namespace Genesis.RoomScan
             ComputeBuffer front = _grid.GetM8RenderIndex(1 - backSlot);
             foreach (int kernel in new[]
                      {
-                         _copyKernel, _collectKernel, _prepareKernel,
-                         _buildKernel, _publishKernel, _finalizeKernel
+                         _beginKernel, _warmKernel, _collectKernel,
+                         _prepareKernel, _buildKernel, _publishKernel,
+                         _recountKernel,
+                         _finalizeKernel
                      })
                 command.SetComputeBufferParam(readoutCompute, kernel,
                     RenderIndexBackId, back);
             foreach (int kernel in new[]
-                     { _copyKernel, _markKernel, _publishKernel })
+                     { _copyKernel, _warmKernel, _collectKernel })
                 command.SetComputeBufferParam(readoutCompute, kernel,
                     RenderIndexFrontReadId, front);
+            command.SetComputeIntParam(readoutCompute, FrontTileCountId,
+                _frontTileCount);
             command.DispatchComputeProfiled(readoutCompute, _beginKernel,
                 1, 1, 1);
-            if (queryGroups > 0)
-                command.DispatchComputeProfiled(readoutCompute, _warmKernel,
-                    queryGroups, 1, 1);
             command.DispatchComputeProfiled(readoutCompute, _reclaimKernel,
                 _grid.M8FrameDispatchArgs);
             command.DispatchComputeProfiled(readoutCompute,
                 _applyReclaimKernel, 1, 1, 1);
+            int frontGroups = Mathf.Max(1, (_frontTileCount + 127) / 128);
             command.DispatchComputeProfiled(readoutCompute, _copyKernel,
-                1, 1, 1);
+                frontGroups, 1, 1);
             command.DispatchComputeProfiled(readoutCompute, _markKernel,
                 1, 1, 1);
+            command.DispatchComputeProfiled(readoutCompute,
+                _applyMutationKernel, _grid.M8FrameDispatchArgs);
+            command.DispatchComputeProfiled(readoutCompute, _warmKernel,
+                queryGroups, 1, 1);
+            command.DispatchComputeProfiled(readoutCompute, _collectKernel,
+                frontGroups, 1, 1);
             command.DispatchComputeProfiled(readoutCompute, _prepareKernel,
                 1, 1, 1);
             command.DispatchComputeProfiled(readoutCompute, _buildKernel,
                 _grid.M8FrameDispatchArgs);
             command.DispatchComputeProfiled(readoutCompute, _publishKernel,
                 1, 1, 1);
+            command.DispatchComputeProfiled(readoutCompute, _recountKernel,
+                _grid.M8FrameDispatchArgs);
             command.DispatchComputeProfiled(readoutCompute, _finalizeKernel,
                 1, 1, 1);
         }

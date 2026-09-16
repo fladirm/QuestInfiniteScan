@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using Unity.Mathematics;
+using UnityEngine;
 
 namespace Genesis.RoomScan
 {
@@ -17,22 +18,29 @@ namespace Genesis.RoomScan
         internal const int FaceletCount = 80;
         internal const int VerticesPerFacelet = 3;
         internal const int IndicesPerFacelet = 3;
+        // The seven-cell cross is local scaffolding inside ONE 25 mm carrier.
+        // HalfVertices span [-3,+3], therefore one integer half-unit is 25/6 mm.
+        internal const float HalfVertexUnit =
+            MerkabaConstants.LatticeStep / 6f;
 
         internal readonly struct Facelet
         {
             internal readonly byte A;
             internal readonly byte B;
             internal readonly byte C;
-            internal readonly uint OccluderMask;
+            internal uint OccluderMask =>
+                MerkabaSkin.ComputeOccluderMask(A, B, C);
 
-            internal Facelet(int a, int b, int c, uint occluderMask)
+            internal Facelet(int a, int b, int c, uint legacyOccluderMask)
             {
                 A = checked((byte)a);
                 B = checked((byte)b);
                 C = checked((byte)c);
-                OccluderMask = occluderMask;
             }
         }
+
+        private static readonly int[] AxisNeighbourIndicesValue =
+            { 4, 10, 12, 13, 15, 21 };
 
         private static readonly int3[] HalfVerticesValue =
         {
@@ -213,8 +221,9 @@ namespace Genesis.RoomScan
         {
             if (context == null) throw new ArgumentNullException(nameof(context));
             uint mask = 0u;
-            for (int index = 0; index < NeighboursValue.Length; index++)
+            for (int axis = 0; axis < AxisNeighbourIndicesValue.Length; axis++)
             {
+                int index = AxisNeighbourIndicesValue[axis];
                 int3 neighbourCoord = coord + NeighboursValue[index];
                 if (!context.TryGetValue(neighbourCoord, out KernelState neighbour) ||
                     !neighbour.IsOccupied || !neighbour.HasMeasuredSurfacePlane)
@@ -274,10 +283,140 @@ namespace Genesis.RoomScan
             return count;
         }
 
+        private static uint ComputeOccluderMask(byte aIndex, byte bIndex,
+            byte cIndex)
+        {
+            int3 a = HalfVerticesValue[aIndex];
+            int3 b = HalfVerticesValue[bIndex];
+            int3 c = HalfVerticesValue[cIndex];
+            uint mask = 0u;
+            if (a.x == -3 && b.x == -3 && c.x == -3) mask |= 1u << 12;
+            if (a.x ==  3 && b.x ==  3 && c.x ==  3) mask |= 1u << 13;
+            if (a.y == -3 && b.y == -3 && c.y == -3) mask |= 1u << 10;
+            if (a.y ==  3 && b.y ==  3 && c.y ==  3) mask |= 1u << 15;
+            if (a.z == -3 && b.z == -3 && c.z == -3) mask |= 1u << 4;
+            if (a.z ==  3 && b.z ==  3 && c.z ==  3) mask |= 1u << 21;
+            return mask;
+        }
+
         internal static float3 GridPosition(int3 kernelCoord, byte vertex)
         {
-            int3 halfKey = kernelCoord * 2 + HalfVerticesValue[vertex];
-            return (float3)halfKey * (0.5f * MerkabaConstants.LatticeStep);
+            return (float3)kernelCoord * MerkabaConstants.LatticeStep +
+                (float3)HalfVerticesValue[vertex] * HalfVertexUnit;
+        }
+
+        internal static float3 GridPosition(int3 kernelCoord, KernelState state,
+            IReadOnlyDictionary<int3, KernelState> context, byte vertex)
+        {
+            float3 basePosition = GridPosition(kernelCoord, vertex);
+            if (!state.HasMeasuredSurfacePlane)
+                return basePosition;
+            float3 shift = MeasuredShift(state);
+            if (TryCompatibleAxisNeighbour(kernelCoord, state, context, vertex,
+                    out KernelState neighbour))
+                shift = (shift + MeasuredShift(neighbour)) * 0.5f;
+            return basePosition + shift;
+        }
+
+        internal static uint FaceletColor(int3 kernelCoord, KernelState state,
+            IReadOnlyDictionary<int3, KernelState> context, Facelet facelet)
+        {
+            uint a = VertexColor(kernelCoord, state, context, facelet.A);
+            uint b = VertexColor(kernelCoord, state, context, facelet.B);
+            uint c = VertexColor(kernelCoord, state, context, facelet.C);
+            return AveragePacked(a, b, c);
+        }
+
+        private static float3 MeasuredShift(KernelState state)
+        {
+            KernelState.DecodeSurfacePlane(state.Flags, out float3 normal,
+                out float signedOffset);
+            return normal * signedOffset;
+        }
+
+        private static uint VertexColor(int3 kernelCoord, KernelState state,
+            IReadOnlyDictionary<int3, KernelState> context, byte vertex)
+        {
+            if (!TryCompatibleAxisNeighbour(kernelCoord, state, context, vertex,
+                    out KernelState neighbour))
+                return state.PackedColor;
+            uint aWeight = state.ColorConfidence;
+            uint bWeight = neighbour.ColorConfidence;
+            if (aWeight == 0u) return bWeight == 0u
+                ? state.PackedColor : neighbour.PackedColor;
+            if (bWeight == 0u) return state.PackedColor;
+            Color32 a = KernelState.UnpackColor(state.PackedColor);
+            Color32 b = KernelState.UnpackColor(neighbour.PackedColor);
+            ulong total = (ulong)aWeight + bWeight;
+            byte Blend(byte x, byte y) => (byte)Math.Min(255ul,
+                ((ulong)x * aWeight + (ulong)y * bWeight + total / 2ul) /
+                total);
+            return KernelState.PackColor(new Color32(
+                Blend(a.r, b.r), Blend(a.g, b.g), Blend(a.b, b.b), 255));
+        }
+
+        private static uint AveragePacked(uint aPacked, uint bPacked,
+            uint cPacked)
+        {
+            Color32 a = KernelState.UnpackColor(aPacked);
+            Color32 b = KernelState.UnpackColor(bPacked);
+            Color32 c = KernelState.UnpackColor(cPacked);
+            return KernelState.PackColor(new Color32(
+                (byte)((a.r + b.r + c.r + 1) / 3),
+                (byte)((a.g + b.g + c.g + 1) / 3),
+                (byte)((a.b + b.b + c.b + 1) / 3), 255));
+        }
+
+        private static bool TryCompatibleAxisNeighbour(int3 kernelCoord,
+            KernelState state, IReadOnlyDictionary<int3, KernelState> context,
+            byte vertex, out KernelState neighbour)
+        {
+            neighbour = default;
+            if (context == null || !TryAxisOffset(HalfVerticesValue[vertex],
+                    out int3 offset))
+                return false;
+            int3 neighbourCoord = kernelCoord + offset;
+            if (!context.TryGetValue(neighbourCoord, out neighbour) ||
+                !neighbour.IsOccupied || !neighbour.HasMeasuredSurfacePlane)
+                return false;
+            return Compatible(kernelCoord, state, neighbourCoord, neighbour,
+                context);
+        }
+
+        private static bool TryAxisOffset(int3 halfVertex, out int3 offset)
+        {
+            if (halfVertex.x == -3)
+            {
+                offset = new int3(-1, 0, 0);
+                return true;
+            }
+            if (halfVertex.x == 3)
+            {
+                offset = new int3(1, 0, 0);
+                return true;
+            }
+            if (halfVertex.y == -3)
+            {
+                offset = new int3(0, -1, 0);
+                return true;
+            }
+            if (halfVertex.y == 3)
+            {
+                offset = new int3(0, 1, 0);
+                return true;
+            }
+            if (halfVertex.z == -3)
+            {
+                offset = new int3(0, 0, -1);
+                return true;
+            }
+            if (halfVertex.z == 3)
+            {
+                offset = new int3(0, 0, 1);
+                return true;
+            }
+            offset = int3.zero;
+            return false;
         }
 
         internal static float3 FaceNormal(Facelet facelet)
@@ -298,6 +437,10 @@ namespace Genesis.RoomScan
             text.AppendLine("#define M8_SKIN_VERTEX_COUNT 42u");
             text.AppendLine("#define M8_SKIN_FACELET_COUNT 80u");
             text.AppendLine("#define M8_SKIN_NEIGHBOUR_COUNT 26u");
+            text.AppendLine("#define M8_SKIN_AXIS_NEIGHBOUR_COUNT 6u");
+            text.AppendLine("#define M8_SKIN_HALF_VERTEX_SCALE (1.0 / 6.0)");
+            text.AppendLine("static const uint M8_SKIN_AXIS_NEIGHBOURS[6] = " +
+                "{ 4u, 10u, 12u, 13u, 15u, 21u };");
             text.AppendLine();
             text.AppendLine("static const int3 M8_SKIN_HALF_VERTICES[42] = {");
             for (int i = 0; i < HalfVerticesValue.Length; i++)
