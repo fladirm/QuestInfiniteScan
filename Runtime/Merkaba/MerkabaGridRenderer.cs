@@ -59,6 +59,7 @@ namespace Genesis.RoomScan
         private float _nextStatusReadback;
         private float _nextReadoutBuild;
         private bool _canonicalDirty = true;
+        private bool _cycleReadoutPending;
         private bool _buildInFlight;
         private int _frontReadout;
         // Publication generations: FRONT is immutable, and a retired page
@@ -284,6 +285,21 @@ namespace Genesis.RoomScan
             InvalidatePublicationCallbacks();
         }
 
+        /// <summary>
+        /// The producer cycle is strictly serial: a scan transaction ends only
+        /// once its readout publication has been adopted.
+        /// </summary>
+        internal bool ReadoutCycleBusy => readoutDrawEnabled && _initialized &&
+            !_gpuSubmissionSuspended && (_cycleReadoutPending || _buildInFlight);
+
+        /// <summary>Closes a scan transaction by requesting its readout.</summary>
+        internal void RequestCycleReadout()
+        {
+            if (!_initialized || !readoutDrawEnabled) return;
+            _cycleReadoutPending = true;
+            MarkCanonicalReadoutDirty();
+        }
+
         internal void MarkCanonicalReadoutDirty()
         {
             _canonicalDirty = true;
@@ -393,6 +409,18 @@ namespace Genesis.RoomScan
         {
             if (Application.isPlaying) Destroy(material);
             else DestroyImmediate(material);
+        }
+
+        /// <summary>
+        /// The active producer, regardless of which camera draws it.
+        /// </summary>
+        internal static bool TryGetActiveProducer(
+            out MerkabaGridRenderer renderer)
+        {
+            renderer = _active;
+            return renderer != null && renderer._initialized &&
+                   !renderer._gpuSubmissionSuspended &&
+                   renderer.isActiveAndEnabled;
         }
 
         internal static bool TryGetActive(Camera camera,
@@ -535,8 +563,11 @@ namespace Genesis.RoomScan
                 _grid.ResidencyEpoch != _builtResidencyEpoch;
             bool buildRequested = _canonicalDirty || residencyChanged ||
                 residencyQuery;
+            // A readout that closes a scan transaction runs at once; a readout
+            // without a scan keeps the free-running cadence.
             if (!queueBusy && buildRequested &&
-                Time.unscaledTime >= _nextReadoutBuild)
+                (_cycleReadoutPending ||
+                 Time.unscaledTime >= _nextReadoutBuild))
                 SubmitReadoutBuild(cameraGrid, residencyQuery);
 
             RetirePassedPublications();
@@ -805,9 +836,11 @@ namespace Genesis.RoomScan
             if (!valid)
             {
                 // BACK is never adopted; its fresh pages are reclaimed by the
-                // next build and FRONT keeps drawing.
+                // next build and FRONT keeps drawing. The scan transaction
+                // closes anyway, so the producer never deadlocks on it.
                 _previousPublished = false;
                 _canonicalDirty = true;
+                _cycleReadoutPending = false;
                 return;
             }
 
@@ -815,6 +848,7 @@ namespace Genesis.RoomScan
             _frontTileCount = (int)Math.Min(record[2],
                 (uint)MerkabaSpatial.PhysicalTileCapacity);
             _previousPublished = true;
+            _cycleReadoutPending = false;
             AdoptPublication();
             bool backlog = (record[3] & ReadoutBacklogBit) != 0u;
             uint unresolved = record[3] & ~ReadoutBacklogBit;

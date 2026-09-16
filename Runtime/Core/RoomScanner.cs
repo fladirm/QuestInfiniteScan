@@ -295,6 +295,9 @@ namespace Genesis.RoomScan
                 return;
             }
             if (Time.time - _lastIntegrationTime < IntegrationInterval) return;
+            // Serial producer transaction: the next scan starts only after the
+            // readout publication of the previous one has been adopted.
+            if (_renderer != null && _renderer.ReadoutCycleBusy) return;
             if (!_depthCapture.HasUnprocessedFrame) return;
 
             if (!_integrator.HasReadyStereoCameraFrame)

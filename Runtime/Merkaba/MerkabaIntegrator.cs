@@ -493,7 +493,10 @@ namespace Genesis.RoomScan
                 LastObservationChangedReadout =
                     _grid.CompletedObservationChangedReadout;
                 if (LastObservationChangedReadout)
+                {
                     _grid.SeedRenderMutationJournal(true, true);
+                    RequestCycleReadout();
+                }
                 return FinishObservation(_grid.CompletedObservationFailure);
             }
 
@@ -550,6 +553,7 @@ namespace Genesis.RoomScan
             if (_grid.CompletedObservationToken == _fineEraseAttemptToken)
             {
                 _grid.SeedRenderMutationJournal(false, true);
+                RequestCycleReadout();
                 _fineErasePrepared = false;
                 _fineEraseWaitingForDependency = false;
                 _fineEraseAttemptToken = 0u;
@@ -1092,6 +1096,13 @@ namespace Genesis.RoomScan
                 if (_attemptSequence == 0u) _attemptSequence = 1u;
             }
             return _attemptSequence;
+        }
+
+        private static void RequestCycleReadout()
+        {
+            if (MerkabaGridRenderer.TryGetActiveProducer(out
+                    MerkabaGridRenderer renderer))
+                renderer.RequestCycleReadout();
         }
 
         private bool FinishObservation(uint failureReason)
