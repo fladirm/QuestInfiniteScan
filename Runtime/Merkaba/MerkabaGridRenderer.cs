@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using UnityEngine;
+using System.Collections.Generic;
 using UnityEngine.Rendering;
 using UnityEngine.Serialization;
 
@@ -37,6 +38,7 @@ namespace Genesis.RoomScan
         private Material _material;
         private int _beginKernel;
         private int _warmKernel;
+        private int _prepareReclaimKernel;
         private int _reclaimKernel;
         private int _applyReclaimKernel;
         private int _copyKernel;
@@ -59,6 +61,13 @@ namespace Genesis.RoomScan
         private bool _canonicalDirty = true;
         private bool _buildInFlight;
         private int _frontReadout;
+        // Publication generations: FRONT is immutable, and a retired page
+        // returns to the allocator only once no frame can still draw it.
+        private uint _publicationGeneration = 1u;
+        private uint _frontGeneration;
+        private uint _safeReclaimGeneration;
+        private readonly Queue<(GraphicsFence Fence, uint Generation)>
+            _publicationFences = new();
         private int _frontTileCount;
         private bool _previousPublished;
         private uint _sourceGeneration = 1u;
@@ -213,6 +222,10 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_M8ResidencyChanged");
         private static readonly int RenderMutationQueueId =
             Shader.PropertyToID("_M8RenderMutationQueue");
+        private static readonly int RetireGenerationId =
+            Shader.PropertyToID("_M8RetireGeneration");
+        private static readonly int SafeReclaimGenerationId =
+            Shader.PropertyToID("_M8SafeReclaimGeneration");
         private static readonly int CameraGridMetersId =
             Shader.PropertyToID("_M8CameraGridMeters");
         private static readonly int GridMetricDiagonalId =
@@ -407,6 +420,8 @@ namespace Genesis.RoomScan
                 "BeginRenderBuild", MerkabaGpuStage.ReadoutBuild);
             _warmKernel = readoutCompute.FindProfiledKernel(
                 "RequestWarmResidency", MerkabaGpuStage.WorldQuery);
+            _prepareReclaimKernel = readoutCompute.FindProfiledKernel(
+                "PrepareRenderReclaim", MerkabaGpuStage.ReadoutBuild);
             _reclaimKernel = readoutCompute.FindProfiledKernel(
                 "ReclaimRenderPages", MerkabaGpuStage.ReadoutBuild);
             _applyReclaimKernel = readoutCompute.FindProfiledKernel(
@@ -437,7 +452,8 @@ namespace Genesis.RoomScan
                 "EmitVisibleIndices", MerkabaGpuStage.MerkabaDraw);
             foreach (int kernel in new[]
                      {
-                         _beginKernel, _warmKernel, _reclaimKernel,
+                         _beginKernel, _warmKernel, _prepareReclaimKernel,
+                         _reclaimKernel,
                          _applyReclaimKernel, _copyKernel, _markKernel,
                          _applyMutationKernel, _collectKernel,
                          _prepareKernel, _buildKernel, _publishKernel, _recountKernel,
@@ -523,6 +539,7 @@ namespace Genesis.RoomScan
                 Time.unscaledTime >= _nextReadoutBuild)
                 SubmitReadoutBuild(cameraGrid, residencyQuery);
 
+            RetirePassedPublications();
             RequestStatusIfDue();
         }
 
@@ -629,6 +646,8 @@ namespace Genesis.RoomScan
                 _frontTileCount);
             command.DispatchComputeProfiled(readoutCompute, _beginKernel,
                 1, 1, 1);
+            command.DispatchComputeProfiled(readoutCompute,
+                _prepareReclaimKernel, 1, 1, 1);
             command.DispatchComputeProfiled(readoutCompute, _reclaimKernel,
                 _grid.M8FrameDispatchArgs);
             command.DispatchComputeProfiled(readoutCompute,
@@ -718,6 +737,11 @@ namespace Genesis.RoomScan
                 previousPublished ? 1 : 0);
             command.SetComputeIntParam(readoutCompute, ResidencyChangedId,
                 retryPendingTiles ? 1 : 0);
+            command.SetComputeIntParam(readoutCompute, RetireGenerationId,
+                unchecked((int)(_publicationGeneration - 1u)));
+            command.SetComputeIntParam(readoutCompute,
+                SafeReclaimGenerationId,
+                unchecked((int)_safeReclaimGeneration));
         }
 
         private void PollNativeReadoutBuild()
@@ -791,6 +815,7 @@ namespace Genesis.RoomScan
             _frontTileCount = (int)Math.Min(record[2],
                 (uint)MerkabaSpatial.PhysicalTileCapacity);
             _previousPublished = true;
+            AdoptPublication();
             bool backlog = (record[3] & ReadoutBacklogBit) != 0u;
             uint unresolved = record[3] & ~ReadoutBacklogBit;
             if (backlog)
@@ -807,6 +832,30 @@ namespace Genesis.RoomScan
                 _loadedCoverageSourceGeneration = 0u;
                 ready.TrySetResult(true);
             }
+        }
+
+        /// <summary>
+        /// Takes the new generation as FRONT and records the fence that, once
+        /// passed, proves every older generation has left the GPU.
+        /// </summary>
+        private void AdoptPublication()
+        {
+            _frontGeneration = _publicationGeneration;
+            _publicationGeneration = _publicationGeneration == 0x7ffeu
+                ? 1u : _publicationGeneration + 1u;
+            _publicationFences.Enqueue((Graphics.CreateGraphicsFence(
+                GraphicsFenceType.CPUSynchronisation,
+                SynchronisationStageFlags.AllGPUOperations),
+                _frontGeneration));
+            RetirePassedPublications();
+        }
+
+        private void RetirePassedPublications()
+        {
+            while (_publicationFences.Count > 0 &&
+                   _publicationFences.Peek().Fence.passed)
+                _safeReclaimGeneration =
+                    _publicationFences.Dequeue().Generation - 1u;
         }
 
         internal bool TryGetFrontRenderResources(Camera camera,

@@ -1,5 +1,6 @@
 #pragma kernel BeginRenderBuild
 #pragma kernel RequestWarmResidency
+#pragma kernel PrepareRenderReclaim
 #pragma kernel ReclaimRenderPages
 #pragma kernel ApplyRenderReclaim
 #pragma kernel CopyRenderIndex
@@ -65,6 +66,10 @@ uint _M8ReadoutRevision;
 uint _M8PreviousPublished;
 uint _M8ResidencyChanged;
 uint _M8FrontTileCount;
+// Publication generation of the build being recorded, and the newest
+// generation no frame can still be drawing.
+uint _M8RetireGeneration;
+uint _M8SafeReclaimGeneration;
 
 uint M8RecordBase(uint physicalSlot)
 {
@@ -111,6 +116,30 @@ void M8AppendPageQueue(uint queueBase, uint control, uint page)
         _M8RenderPageQueues[queueBase + index] = page;
 }
 
+// A retired page keeps the generation that last referenced it. The allocator
+// cannot hand it out again before that generation is provably undrawn.
+void M8RetirePage(uint page)
+{
+    uint ticket;
+    InterlockedAdd(_M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_TAIL], 1u,
+        ticket);
+    uint head = _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_HEAD];
+    if (ticket - head >= M8_RENDER_PAGE_CAPACITY) return;
+    _M8RenderPageQueues[M8_RENDER_RETIRE_BASE +
+        (ticket & M8_RENDER_RETIRE_MASK)] = (page & M8_RENDER_PAGE_ID_MASK) |
+        ((_M8RetireGeneration & M8_RENDER_RETIRE_GENERATION_MASK) <<
+            M8_RENDER_RETIRE_GENERATION_SHIFT);
+}
+
+bool M8RetiredPageIsFree(uint entry)
+{
+    uint generation = (entry >> M8_RENDER_RETIRE_GENERATION_SHIFT) &
+        M8_RENDER_RETIRE_GENERATION_MASK;
+    uint distance = (generation - _M8SafeReclaimGeneration) &
+        M8_RENDER_RETIRE_GENERATION_MASK;
+    return distance == 0u || distance > M8_RENDER_RETIRE_GENERATION_HALF;
+}
+
 void M8RetireBackRecordPages(uint base)
 {
     uint pages = min(_M8RenderIndexBack[base + 1u],
@@ -120,8 +149,7 @@ void M8RetireBackRecordPages(uint base)
         ordinal < pages && page != M8_RENDER_PAGE_INVALID; ordinal++)
     {
         uint next = _M8RenderPageQueues[M8_RENDER_LINK_BASE + page];
-        M8AppendPageQueue(M8_RENDER_RETIRE_BASE,
-            M8_RENDER_CONTROL_RETIRE_COUNT, page);
+        M8RetirePage(page);
         page = next;
     }
 }
@@ -150,14 +178,8 @@ void BeginRenderBuild(uint id : SV_DispatchThreadID)
     _M8Counters[M8_COUNTER_FRAME_EPOCH] += 1u;
     _M8RenderIndexBack[0] = 0u;
     _M8RenderIndexBack[1] = 0u;
-    uint reclaim = _M8PreviousPublished != 0u
-        ? _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_COUNT]
-        : _M8RenderPageQueues[M8_RENDER_CONTROL_ALLOC_COUNT];
-    reclaim = min(reclaim, M8_RENDER_PAGE_CAPACITY);
-    _M8RenderPageQueues[M8_RENDER_CONTROL_RECLAIM_COUNT] = reclaim;
-    _M8FrameDispatchArgs[0] = (reclaim + 255u) / 256u;
-    _M8FrameDispatchArgs[1] = 1u;
-    _M8FrameDispatchArgs[2] = 1u;
+    // Reclaim selection is taken by PrepareRenderReclaim, which knows the
+    // generation no frame can still draw.
 }
 
 groupshared uint gFrameBlockRef;
@@ -353,9 +375,7 @@ void RequestWarmResidency(uint3 groupId : SV_GroupID, uint thread : SV_GroupInde
                                 {
                                     uint next = _M8RenderPageQueues[
                                         M8_RENDER_LINK_BASE + oldPage];
-                                    M8AppendPageQueue(M8_RENDER_RETIRE_BASE,
-                                        M8_RENDER_CONTROL_RETIRE_COUNT,
-                                        oldPage);
+                                    M8RetirePage(oldPage);
                                     oldPage = next;
                                 }
                             }
@@ -610,27 +630,76 @@ bool M8TryLoadMembraneState(int3 globalCoord, out KernelState state,
 }
 
 
+[numthreads(1, 1, 1)]
+void PrepareRenderReclaim(uint id : SV_DispatchThreadID)
+{
+    // A failed publication never reached FRONT, so its own pages are free at
+    // once. Otherwise reclaim the leading generation-safe retire entries.
+    if (_M8PreviousPublished == 0u)
+    {
+        _M8RenderPageQueues[M8_RENDER_CONTROL_RECLAIM_COUNT] =
+            min(_M8RenderPageQueues[M8_RENDER_CONTROL_ALLOC_COUNT],
+                M8_RENDER_PAGE_CAPACITY);
+        _M8FrameDispatchArgs[0] = max(1u,
+            (_M8RenderPageQueues[M8_RENDER_CONTROL_RECLAIM_COUNT] + 255u) >>
+                8u);
+        _M8FrameDispatchArgs[1] = 1u;
+        _M8FrameDispatchArgs[2] = 1u;
+        return;
+    }
+
+    uint head = _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_HEAD];
+    uint tail = _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_TAIL];
+    uint pending = min(tail - head, M8_RENDER_PAGE_CAPACITY);
+    // Entries are appended in generation order, so the safe prefix is found
+    // by bisection instead of a serial walk.
+    uint low = 0u;
+    uint high = pending;
+    [loop]
+    for (uint step = 0u; step < 18u; step++)
+    {
+        if (low >= high) break;
+        uint middle = low + ((high - low) >> 1u);
+        uint entry = _M8RenderPageQueues[M8_RENDER_RETIRE_BASE +
+            ((head + middle) & M8_RENDER_RETIRE_MASK)];
+        if (M8RetiredPageIsFree(entry)) low = middle + 1u;
+        else high = middle;
+    }
+    _M8RenderPageQueues[M8_RENDER_CONTROL_RECLAIM_COUNT] = low;
+    _M8FrameDispatchArgs[0] = max(1u, (low + 255u) >> 8u);
+    _M8FrameDispatchArgs[1] = 1u;
+    _M8FrameDispatchArgs[2] = 1u;
+}
+
 [numthreads(256, 1, 1)]
 void ReclaimRenderPages(uint id : SV_DispatchThreadID)
 {
     uint count = _M8RenderPageQueues[M8_RENDER_CONTROL_RECLAIM_COUNT];
     uint freeBase = _M8RenderPageQueues[M8_RENDER_CONTROL_FREE_PAGES];
     if (id >= count || freeBase + id >= M8_RENDER_PAGE_CAPACITY) return;
-    uint source = (_M8PreviousPublished != 0u
-        ? M8_RENDER_RETIRE_BASE : M8_RENDER_ALLOC_BASE) + id;
+    uint entry;
+    if (_M8PreviousPublished != 0u)
+    {
+        uint head = _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_HEAD];
+        entry = _M8RenderPageQueues[M8_RENDER_RETIRE_BASE +
+            ((head + id) & M8_RENDER_RETIRE_MASK)];
+    }
+    else
+        entry = _M8RenderPageQueues[M8_RENDER_ALLOC_BASE + id];
     _M8RenderPageQueues[M8_RENDER_FREE_BASE + freeBase + id] =
-        _M8RenderPageQueues[source];
+        entry & M8_RENDER_PAGE_ID_MASK;
 }
 
 [numthreads(1, 1, 1)]
 void ApplyRenderReclaim(uint id : SV_DispatchThreadID)
 {
+    uint reclaimed = _M8RenderPageQueues[M8_RENDER_CONTROL_RECLAIM_COUNT];
     uint freePages = min(_M8RenderPageQueues[M8_RENDER_CONTROL_FREE_PAGES] +
-        _M8RenderPageQueues[M8_RENDER_CONTROL_RECLAIM_COUNT],
-        M8_RENDER_PAGE_CAPACITY);
+        reclaimed, M8_RENDER_PAGE_CAPACITY);
     _M8RenderPageQueues[M8_RENDER_CONTROL_FREE_PAGES] = freePages;
+    if (_M8PreviousPublished != 0u)
+        _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_HEAD] += reclaimed;
     _M8RenderPageQueues[M8_RENDER_CONTROL_RECLAIM_COUNT] = 0u;
-    _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_COUNT] = 0u;
     _M8RenderPageQueues[M8_RENDER_CONTROL_ALLOC_COUNT] = 0u;
 }
 
@@ -779,8 +848,7 @@ void CollectRenderRebuildTiles(uint id : SV_DispatchThreadID)
         ordinal < pages && page != M8_RENDER_PAGE_INVALID; ordinal++)
     {
         uint next = _M8RenderPageQueues[M8_RENDER_LINK_BASE + page];
-        M8AppendPageQueue(M8_RENDER_RETIRE_BASE,
-            M8_RENDER_CONTROL_RETIRE_COUNT, page);
+        M8RetirePage(page);
         page = next;
     }
     _M8RenderIndexBack[base + 0u] = 0u;

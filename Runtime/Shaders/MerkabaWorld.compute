@@ -169,6 +169,8 @@ void InitializeRenderPageStack(uint id : SV_DispatchThreadID)
         _M8RenderPageQueues[M8_RENDER_CONTROL_FREE_PAGES] =
             M8_RENDER_PAGE_CAPACITY;
         _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_COUNT] = 0u;
+        _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_HEAD] = 0u;
+        _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_TAIL] = 0u;
         _M8RenderPageQueues[M8_RENDER_CONTROL_ALLOC_COUNT] = 0u;
         _M8RenderPageQueues[M8_RENDER_CONTROL_RECLAIM_COUNT] = 0u;
         _M8Counters[M8_COUNTER_RENDER_JOURNAL_HEAD] = 0u;
