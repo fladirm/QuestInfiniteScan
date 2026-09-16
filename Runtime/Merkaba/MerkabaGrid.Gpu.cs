@@ -22,16 +22,12 @@ namespace Genesis.RoomScan
         internal const int StreamBatchCapacity = 32;
         internal const int WritebackBatchCapacity = 128;
         internal const uint ResidencySafeEpochs = 3u;
-        // Paged disposable union-skin readout (MerkabaWorld.hlsl M8_RENDER_*).
-        internal const int RenderPagePatches = 16;
-        internal const int RenderPageVertices = RenderPagePatches *
-            MerkabaSkin.VerticesPerFacelet;
-        internal const int RenderPageIndices = RenderPagePatches *
-            MerkabaSkin.IndicesPerFacelet;
-        internal const int RenderPageCapacity = 131072;
-        internal const int RenderTileMaxPages =
-            MerkabaSpatial.KernelsPerTile * MerkabaSkin.FaceletCount /
-            RenderPagePatches;
+        // Paged indexed publication (MerkabaWorld.hlsl M8_RENDER_*). One page
+        // carries 64 shared vertices and 256 indices of the same tile.
+        internal const int RenderPageVertices = 64;
+        internal const int RenderPageIndices = 256;
+        internal const int RenderPageCapacity = 65536;
+        internal const int RenderTileMaxPages = 2560;
         // Records carry a linked-list head; page links live in the allocator.
         internal const int RenderRecordWords = 8;
         internal const int RenderIndexHeader = 8;
@@ -217,6 +213,7 @@ namespace Genesis.RoomScan
         private readonly ComputeBuffer[] _m8RenderIndex = new ComputeBuffer[2];
         private ComputeBuffer _m8RenderPageQueues;
         private ComputeBuffer _m8RenderMutationQueue;
+        private ComputeBuffer _m8PublishedIndices;
         private ComputeBuffer _m8VisiblePages;
         private ComputeBuffer _m8CullControl;
         private ComputeBuffer _m8RenderDrawArgs;
@@ -275,6 +272,8 @@ namespace Genesis.RoomScan
         internal ComputeBuffer M8RenderPageQueues => _m8RenderPageQueues;
         internal ComputeBuffer M8RenderMutationQueue =>
             _m8RenderMutationQueue;
+        /// <summary>Published indices of the readout, addressed per page.</summary>
+        internal ComputeBuffer M8PublishedIndices => _m8PublishedIndices;
         internal ComputeBuffer M8VisiblePages => _m8VisiblePages;
         internal ComputeBuffer M8CullControl => _m8CullControl;
         internal ComputeBuffer M8RenderDrawArgs => _m8RenderDrawArgs;
@@ -366,6 +365,8 @@ namespace Genesis.RoomScan
                 _m8RenderPageQueues);
             Set(MerkabaNativeVulkanExecutor.Resource.RenderMutationQueue,
                 _m8RenderMutationQueue);
+            Set(MerkabaNativeVulkanExecutor.Resource.RenderIndices,
+                _m8PublishedIndices);
         }
 
         internal bool GpuReady => _gpuReady;
@@ -471,6 +472,8 @@ namespace Genesis.RoomScan
                 _m8RenderPageQueues = Allocate(RenderPageQueueCount,
                     sizeof(uint));
                 _m8RenderMutationQueue = Allocate(RenderMutationJournalCount,
+                    sizeof(uint));
+                _m8PublishedIndices = Allocate(ReadoutIndexCapacity,
                     sizeof(uint));
                 _m8VisiblePages = Allocate(RenderPageCapacity, sizeof(uint));
                 _m8CullControl = Allocate(4, sizeof(uint),
@@ -1133,6 +1136,7 @@ namespace Genesis.RoomScan
             _m8RenderIndex[0] = _m8RenderIndex[1] = null;
             _m8RenderPageQueues = null;
             _m8RenderMutationQueue = null;
+            _m8PublishedIndices = null;
             _m8VisiblePages = null;
             _m8CullControl = null;
             _m8RenderDrawArgs = null;

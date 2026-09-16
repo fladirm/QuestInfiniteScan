@@ -216,6 +216,10 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_M8CullControlRead");
         private static readonly int RenderDrawArgsId =
             Shader.PropertyToID("_M8RenderDrawArgs");
+        private static readonly int PublishedIndicesId =
+            Shader.PropertyToID("_M8RenderIndices");
+        private static readonly int PublishedIndicesReadId =
+            Shader.PropertyToID("_M8RenderIndicesRead");
         private static readonly int VisibleIndicesId =
             Shader.PropertyToID("_M8VisibleIndices");
         private static readonly int FrontTileCountId =
@@ -504,6 +508,10 @@ namespace Genesis.RoomScan
                     _grid.M8RenderPageQueues);
                 readoutCompute.SetBuffer(kernel, RenderVerticesId,
                     _grid.M8RenderVertices);
+                readoutCompute.SetBuffer(kernel, PublishedIndicesId,
+                    _grid.M8PublishedIndices);
+                readoutCompute.SetBuffer(kernel, PublishedIndicesReadId,
+                    _grid.M8PublishedIndices);
                 readoutCompute.SetBuffer(kernel, AttemptCompletionId,
                     _grid.M8AttemptCompletion);
             }
@@ -1009,6 +1017,8 @@ namespace Genesis.RoomScan
                 CullControlReadId, cullControl);
             command.SetComputeBufferParam(readoutCompute, _emitVisibleKernel,
                 VisibleIndicesId, indices);
+            command.SetComputeBufferParam(readoutCompute, _emitVisibleKernel,
+                PublishedIndicesReadId, _grid.M8PublishedIndices);
             int groups = Mathf.Max(1, (frontTileCount + 127) / 128);
             command.DispatchComputeProfiled(readoutCompute, _cullKernel,
                 groups, 1, 1);

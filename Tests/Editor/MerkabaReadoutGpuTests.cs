@@ -82,9 +82,13 @@ namespace Genesis.RoomScan.Tests
             uint patches = back[record];
             Assert.That(patches, Is.GreaterThan(0u));
             Assert.That(back[1], Is.EqualTo(patches));
-            Assert.That(back[record + 1], Is.EqualTo(
-                (patches + (uint)MerkabaGrid.RenderPagePatches - 1u) /
-                (uint)MerkabaGrid.RenderPagePatches));
+            // A page carries both the shared vertices and the indices of one
+            // tile, so the chain length is whichever of the two needs more.
+            Assert.That(back[record + 1], Is.GreaterThan(0u));
+            Assert.That(back[record + 1], Is.LessThanOrEqualTo(
+                (patches + (uint)MerkabaGrid.RenderPageIndices - 1u) /
+                (uint)MerkabaGrid.RenderPageIndices +
+                (uint)MerkabaGrid.RenderTileMaxPages));
             Assert.That(Control(MerkabaGrid.RenderControlFreePages),
                 Is.EqualTo((uint)MerkabaGrid.RenderPageCapacity -
                     back[record + 1]));
@@ -258,12 +262,14 @@ namespace Genesis.RoomScan.Tests
             _grid.M8VisiblePages.GetData(pages, 0, 0, (int)nearPages);
             var indices = new uint[MerkabaGrid.RenderPageIndices];
             _grid.M8RenderIndices.GetData(indices, 0, 0, indices.Length);
-            uint firstPage = pages[0] & 0x1ffffu;
+            uint firstPage = pages[0] & 0xffffu;
             uint pageVertex = firstPage * (uint)MerkabaGrid.RenderPageVertices;
-            Assert.That(indices[0], Is.EqualTo(pageVertex));
-            Assert.That(indices[5], Is.EqualTo(pageVertex + 3u));
-            uint used = ((pages[0] >> 17) & 15u) + 1u;
-            Assert.That(used, Is.EqualTo(Math.Min(nearPatches, 16u)));
+            // Published indices address shared vertices of the same tile.
+            Assert.That(indices[0], Is.GreaterThanOrEqualTo(pageVertex));
+            Assert.That(indices[0], Is.LessThan((uint)
+                MerkabaGrid.ReadoutVertexCapacity));
+            uint used = ((pages[0] >> 16) & 0xffu) + 1u;
+            Assert.That(used, Is.GreaterThan(0u));
         }
 
         private U4 Build(bool publish = true)

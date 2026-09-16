@@ -10,15 +10,16 @@
 #define MERKABA_M8_TILE_BANK_SHIFT 13u
 #define MERKABA_M8_TILE_BANK_MASK 8191u
 #define MERKABA_M8_TILE_WORDS 16u
-// Disposable union-skin pages. A page holds 16 independent triangles.
-// Tile records store one linked-list head instead of a fixed per-tile page
-// array, so the exact 512 * 80 facelet upper bound does not inflate every
-// FRONT/BACK record.
-#define M8_RENDER_PAGE_PATCHES 16u
-#define M8_RENDER_PAGE_VERTICES 48u
-#define M8_RENDER_PAGE_INDICES 48u
-#define M8_RENDER_PAGE_CAPACITY 131072u
-#define M8_RENDER_PAGE_ID_MASK 0x1ffffu
+// Indexed publication pages. One page carries 64 shared vertices and 256
+// indices of one tile; a tile record stores the head of its page chain.
+#define M8_RENDER_PAGE_VERTICES 64u
+#define M8_RENDER_PAGE_VERTEX_SHIFT 6u
+#define M8_RENDER_PAGE_INDICES 256u
+#define M8_RENDER_PAGE_INDEX_SHIFT 8u
+#define M8_RENDER_PAGE_CAPACITY 65536u
+#define M8_RENDER_PAGE_ID_MASK 0xffffu
+#define M8_RENDER_VISIBLE_USED_SHIFT 16u
+#define M8_RENDER_VISIBLE_USED_MASK 0xffu
 #define M8_RENDER_PAGE_INVALID 0xffffffffu
 #define M8_RENDER_TILE_MAX_PAGES 2560u
 #define M8_RENDER_RECORD_WORDS 8u

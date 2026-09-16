@@ -135,6 +135,7 @@ RESOURCE_NAMES = (
     "DilationB", "CameraLeft", "CameraRight", "VisibleTiles",
     "FrameDispatchArgs", "RenderVertices", "RenderIndexBack",
     "RenderIndexFront", "RenderPageQueues", "RenderMutationQueue",
+    "RenderIndices",
 )
 RESOURCE_IDS = {name: index for index, name in enumerate(RESOURCE_NAMES)}
 
@@ -152,7 +153,7 @@ ALIASES = {
         "ObservationDispatchArgs", "CarveDispatchArgs", "AttemptCompletion",
         "VisibleTiles", "FrameDispatchArgs", "RenderVertices",
         "RenderIndexBack", "RenderIndexFront", "RenderPageQueues",
-        "RenderMutationQueue")},
+        "RenderMutationQueue", "RenderIndices")},
     "_RefineMetrics": "RefineMetrics",
     "_SrcDepth": "RawDepth",
     "_DstDepth": "RefinedDepth",

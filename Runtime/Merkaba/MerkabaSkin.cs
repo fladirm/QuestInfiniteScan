@@ -7,226 +7,550 @@ using UnityEngine;
 namespace Genesis.RoomScan
 {
     /// <summary>
-    /// Exact topology oracle for the M8 union skin.  The local solid is the
-    /// 26-faced convex envelope of the seven-cube cross.  The 80 facelets are
-    /// the boundary partition induced by the 26 immediate lattice neighbours.
-    /// Runtime work is only a 26-bit neighbour mask and LUT rejection.
+    /// Analytic boundary oracle of the M8 readout skin. The 50 mm support of a
+    /// measured kernel is the 26-faced convex envelope on the 25 mm lattice;
+    /// the published skin is the boundary of the union of the supports of the
+    /// connected neighbourhood. The arrangement of the 26 neighbour supports on
+    /// every support face is solved once, exactly, into refined facelets whose
+    /// visibility is a single 26-bit mask test at runtime. No field is sampled
+    /// and no surface is reconstructed: this only reads canonical M8 state.
     /// </summary>
     internal static class MerkabaSkin
     {
-        internal const int VertexCount = 42;
-        internal const int FaceletCount = 80;
+        // Vertex coordinates are integers in units of LatticeStep / 6, so the
+        // 25 mm lattice step is 6 units and the support half extent is 6 units.
+        internal const int LatticeUnits = 6;
+        internal const int SupportHalfUnits = 6;
+        internal const float VertexUnit = MerkabaConstants.LatticeStep / 6f;
         internal const int VerticesPerFacelet = 3;
         internal const int IndicesPerFacelet = 3;
-        // The seven-cell cross is local scaffolding inside ONE 25 mm carrier.
-        // HalfVertices span [-3,+3], therefore one integer half-unit is 25/6 mm.
-        internal const float HalfVertexUnit =
-            MerkabaConstants.LatticeStep / 6f;
 
         internal readonly struct Facelet
         {
-            internal readonly byte A;
-            internal readonly byte B;
-            internal readonly byte C;
-            internal uint OccluderMask =>
-                MerkabaSkin.ComputeOccluderMask(A, B, C);
+            internal readonly ushort A;
+            internal readonly ushort B;
+            internal readonly ushort C;
+            internal readonly uint OccluderMask;
 
-            internal Facelet(int a, int b, int c, uint legacyOccluderMask)
+            internal Facelet(int a, int b, int c, uint occluderMask)
             {
-                A = checked((byte)a);
-                B = checked((byte)b);
-                C = checked((byte)c);
+                A = checked((ushort)a);
+                B = checked((ushort)b);
+                C = checked((ushort)c);
+                OccluderMask = occluderMask;
             }
         }
 
-        private static readonly int[] AxisNeighbourIndicesValue =
-            { 4, 10, 12, 13, 15, 21 };
+        private static readonly (int3 Normal, int Offset)[] ConstraintsValue =
+            BuildConstraints();
+        private static readonly int3[] NeighboursValue = BuildNeighbours();
+        private static int3[] _vertices;
+        private static uint[] _vertexContacts;
+        private static Facelet[] _facelets;
 
-        private static readonly int3[] HalfVerticesValue =
-        {
-            new int3(-3, -1, -1),
-            new int3(-3, -1, 1),
-            new int3(-3, 0, 0),
-            new int3(-3, 1, -1),
-            new int3(-3, 1, 1),
-            new int3(-2, -2, 0),
-            new int3(-2, 0, -2),
-            new int3(-2, 0, 2),
-            new int3(-2, 2, 0),
-            new int3(-1, -3, -1),
-            new int3(-1, -3, 1),
-            new int3(-1, -1, -3),
-            new int3(-1, -1, 3),
-            new int3(-1, 1, -3),
-            new int3(-1, 1, 3),
-            new int3(-1, 3, -1),
-            new int3(-1, 3, 1),
-            new int3(0, -3, 0),
-            new int3(0, -2, -2),
-            new int3(0, -2, 2),
-            new int3(0, 0, -3),
-            new int3(0, 0, 3),
-            new int3(0, 2, -2),
-            new int3(0, 2, 2),
-            new int3(0, 3, 0),
-            new int3(1, -3, -1),
-            new int3(1, -3, 1),
-            new int3(1, -1, -3),
-            new int3(1, -1, 3),
-            new int3(1, 1, -3),
-            new int3(1, 1, 3),
-            new int3(1, 3, -1),
-            new int3(1, 3, 1),
-            new int3(2, -2, 0),
-            new int3(2, 0, -2),
-            new int3(2, 0, 2),
-            new int3(2, 2, 0),
-            new int3(3, -1, -1),
-            new int3(3, -1, 1),
-            new int3(3, 0, 0),
-            new int3(3, 1, -1),
-            new int3(3, 1, 1)
-        };
+        static MerkabaSkin() => BuildBoundary();
 
-        private static readonly int3[] NeighboursValue =
-        {
-            new int3(-1, -1, -1),
-            new int3(0, -1, -1),
-            new int3(1, -1, -1),
-            new int3(-1, 0, -1),
-            new int3(0, 0, -1),
-            new int3(1, 0, -1),
-            new int3(-1, 1, -1),
-            new int3(0, 1, -1),
-            new int3(1, 1, -1),
-            new int3(-1, -1, 0),
-            new int3(0, -1, 0),
-            new int3(1, -1, 0),
-            new int3(-1, 0, 0),
-            new int3(1, 0, 0),
-            new int3(-1, 1, 0),
-            new int3(0, 1, 0),
-            new int3(1, 1, 0),
-            new int3(-1, -1, 1),
-            new int3(0, -1, 1),
-            new int3(1, -1, 1),
-            new int3(-1, 0, 1),
-            new int3(0, 0, 1),
-            new int3(1, 0, 1),
-            new int3(-1, 1, 1),
-            new int3(0, 1, 1),
-            new int3(1, 1, 1)
-        };
-
-        private static readonly Facelet[] FaceletsValue =
-        {
-            new Facelet(1, 2, 0, 0x00125209u),
-            new Facelet(1, 4, 2, 0x00925208u),
-            new Facelet(2, 3, 0, 0x00105249u),
-            new Facelet(4, 3, 2, 0x00905248u),
-            new Facelet(37, 39, 38, 0x00492824u),
-            new Facelet(37, 40, 39, 0x00412924u),
-            new Facelet(39, 41, 38, 0x02492820u),
-            new Facelet(40, 41, 39, 0x02412920u),
-            new Facelet(9, 17, 10, 0x00060e03u),
-            new Facelet(9, 25, 17, 0x00040e07u),
-            new Facelet(17, 26, 10, 0x000e0e02u),
-            new Facelet(25, 26, 17, 0x000c0e06u),
-            new Facelet(16, 24, 15, 0x0181c0c0u),
-            new Facelet(16, 32, 24, 0x0381c080u),
-            new Facelet(24, 31, 15, 0x0101c1c0u),
-            new Facelet(32, 31, 24, 0x0301c180u),
-            new Facelet(13, 20, 11, 0x000000fbu),
-            new Facelet(13, 29, 20, 0x000001fau),
-            new Facelet(20, 27, 11, 0x000000bfu),
-            new Facelet(29, 27, 20, 0x000001beu),
-            new Facelet(12, 21, 14, 0x01f60000u),
-            new Facelet(12, 28, 21, 0x017e0000u),
-            new Facelet(21, 30, 14, 0x03f40000u),
-            new Facelet(28, 30, 21, 0x037c0000u),
-            new Facelet(0, 5, 1, 0x00121609u),
-            new Facelet(0, 9, 5, 0x0002160bu),
-            new Facelet(1, 5, 10, 0x00161601u),
-            new Facelet(5, 9, 10, 0x00061603u),
-            new Facelet(3, 8, 15, 0x0080d0c8u),
-            new Facelet(4, 8, 3, 0x0090d048u),
-            new Facelet(4, 16, 8, 0x0190d040u),
-            new Facelet(8, 16, 15, 0x0180d0c0u),
-            new Facelet(25, 33, 26, 0x000c2c06u),
-            new Facelet(25, 37, 33, 0x00082c26u),
-            new Facelet(26, 33, 38, 0x004c2c04u),
-            new Facelet(33, 37, 38, 0x00482c24u),
-            new Facelet(31, 36, 40, 0x0201a1a0u),
-            new Facelet(32, 36, 31, 0x0301a180u),
-            new Facelet(32, 41, 36, 0x0341a100u),
-            new Facelet(36, 41, 40, 0x0241a120u),
-            new Facelet(11, 18, 9, 0x0000061fu),
-            new Facelet(11, 27, 18, 0x0000043fu),
-            new Facelet(18, 25, 9, 0x00000e17u),
-            new Facelet(27, 25, 18, 0x00000c37u),
-            new Facelet(10, 19, 12, 0x003e0600u),
-            new Facelet(10, 26, 19, 0x002e0e00u),
-            new Facelet(19, 28, 12, 0x007e0400u),
-            new Facelet(26, 28, 19, 0x006e0c00u),
-            new Facelet(15, 22, 13, 0x0000c1d8u),
-            new Facelet(15, 31, 22, 0x0001c1d0u),
-            new Facelet(22, 29, 13, 0x000081f8u),
-            new Facelet(31, 29, 22, 0x000181f0u),
-            new Facelet(14, 23, 16, 0x03b0c000u),
-            new Facelet(14, 30, 23, 0x03f08000u),
-            new Facelet(23, 32, 16, 0x03a1c000u),
-            new Facelet(30, 32, 23, 0x03e18000u),
-            new Facelet(0, 6, 11, 0x0000125bu),
-            new Facelet(3, 6, 0, 0x00005259u),
-            new Facelet(3, 13, 6, 0x000050d9u),
-            new Facelet(6, 13, 11, 0x000010dbu),
-            new Facelet(27, 34, 37, 0x00002936u),
-            new Facelet(29, 34, 27, 0x000021b6u),
-            new Facelet(29, 40, 34, 0x000121b4u),
-            new Facelet(34, 40, 37, 0x00012934u),
-            new Facelet(1, 7, 4, 0x00b25200u),
-            new Facelet(1, 12, 7, 0x00b61200u),
-            new Facelet(4, 7, 14, 0x01b25000u),
-            new Facelet(7, 12, 14, 0x01b61000u),
-            new Facelet(28, 35, 30, 0x036c2000u),
-            new Facelet(28, 38, 35, 0x026c2800u),
-            new Facelet(30, 35, 41, 0x03692000u),
-            new Facelet(35, 38, 41, 0x02692800u),
-            new Facelet(0, 11, 9, 0x0000161bu),
-            new Facelet(1, 10, 12, 0x00361600u),
-            new Facelet(3, 15, 13, 0x0000d0d8u),
-            new Facelet(4, 14, 16, 0x01b0d000u),
-            new Facelet(27, 37, 25, 0x00002c36u),
-            new Facelet(26, 38, 28, 0x006c2c00u),
-            new Facelet(31, 40, 29, 0x0001a1b0u),
-            new Facelet(30, 41, 32, 0x0361a000u)
-        };
-
-        internal static ReadOnlySpan<int3> HalfVertices => HalfVerticesValue;
+        internal static int VertexCount => _vertices.Length;
+        internal static int FaceletCount => _facelets.Length;
+        internal static ReadOnlySpan<int3> Vertices => _vertices;
+        internal static ReadOnlySpan<uint> VertexContacts => _vertexContacts;
+        internal static ReadOnlySpan<Facelet> Facelets => _facelets;
         internal static ReadOnlySpan<int3> Neighbours => NeighboursValue;
-        internal static ReadOnlySpan<Facelet> Facelets => FaceletsValue;
 
-        internal static uint NeighbourMask(HashSet<int3> occupied, int3 coord)
+        private static (int3, int)[] BuildConstraints()
         {
-            if (occupied == null) throw new ArgumentNullException(nameof(occupied));
-            uint mask = 0u;
-            for (int index = 0; index < NeighboursValue.Length; index++)
-                if (occupied.Contains(coord + NeighboursValue[index]))
-                    mask |= 1u << index;
-            return mask;
+            var list = new List<(int3, int)>(26);
+            for (int sign = 1; sign >= -1; sign -= 2)
+            {
+                list.Add((new int3(sign, 0, 0), SupportHalfUnits));
+                list.Add((new int3(0, sign, 0), SupportHalfUnits));
+                list.Add((new int3(0, 0, sign), SupportHalfUnits));
+            }
+            for (int a = 1; a >= -1; a -= 2)
+            for (int b = 1; b >= -1; b -= 2)
+            {
+                list.Add((new int3(a, b, 0), 8));
+                list.Add((new int3(0, a, b), 8));
+                list.Add((new int3(a, 0, b), 8));
+            }
+            for (int a = 1; a >= -1; a -= 2)
+            for (int b = 1; b >= -1; b -= 2)
+            for (int c = 1; c >= -1; c -= 2)
+                list.Add((new int3(a, b, c), 10));
+            return list.ToArray();
         }
 
+        private static int3[] BuildNeighbours()
+        {
+            var list = new List<int3>(26);
+            for (int z = -1; z <= 1; z++)
+            for (int y = -1; y <= 1; y++)
+            for (int x = -1; x <= 1; x++)
+                if (x != 0 || y != 0 || z != 0)
+                    list.Add(new int3(x, y, z));
+            return list.ToArray();
+        }
+
+        /// <summary>Lattice offset of a neighbour bit, in kernel steps.</summary>
+        internal static int3 NeighbourOffset(int index) =>
+            NeighboursValue[index];
+
+        private readonly struct Rat
+        {
+            internal readonly long N;
+            internal readonly long D;
+
+            internal Rat(long numerator, long denominator = 1)
+            {
+                if (denominator < 0)
+                {
+                    numerator = -numerator;
+                    denominator = -denominator;
+                }
+                long divisor = Gcd(Math.Abs(numerator), denominator);
+                if (divisor == 0) divisor = 1;
+                N = numerator / divisor;
+                D = denominator / divisor;
+            }
+
+            private static long Gcd(long a, long b)
+            {
+                while (b != 0) (a, b) = (b, a % b);
+                return a == 0 ? 1 : a;
+            }
+
+            public static Rat operator +(Rat a, Rat b) =>
+                new(a.N * b.D + b.N * a.D, a.D * b.D);
+            public static Rat operator -(Rat a, Rat b) =>
+                new(a.N * b.D - b.N * a.D, a.D * b.D);
+            public static Rat operator *(Rat a, Rat b) =>
+                new(a.N * b.N, a.D * b.D);
+            public static Rat operator /(Rat a, Rat b) =>
+                new(a.N * b.D, a.D * b.N);
+            internal int Sign => Math.Sign(N);
+            internal bool IsInteger => D == 1;
+            public override string ToString() => $"{N}/{D}";
+        }
+
+        private readonly struct Point : IEquatable<Point>
+        {
+            internal readonly Rat X;
+            internal readonly Rat Y;
+            internal readonly Rat Z;
+
+            internal Point(Rat x, Rat y, Rat z)
+            {
+                X = x;
+                Y = y;
+                Z = z;
+            }
+
+            internal Rat Dot(int3 normal) =>
+                X * new Rat(normal.x) + Y * new Rat(normal.y) +
+                Z * new Rat(normal.z);
+
+            internal static Point Lerp(Point a, Point b, Rat t) => new(
+                a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t,
+                a.Z + (b.Z - a.Z) * t);
+
+            public bool Equals(Point other) =>
+                X.N == other.X.N && X.D == other.X.D &&
+                Y.N == other.Y.N && Y.D == other.Y.D &&
+                Z.N == other.Z.N && Z.D == other.Z.D;
+
+            public override bool Equals(object obj) =>
+                obj is Point other && Equals(other);
+
+            public override int GetHashCode() => HashCode.Combine(X.N, X.D,
+                Y.N, Y.D, Z.N, Z.D);
+        }
+
+        private static List<Point> ClipHalfSpace(List<Point> polygon,
+            int3 normal, Rat offset)
+        {
+            var result = new List<Point>(polygon.Count + 2);
+            for (int index = 0; index < polygon.Count; index++)
+            {
+                Point a = polygon[index];
+                Point b = polygon[(index + 1) % polygon.Count];
+                Rat da = a.Dot(normal) - offset;
+                Rat db = b.Dot(normal) - offset;
+                if (da.Sign <= 0) result.Add(a);
+                if ((da.Sign < 0 && db.Sign > 0) ||
+                    (da.Sign > 0 && db.Sign < 0))
+                    result.Add(Point.Lerp(a, b, da / (da - db)));
+            }
+            for (int index = result.Count - 1; index >= 0; index--)
+            {
+                Point previous = result[(index + result.Count - 1) %
+                    result.Count];
+                if (result.Count > 1 && result[index].Equals(previous))
+                    result.RemoveAt(index);
+            }
+            return result.Count >= 3 ? result : new List<Point>();
+        }
+
+        private static bool ContainsNeighbour(Point point, int3 shift,
+            bool strict)
+        {
+            foreach ((int3 normal, int offset) in ConstraintsValue)
+            {
+                Rat value = point.Dot(normal) -
+                    new Rat(math.dot(normal, shift));
+                int sign = (value - new Rat(offset)).Sign;
+                if (strict ? sign >= 0 : sign > 0) return false;
+            }
+            return true;
+        }
+
+        private static void BuildBoundary()
+        {
+            var vertexIds = new Dictionary<Point, int>();
+            var vertices = new List<int3>();
+            var contacts = new List<uint>();
+            var facelets = new List<Facelet>();
+            int3[] shifts = new int3[NeighboursValue.Length];
+            for (int index = 0; index < shifts.Length; index++)
+                shifts[index] = NeighboursValue[index] * LatticeUnits;
+
+            for (int face = 0; face < ConstraintsValue.Length; face++)
+            {
+                List<Point> polygon = BuildFacePolygon(face);
+                if (polygon.Count < 3) continue;
+                var pieces = SplitFace(polygon, face, shifts);
+                MergeAndEmit(pieces, ConstraintsValue[face].Normal, shifts,
+                    vertexIds, vertices, contacts, facelets);
+            }
+
+            _vertices = vertices.ToArray();
+            _vertexContacts = contacts.ToArray();
+            _facelets = facelets.ToArray();
+        }
+
+        private static List<Point> BuildFacePolygon(int face)
+        {
+            (int3 normal, int offset) = ConstraintsValue[face];
+            BuildPlaneBasis(normal, out int3 u, out int3 v);
+            var denominator = new Rat(math.dot(normal, normal));
+            var origin = new Point(new Rat(normal.x * offset) / denominator,
+                new Rat(normal.y * offset) / denominator,
+                new Rat(normal.z * offset) / denominator);
+            var span = new Rat(64);
+            var polygon = new List<Point>(4);
+            foreach ((int su, int sv) in new[] { (1, 1), (-1, 1), (-1, -1),
+                         (1, -1) })
+                polygon.Add(new Point(
+                    origin.X + new Rat(u.x * su + v.x * sv) * span,
+                    origin.Y + new Rat(u.y * su + v.y * sv) * span,
+                    origin.Z + new Rat(u.z * su + v.z * sv) * span));
+            for (int other = 0; other < ConstraintsValue.Length; other++)
+            {
+                if (other == face) continue;
+                polygon = ClipHalfSpace(polygon,
+                    ConstraintsValue[other].Normal,
+                    new Rat(ConstraintsValue[other].Offset));
+                if (polygon.Count < 3) break;
+            }
+            return polygon;
+        }
+
+        private static void BuildPlaneBasis(int3 normal, out int3 u, out int3 v)
+        {
+            int3 axis = math.abs(normal.x) <= math.abs(normal.y) &&
+                math.abs(normal.x) <= math.abs(normal.z)
+                ? new int3(1, 0, 0)
+                : math.abs(normal.y) <= math.abs(normal.z)
+                    ? new int3(0, 1, 0) : new int3(0, 0, 1);
+            u = IntegerCross(normal, axis);
+            v = IntegerCross(normal, u);
+        }
+
+        private static int3 IntegerCross(int3 a, int3 b) => new(
+            a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
+            a.x * b.y - a.y * b.x);
+
+        private static List<List<Point>> SplitFace(List<Point> polygon,
+            int face, int3[] shifts)
+        {
+            var cuts = new List<(int3 Normal, int Offset)>();
+            foreach (int3 shift in shifts)
+            {
+                List<Point> region = polygon;
+                foreach ((int3 normal, int offset) in ConstraintsValue)
+                {
+                    region = ClipHalfSpace(region, normal,
+                        new Rat(offset + math.dot(normal, shift)));
+                    if (region.Count < 3) break;
+                }
+                if (region.Count < 3) continue;
+                foreach ((int3 normal, int offset) in ConstraintsValue)
+                {
+                    int plane = offset + math.dot(normal, shift);
+                    bool above = false;
+                    bool below = false;
+                    foreach (Point point in polygon)
+                    {
+                        int sign = (point.Dot(normal) - new Rat(plane)).Sign;
+                        above |= sign > 0;
+                        below |= sign < 0;
+                    }
+                    if (!above || !below) continue;
+                    bool touches = false;
+                    foreach (Point point in region)
+                        touches |= (point.Dot(normal) -
+                            new Rat(plane)).Sign == 0;
+                    if (!touches) continue;
+                    if (!cuts.Contains((normal, plane)))
+                        cuts.Add((normal, plane));
+                }
+            }
+
+            var parts = new List<List<Point>> { polygon };
+            foreach ((int3 normal, int plane) in cuts)
+            {
+                var next = new List<List<Point>>(parts.Count + 4);
+                foreach (List<Point> part in parts)
+                {
+                    bool above = false;
+                    bool below = false;
+                    foreach (Point point in part)
+                    {
+                        int sign = (point.Dot(normal) - new Rat(plane)).Sign;
+                        above |= sign > 0;
+                        below |= sign < 0;
+                    }
+                    if (!above || !below)
+                    {
+                        next.Add(part);
+                        continue;
+                    }
+                    List<Point> inside = ClipHalfSpace(part, normal,
+                        new Rat(plane));
+                    List<Point> outside = ClipHalfSpace(part, -normal,
+                        new Rat(-plane));
+                    if (inside.Count >= 3) next.Add(inside);
+                    if (outside.Count >= 3) next.Add(outside);
+                }
+                parts = next;
+            }
+            return parts;
+        }
+
+        private static void MergeAndEmit(List<List<Point>> pieces, int3 normal,
+            int3[] shifts, Dictionary<Point, int> vertexIds,
+            List<int3> vertices, List<uint> contacts, List<Facelet> facelets)
+        {
+            var byMask = new SortedDictionary<uint, List<List<Point>>>();
+            foreach (List<Point> piece in pieces)
+            {
+                Point centroid = Centroid(piece);
+                uint mask = 0u;
+                for (int index = 0; index < shifts.Length; index++)
+                    if (ContainsNeighbour(centroid, shifts[index], true))
+                        mask |= 1u << index;
+                if (!byMask.TryGetValue(mask, out List<List<Point>> group))
+                    byMask[mask] = group = new List<List<Point>>();
+                group.Add(piece);
+            }
+
+            foreach (KeyValuePair<uint, List<List<Point>>> entry in byMask)
+            {
+                foreach (List<Point> loop in TraceLoops(entry.Value))
+                {
+                    List<Point> clean = RemoveCollinear(loop, normal);
+                    foreach ((Point a, Point b, Point c) in EarClip(clean,
+                                 normal))
+                        facelets.Add(new Facelet(
+                            VertexId(a, shifts, vertexIds, vertices, contacts),
+                            VertexId(b, shifts, vertexIds, vertices, contacts),
+                            VertexId(c, shifts, vertexIds, vertices, contacts),
+                            entry.Key));
+                }
+            }
+        }
+
+        private static int VertexId(Point point, int3[] shifts,
+            Dictionary<Point, int> vertexIds, List<int3> vertices,
+            List<uint> contacts)
+        {
+            if (vertexIds.TryGetValue(point, out int existing)) return existing;
+            if (!point.X.IsInteger || !point.Y.IsInteger || !point.Z.IsInteger)
+                throw new InvalidOperationException(
+                    "Skin boundary vertex is not on the canonical lattice: " +
+                    $"{point.X},{point.Y},{point.Z}");
+            int id = vertices.Count;
+            vertices.Add(new int3((int)point.X.N, (int)point.Y.N,
+                (int)point.Z.N));
+            uint contact = 0u;
+            for (int index = 0; index < shifts.Length; index++)
+                if (ContainsNeighbour(point, shifts[index], false))
+                    contact |= 1u << index;
+            contacts.Add(contact);
+            vertexIds[point] = id;
+            return id;
+        }
+
+        private static Point Centroid(List<Point> polygon)
+        {
+            var count = new Rat(polygon.Count);
+            Rat x = new(0);
+            Rat y = new(0);
+            Rat z = new(0);
+            foreach (Point point in polygon)
+            {
+                x += point.X;
+                y += point.Y;
+                z += point.Z;
+            }
+            return new Point(x / count, y / count, z / count);
+        }
+
+        private static List<List<Point>> TraceLoops(List<List<Point>> polygons)
+        {
+            var edges = new Dictionary<(Point, Point), bool>();
+            foreach (List<Point> polygon in polygons)
+            for (int index = 0; index < polygon.Count; index++)
+            {
+                Point a = polygon[index];
+                Point b = polygon[(index + 1) % polygon.Count];
+                if (edges.ContainsKey((b, a))) edges.Remove((b, a));
+                else edges[(a, b)] = true;
+            }
+            var next = new Dictionary<Point, List<Point>>();
+            foreach ((Point a, Point b) in edges.Keys)
+            {
+                if (!next.TryGetValue(a, out List<Point> targets))
+                    next[a] = targets = new List<Point>();
+                targets.Add(b);
+            }
+            var used = new HashSet<(Point, Point)>();
+            var loops = new List<List<Point>>();
+            foreach ((Point start, Point second) in edges.Keys)
+            {
+                if (used.Contains((start, second))) continue;
+                var loop = new List<Point> { start };
+                Point current = second;
+                used.Add((start, second));
+                while (!current.Equals(start) && loop.Count < 4096)
+                {
+                    loop.Add(current);
+                    Point step = default;
+                    bool found = false;
+                    if (next.TryGetValue(current, out List<Point> targets))
+                        foreach (Point candidate in targets)
+                            if (!used.Contains((current, candidate)))
+                            {
+                                step = candidate;
+                                found = true;
+                                break;
+                            }
+                    if (!found) break;
+                    used.Add((current, step));
+                    current = step;
+                }
+                if (loop.Count >= 3) loops.Add(loop);
+            }
+            return loops;
+        }
+
+        private static List<Point> RemoveCollinear(List<Point> loop,
+            int3 normal)
+        {
+            var result = new List<Point>(loop.Count);
+            for (int index = 0; index < loop.Count; index++)
+            {
+                Point a = loop[(index + loop.Count - 1) % loop.Count];
+                Point b = loop[index];
+                Point c = loop[(index + 1) % loop.Count];
+                if (TwiceArea(a, b, c, normal).Sign != 0) result.Add(b);
+            }
+            return result.Count >= 3 ? result : loop;
+        }
+
+        private static Rat TwiceArea(Point a, Point b, Point c, int3 normal)
+        {
+            Rat ux = b.X - a.X;
+            Rat uy = b.Y - a.Y;
+            Rat uz = b.Z - a.Z;
+            Rat vx = c.X - a.X;
+            Rat vy = c.Y - a.Y;
+            Rat vz = c.Z - a.Z;
+            Rat cx = uy * vz - uz * vy;
+            Rat cy = uz * vx - ux * vz;
+            Rat cz = ux * vy - uy * vx;
+            return cx * new Rat(normal.x) + cy * new Rat(normal.y) +
+                cz * new Rat(normal.z);
+        }
+
+        private static List<(Point, Point, Point)> EarClip(List<Point> loop,
+            int3 normal)
+        {
+            var points = new List<Point>(loop);
+            var triangles = new List<(Point, Point, Point)>();
+            if (points.Count < 3) return triangles;
+            if (LoopArea(points, normal).Sign < 0) points.Reverse();
+            int guard = 0;
+            while (points.Count > 3 && guard++ < 4096)
+            {
+                bool clipped = false;
+                for (int index = 0; index < points.Count; index++)
+                {
+                    Point a = points[(index + points.Count - 1) %
+                        points.Count];
+                    Point b = points[index];
+                    Point c = points[(index + 1) % points.Count];
+                    if (TwiceArea(a, b, c, normal).Sign <= 0) continue;
+                    bool ear = true;
+                    foreach (Point point in points)
+                    {
+                        if (point.Equals(a) || point.Equals(b) ||
+                            point.Equals(c)) continue;
+                        if (TwiceArea(a, b, point, normal).Sign >= 0 &&
+                            TwiceArea(b, c, point, normal).Sign >= 0 &&
+                            TwiceArea(c, a, point, normal).Sign >= 0)
+                        {
+                            ear = false;
+                            break;
+                        }
+                    }
+                    if (!ear) continue;
+                    triangles.Add((a, b, c));
+                    points.RemoveAt(index);
+                    clipped = true;
+                    break;
+                }
+                if (!clipped) break;
+            }
+            if (points.Count == 3)
+                triangles.Add((points[0], points[1], points[2]));
+            return triangles;
+        }
+
+        private static Rat LoopArea(List<Point> loop, int3 normal)
+        {
+            Rat total = new(0);
+            for (int index = 1; index + 1 < loop.Count; index++)
+                total += TwiceArea(loop[0], loop[index], loop[index + 1],
+                    normal);
+            return total;
+        }
+
+        /// <summary>
+        /// Neighbours whose measured support is compatible with this kernel's,
+        /// as the 26-bit connectivity key of the boundary decision.
+        /// </summary>
         internal static uint CompatibleNeighbourMask(int3 coord,
             KernelState main, IReadOnlyDictionary<int3, KernelState> context)
         {
             if (context == null) throw new ArgumentNullException(nameof(context));
             uint mask = 0u;
-            for (int axis = 0; axis < AxisNeighbourIndicesValue.Length; axis++)
+            for (int index = 0; index < NeighboursValue.Length; index++)
             {
-                int index = AxisNeighbourIndicesValue[axis];
                 int3 neighbourCoord = coord + NeighboursValue[index];
-                if (!context.TryGetValue(neighbourCoord, out KernelState neighbour) ||
-                    !neighbour.IsOccupied || !neighbour.HasMeasuredSurfacePlane)
+                if (!context.TryGetValue(neighbourCoord,
+                        out KernelState neighbour) ||
+                    !neighbour.IsOccupied ||
+                    !neighbour.HasMeasuredSurfacePlane)
                     continue;
                 if (Compatible(coord, main, neighbourCoord, neighbour, context))
                     mask |= 1u << index;
@@ -250,7 +574,8 @@ namespace Genesis.RoomScan
             IReadOnlyDictionary<int3, KernelState> context)
         {
             if (!state.HasMeasuredSurfacePlane) return int3.zero;
-            KernelState.DecodeSurfacePlane(state.Flags, out float3 normal, out _);
+            KernelState.DecodeSurfacePlane(state.Flags, out float3 normal,
+                out _);
             int3 step = NormalStep(normal);
             bool plus = KnownFree(coord + step, context);
             bool minus = KnownFree(coord - step, context);
@@ -266,10 +591,10 @@ namespace Genesis.RoomScan
 
         private static int3 NormalStep(float3 normal)
         {
-            float3 a = math.abs(normal);
-            if (a.x >= a.y && a.x >= a.z)
+            float3 magnitude = math.abs(normal);
+            if (magnitude.x >= magnitude.y && magnitude.x >= magnitude.z)
                 return new int3(normal.x >= 0f ? 1 : -1, 0, 0);
-            if (a.y >= a.z)
+            if (magnitude.y >= magnitude.z)
                 return new int3(0, normal.y >= 0f ? 1 : -1, 0);
             return new int3(0, 0, normal.z >= 0f ? 1 : -1);
         }
@@ -277,54 +602,66 @@ namespace Genesis.RoomScan
         internal static int VisibleFaceletCount(uint neighbourMask)
         {
             int count = 0;
-            foreach (Facelet facelet in FaceletsValue)
-                if ((facelet.OccluderMask & neighbourMask) == 0u)
-                    count++;
+            foreach (Facelet facelet in _facelets)
+                if ((facelet.OccluderMask & neighbourMask) == 0u) count++;
             return count;
         }
 
-        private static uint ComputeOccluderMask(byte aIndex, byte bIndex,
-            byte cIndex)
+        /// <summary>
+        /// Canonical position of a boundary vertex. The measured shift is the
+        /// mean over the kernels sharing that vertex, so both sides of a shared
+        /// boundary compute the same point.
+        /// </summary>
+        internal static float3 VertexPosition(int3 kernelCoord,
+            KernelState state, IReadOnlyDictionary<int3, KernelState> context,
+            uint neighbourMask, int vertex)
         {
-            int3 a = HalfVerticesValue[aIndex];
-            int3 b = HalfVerticesValue[bIndex];
-            int3 c = HalfVerticesValue[cIndex];
-            uint mask = 0u;
-            if (a.x == -3 && b.x == -3 && c.x == -3) mask |= 1u << 12;
-            if (a.x ==  3 && b.x ==  3 && c.x ==  3) mask |= 1u << 13;
-            if (a.y == -3 && b.y == -3 && c.y == -3) mask |= 1u << 10;
-            if (a.y ==  3 && b.y ==  3 && c.y ==  3) mask |= 1u << 15;
-            if (a.z == -3 && b.z == -3 && c.z == -3) mask |= 1u << 4;
-            if (a.z ==  3 && b.z ==  3 && c.z ==  3) mask |= 1u << 21;
-            return mask;
-        }
-
-        internal static float3 GridPosition(int3 kernelCoord, byte vertex)
-        {
-            return (float3)kernelCoord * MerkabaConstants.LatticeStep +
-                (float3)HalfVerticesValue[vertex] * HalfVertexUnit;
-        }
-
-        internal static float3 GridPosition(int3 kernelCoord, KernelState state,
-            IReadOnlyDictionary<int3, KernelState> context, byte vertex)
-        {
-            float3 basePosition = GridPosition(kernelCoord, vertex);
-            if (!state.HasMeasuredSurfacePlane)
-                return basePosition;
+            float3 basePosition = (float3)kernelCoord *
+                MerkabaConstants.LatticeStep +
+                (float3)_vertices[vertex] * VertexUnit;
+            if (!state.HasMeasuredSurfacePlane) return basePosition;
             float3 shift = MeasuredShift(state);
-            if (TryCompatibleAxisNeighbour(kernelCoord, state, context, vertex,
-                    out KernelState neighbour))
-                shift = (shift + MeasuredShift(neighbour)) * 0.5f;
-            return basePosition + shift;
+            float weight = 1f;
+            uint shared = _vertexContacts[vertex] & neighbourMask;
+            for (int index = 0; index < NeighboursValue.Length; index++)
+            {
+                if ((shared & (1u << index)) == 0u) continue;
+                if (!context.TryGetValue(kernelCoord + NeighboursValue[index],
+                        out KernelState neighbour) ||
+                    !neighbour.HasMeasuredSurfacePlane) continue;
+                shift += MeasuredShift(neighbour);
+                weight += 1f;
+            }
+            return basePosition + shift / weight;
         }
 
-        internal static uint FaceletColor(int3 kernelCoord, KernelState state,
-            IReadOnlyDictionary<int3, KernelState> context, Facelet facelet)
+        internal static uint VertexColor(int3 kernelCoord, KernelState state,
+            IReadOnlyDictionary<int3, KernelState> context,
+            uint neighbourMask, int vertex)
         {
-            uint a = VertexColor(kernelCoord, state, context, facelet.A);
-            uint b = VertexColor(kernelCoord, state, context, facelet.B);
-            uint c = VertexColor(kernelCoord, state, context, facelet.C);
-            return AveragePacked(a, b, c);
+            uint shared = _vertexContacts[vertex] & neighbourMask;
+            ulong weight = math.max(1u, state.ColorConfidence);
+            Color32 own = KernelState.UnpackColor(state.PackedColor);
+            ulong red = own.r * weight;
+            ulong green = own.g * weight;
+            ulong blue = own.b * weight;
+            ulong total = weight;
+            for (int index = 0; index < NeighboursValue.Length; index++)
+            {
+                if ((shared & (1u << index)) == 0u) continue;
+                if (!context.TryGetValue(kernelCoord + NeighboursValue[index],
+                        out KernelState neighbour)) continue;
+                ulong neighbourWeight = math.max(1u, neighbour.ColorConfidence);
+                Color32 color = KernelState.UnpackColor(neighbour.PackedColor);
+                red += color.r * neighbourWeight;
+                green += color.g * neighbourWeight;
+                blue += color.b * neighbourWeight;
+                total += neighbourWeight;
+            }
+            return KernelState.PackColor(new Color32(
+                (byte)math.min(255ul, (red + total / 2ul) / total),
+                (byte)math.min(255ul, (green + total / 2ul) / total),
+                (byte)math.min(255ul, (blue + total / 2ul) / total), 255));
         }
 
         private static float3 MeasuredShift(KernelState state)
@@ -334,140 +671,55 @@ namespace Genesis.RoomScan
             return normal * signedOffset;
         }
 
-        private static uint VertexColor(int3 kernelCoord, KernelState state,
-            IReadOnlyDictionary<int3, KernelState> context, byte vertex)
-        {
-            if (!TryCompatibleAxisNeighbour(kernelCoord, state, context, vertex,
-                    out KernelState neighbour))
-                return state.PackedColor;
-            uint aWeight = state.ColorConfidence;
-            uint bWeight = neighbour.ColorConfidence;
-            if (aWeight == 0u) return bWeight == 0u
-                ? state.PackedColor : neighbour.PackedColor;
-            if (bWeight == 0u) return state.PackedColor;
-            Color32 a = KernelState.UnpackColor(state.PackedColor);
-            Color32 b = KernelState.UnpackColor(neighbour.PackedColor);
-            ulong total = (ulong)aWeight + bWeight;
-            byte Blend(byte x, byte y) => (byte)Math.Min(255ul,
-                ((ulong)x * aWeight + (ulong)y * bWeight + total / 2ul) /
-                total);
-            return KernelState.PackColor(new Color32(
-                Blend(a.r, b.r), Blend(a.g, b.g), Blend(a.b, b.b), 255));
-        }
-
-        private static uint AveragePacked(uint aPacked, uint bPacked,
-            uint cPacked)
-        {
-            Color32 a = KernelState.UnpackColor(aPacked);
-            Color32 b = KernelState.UnpackColor(bPacked);
-            Color32 c = KernelState.UnpackColor(cPacked);
-            return KernelState.PackColor(new Color32(
-                (byte)((a.r + b.r + c.r + 1) / 3),
-                (byte)((a.g + b.g + c.g + 1) / 3),
-                (byte)((a.b + b.b + c.b + 1) / 3), 255));
-        }
-
-        private static bool TryCompatibleAxisNeighbour(int3 kernelCoord,
-            KernelState state, IReadOnlyDictionary<int3, KernelState> context,
-            byte vertex, out KernelState neighbour)
-        {
-            neighbour = default;
-            if (context == null || !TryAxisOffset(HalfVerticesValue[vertex],
-                    out int3 offset))
-                return false;
-            int3 neighbourCoord = kernelCoord + offset;
-            if (!context.TryGetValue(neighbourCoord, out neighbour) ||
-                !neighbour.IsOccupied || !neighbour.HasMeasuredSurfacePlane)
-                return false;
-            return Compatible(kernelCoord, state, neighbourCoord, neighbour,
-                context);
-        }
-
-        private static bool TryAxisOffset(int3 halfVertex, out int3 offset)
-        {
-            if (halfVertex.x == -3)
-            {
-                offset = new int3(-1, 0, 0);
-                return true;
-            }
-            if (halfVertex.x == 3)
-            {
-                offset = new int3(1, 0, 0);
-                return true;
-            }
-            if (halfVertex.y == -3)
-            {
-                offset = new int3(0, -1, 0);
-                return true;
-            }
-            if (halfVertex.y == 3)
-            {
-                offset = new int3(0, 1, 0);
-                return true;
-            }
-            if (halfVertex.z == -3)
-            {
-                offset = new int3(0, 0, -1);
-                return true;
-            }
-            if (halfVertex.z == 3)
-            {
-                offset = new int3(0, 0, 1);
-                return true;
-            }
-            offset = int3.zero;
-            return false;
-        }
-
-        internal static float3 FaceNormal(Facelet facelet)
-        {
-            float3 a = (float3)HalfVerticesValue[facelet.A];
-            float3 b = (float3)HalfVerticesValue[facelet.B];
-            float3 c = (float3)HalfVerticesValue[facelet.C];
-            return math.normalizesafe(math.cross(b - a, c - a));
-        }
-
         internal static string BuildGeneratedHlsl()
         {
-            var text = new StringBuilder(16384);
+            var text = new StringBuilder(96 * 1024);
             text.AppendLine("// GENERATED from MerkabaSkin.cs. DO NOT EDIT.");
             text.AppendLine("#ifndef GENESIS_MERKABA_SKIN_INCLUDED");
             text.AppendLine("#define GENESIS_MERKABA_SKIN_INCLUDED");
             text.AppendLine();
-            text.AppendLine("#define M8_SKIN_VERTEX_COUNT 42u");
-            text.AppendLine("#define M8_SKIN_FACELET_COUNT 80u");
+            text.AppendLine("#define M8_SKIN_VERTEX_COUNT " +
+                _vertices.Length + "u");
+            text.AppendLine("#define M8_SKIN_FACELET_COUNT " +
+                _facelets.Length + "u");
             text.AppendLine("#define M8_SKIN_NEIGHBOUR_COUNT 26u");
-            text.AppendLine("#define M8_SKIN_AXIS_NEIGHBOUR_COUNT 6u");
-            text.AppendLine("#define M8_SKIN_HALF_VERTEX_SCALE (1.0 / 6.0)");
-            text.AppendLine("static const uint M8_SKIN_AXIS_NEIGHBOURS[6] = " +
-                "{ 4u, 10u, 12u, 13u, 15u, 21u };");
+            text.AppendLine("#define M8_SKIN_VERTEX_MASK_WORDS " +
+                ((_vertices.Length + 31) / 32) + "u");
+            text.AppendLine("#define M8_SKIN_VERTEX_SCALE (1.0 / 6.0)");
             text.AppendLine();
-            text.AppendLine("static const int3 M8_SKIN_HALF_VERTICES[42] = {");
-            for (int i = 0; i < HalfVerticesValue.Length; i++)
-            {
-                int3 v = HalfVerticesValue[i];
-                text.Append("    int3(").Append(v.x).Append(", ").Append(v.y)
-                    .Append(", ").Append(v.z).Append(')');
-                text.AppendLine(i + 1 == HalfVerticesValue.Length ? "" : ",");
-            }
-            text.AppendLine("};");
             text.AppendLine("static const int3 M8_SKIN_NEIGHBOURS[26] = {");
-            for (int i = 0; i < NeighboursValue.Length; i++)
+            for (int index = 0; index < NeighboursValue.Length; index++)
             {
-                int3 v = NeighboursValue[i];
-                text.Append("    int3(").Append(v.x).Append(", ").Append(v.y)
-                    .Append(", ").Append(v.z).Append(')');
-                text.AppendLine(i + 1 == NeighboursValue.Length ? "" : ",");
+                int3 value = NeighboursValue[index];
+                text.Append("    int3(").Append(value.x).Append(", ")
+                    .Append(value.y).Append(", ").Append(value.z).Append(')');
+                text.AppendLine(index + 1 == NeighboursValue.Length ? "" : ",");
             }
             text.AppendLine("};");
-            text.AppendLine("static const uint4 M8_SKIN_FACELETS[80] = {");
-            for (int i = 0; i < FaceletsValue.Length; i++)
+            text.AppendLine();
+            text.AppendLine("static const int4 M8_SKIN_VERTICES[" +
+                _vertices.Length + "] = {");
+            for (int index = 0; index < _vertices.Length; index++)
             {
-                Facelet f = FaceletsValue[i];
-                text.Append("    uint4(").Append(f.A).Append("u, ")
-                    .Append(f.B).Append("u, ").Append(f.C).Append("u, 0x")
-                    .Append(f.OccluderMask.ToString("x8")).Append("u)");
-                text.AppendLine(i + 1 == FaceletsValue.Length ? "" : ",");
+                int3 value = _vertices[index];
+                text.Append("    int4(").Append(value.x).Append(", ")
+                    .Append(value.y).Append(", ").Append(value.z).Append(", ")
+                    .Append(unchecked((int)_vertexContacts[index]))
+                    .Append(')');
+                text.AppendLine(index + 1 == _vertices.Length ? "" : ",");
+            }
+            text.AppendLine("};");
+            text.AppendLine();
+            text.AppendLine("static const uint4 M8_SKIN_FACELETS[" +
+                _facelets.Length + "] = {");
+            for (int index = 0; index < _facelets.Length; index++)
+            {
+                Facelet facelet = _facelets[index];
+                text.Append("    uint4(").Append(facelet.A).Append("u, ")
+                    .Append(facelet.B).Append("u, ").Append(facelet.C)
+                    .Append("u, 0x").Append(facelet.OccluderMask
+                        .ToString("x8")).Append("u)");
+                text.AppendLine(index + 1 == _facelets.Length ? "" : ",");
             }
             text.AppendLine("};");
             text.AppendLine();

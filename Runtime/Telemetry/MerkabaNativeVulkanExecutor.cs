@@ -14,7 +14,7 @@ namespace Genesis.RoomScan
     {
         private const float TimingLogIntervalSeconds = 5f;
         internal const int AbiVersion = 3;
-        internal const int ResourceCount = 46;
+        internal const int ResourceCount = 47;
         internal const int PipelineCount = 49;
         internal const int MaximumTimestampCount = PipelineCount * 2 + 2;
 
@@ -74,6 +74,7 @@ namespace Genesis.RoomScan
             RenderIndexFront,
             RenderPageQueues,
             RenderMutationQueue,
+            RenderIndices,
         }
 
         [StructLayout(LayoutKind.Sequential)]

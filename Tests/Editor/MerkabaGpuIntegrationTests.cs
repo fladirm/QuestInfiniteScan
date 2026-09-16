@@ -257,9 +257,9 @@ namespace Genesis.RoomScan.Tests
                 Is.EqualTo(MerkabaSpatial.PhysicalTileCapacity));
             Assert.That(MerkabaGrid.ReadoutIndexCapacity, Is.EqualTo(
                 MerkabaGrid.RenderPageCapacity * MerkabaGrid.RenderPageIndices));
-            Assert.That(MerkabaGrid.RenderTileMaxPages *
-                MerkabaGrid.RenderPagePatches,
-                Is.EqualTo(MerkabaSpatial.KernelsPerTile));
+            Assert.That(MerkabaGrid.ReadoutVertexCapacity, Is.EqualTo(
+                MerkabaGrid.RenderPageCapacity *
+                MerkabaGrid.RenderPageVertices));
             Assert.That(frame, Does.Not.Contain("M8_READOUT_MAP_WORD_BASE"));
             Assert.That(frame, Does.Not.Contain("M8StoreReadoutLocalMapPair"));
             Assert.That(frame, Does.Not.Contain("M8BuildRecord"));

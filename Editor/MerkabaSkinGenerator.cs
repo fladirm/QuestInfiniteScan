@@ -1,27 +1,47 @@
+using System;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
 
 namespace Genesis.RoomScan.Editor
 {
-    internal static class MerkabaSkinGenerator
+    /// <summary>Writes the GPU skin LUT from the analytic CPU authority.</summary>
+    public static class MerkabaSkinGenerator
     {
-        private const string OutputPath =
-            "Runtime/Shaders/MerkabaSkin.generated.hlsl";
+        public const string GeneratedAssetPath =
+            "Packages/com.genesis.roomscan/Runtime/Shaders/" +
+            "MerkabaSkin.generated.hlsl";
 
-        [MenuItem("Tools/Merkaba/Regenerate Union Skin LUT")]
-        internal static void Generate()
+        [MenuItem("Quest Infinite Scan/Merkaba/Regenerate Union Skin LUT")]
+        public static void Regenerate()
         {
-            string generated = MerkabaSkin.BuildGeneratedHlsl()
-                .Replace("\r\n", "\n");
-            string current = File.Exists(OutputPath)
-                ? File.ReadAllText(OutputPath).Replace("\r\n", "\n")
-                : string.Empty;
-            if (current == generated) return;
-            File.WriteAllText(OutputPath, generated);
-            AssetDatabase.ImportAsset(OutputPath,
-                ImportAssetOptions.ForceUpdate);
-            Debug.Log("Regenerated exact M8 union-skin LUT: " + OutputPath);
+            string path = Path.GetFullPath(GeneratedAssetPath);
+            string expected = MerkabaSkin.BuildGeneratedHlsl();
+            if (!File.Exists(path) || File.ReadAllText(path) != expected)
+            {
+                File.WriteAllText(path, expected);
+                AssetDatabase.ImportAsset(GeneratedAssetPath,
+                    ImportAssetOptions.ForceSynchronousImport);
+            }
+            Debug.Log($"[MerkabaSkin] Generated HLSL: {path} " +
+                $"vertices={MerkabaSkin.VertexCount} " +
+                $"facelets={MerkabaSkin.FaceletCount}");
+        }
+
+        public static void GenerateForBatch() => Regenerate();
+
+        public static void CheckForBatch()
+        {
+            string path = Path.GetFullPath(GeneratedAssetPath);
+            if (!File.Exists(path))
+                throw new FileNotFoundException(
+                    "Generated skin HLSL is missing.", path);
+            string expected = MerkabaSkin.BuildGeneratedHlsl();
+            if (!string.Equals(expected, File.ReadAllText(path),
+                    StringComparison.Ordinal))
+                throw new InvalidDataException(
+                    "MerkabaSkin.generated.hlsl is stale.");
+            Debug.Log($"[MerkabaSkin] HLSL matches the CPU authority: {path}");
         }
     }
 }

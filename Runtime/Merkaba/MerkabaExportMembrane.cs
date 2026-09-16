@@ -163,17 +163,21 @@ namespace Genesis.RoomScan
                     MerkabaSkin.Facelet facelet = facelets[faceletIndex];
                     if ((facelet.OccluderMask & neighbourMask) != 0u)
                         continue;
-                    float3 a = MerkabaSkin.GridPosition(
-                        kernel.Coord, kernel.State, context, facelet.A);
-                    float3 b = MerkabaSkin.GridPosition(
-                        kernel.Coord, kernel.State, context, facelet.B);
-                    float3 c = MerkabaSkin.GridPosition(
-                        kernel.Coord, kernel.State, context, facelet.C);
-                    float3 fallbackNormal = MerkabaSkin.FaceNormal(facelet);
+                    float3 a = MerkabaSkin.VertexPosition(kernel.Coord,
+                        kernel.State, context, neighbourMask, facelet.A);
+                    float3 b = MerkabaSkin.VertexPosition(kernel.Coord,
+                        kernel.State, context, neighbourMask, facelet.B);
+                    float3 c = MerkabaSkin.VertexPosition(kernel.Coord,
+                        kernel.State, context, neighbourMask, facelet.C);
                     float3 normal = math.normalizesafe(
-                        math.cross(b - a, c - a), fallbackNormal);
-                    uint color = MerkabaSkin.FaceletColor(
-                        kernel.Coord, kernel.State, context, facelet);
+                        math.cross(b - a, c - a), new float3(0f, 1f, 0f));
+                    uint color = AverageColor(
+                        MerkabaSkin.VertexColor(kernel.Coord, kernel.State,
+                            context, neighbourMask, facelet.A),
+                        MerkabaSkin.VertexColor(kernel.Coord, kernel.State,
+                            context, neighbourMask, facelet.B),
+                        MerkabaSkin.VertexColor(kernel.Coord, kernel.State,
+                            context, neighbourMask, facelet.C));
                     patches.Add(new MerkabaExportMembranePatch(
                         kernel.Coord, normal, a, b, c, a,
                         color, false, true));
@@ -194,6 +198,17 @@ namespace Genesis.RoomScan
             return new MerkabaExportMembraneResult(patches,
                 canonical.ToArray(), measured.ToArray(), patches.Count, 0,
                 Array.Empty<int3>(), 0);
+        }
+
+        private static uint AverageColor(uint first, uint second, uint third)
+        {
+            UnityEngine.Color32 a = KernelState.UnpackColor(first);
+            UnityEngine.Color32 b = KernelState.UnpackColor(second);
+            UnityEngine.Color32 c = KernelState.UnpackColor(third);
+            return KernelState.PackColor(new UnityEngine.Color32(
+                (byte)((a.r + b.r + c.r + 1) / 3),
+                (byte)((a.g + b.g + c.g + 1) / 3),
+                (byte)((a.b + b.b + c.b + 1) / 3), 255));
         }
 
         internal static MerkabaExportMembraneResult Build(
