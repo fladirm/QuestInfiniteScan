@@ -155,6 +155,24 @@ checks["skin classifies normals on the canonical 26-direction chart"] = \
     "MerkabaOverlapShell.NearestGridNormalStep" in skin and \
     "return MerkabaNearestGridNormalStep(normal);" in readout
 
+checks["publication is a strict two-slot ping-pong"] = \
+    "PublicationSlotCount = 2" in grid and \
+    "GetM8RenderPageQueues(backSlot)" in renderer and \
+    "GetM8RenderVertices(backSlot)" in renderer and \
+    "GetM8RenderMesh(_frontReadout)" in renderer and \
+    "_publicationGeneration" not in renderer and \
+    "_safeReclaimGeneration" not in renderer and \
+    "M8_RENDER_RETIRE_GENERATION" not in world
+checks["old FRONT is written again only after the draw fence"] = \
+    "BackSlotReleased()" in renderer and "_frontReleaseFence" in renderer
+checks["BACK is validated before it can become FRONT"] = \
+    "void ValidatePublication" in readout and \
+    "M8_COUNTER_RENDER_PUBLICATION_INVALID" in readout and \
+    "ValidatePublication" in native
+checks["BACK compares its own records by canonical version"] = \
+    "_M8RenderVersionsRead[physicalSlot]" in readout and \
+    "M8_RENDER_RECORD_VERSION" in world
+
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
     print(("PASS " if ok else "FAIL ") + name)

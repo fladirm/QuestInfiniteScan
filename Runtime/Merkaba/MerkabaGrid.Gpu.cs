@@ -33,8 +33,10 @@ namespace Genesis.RoomScan
         internal const int RenderIndexHeader = 8;
         internal const int RenderTileListBase = RenderIndexHeader +
             MerkabaSpatial.PhysicalTileCapacity * RenderRecordWords;
+        // Two tile-list regions per slot alternate between its builds.
         internal const int RenderIndexCount = RenderTileListBase +
-            MerkabaSpatial.PhysicalTileCapacity;
+            MerkabaSpatial.PhysicalTileCapacity * 2;
+        internal const int PublicationSlotCount = 2;
         internal const int RenderControlWords = 8;
         internal const int RenderPageQueueCount = RenderControlWords +
             RenderPageCapacity * 4;
@@ -207,13 +209,20 @@ namespace Genesis.RoomScan
         private ComputeBuffer _m8CarveTiles;
         private ComputeBuffer _m8CarveDispatchArgs;
         private ComputeBuffer _m8VisibleTiles;
-        private Mesh _m8RenderMesh;
-        private GraphicsBuffer _m8RenderVertices;
-        private GraphicsBuffer _m8RenderIndices;
+        // Two publication slots. FRONT is read by draw only; BACK is written
+        // by readout only; nothing mutable is shared between them.
+        private readonly Mesh[] _m8RenderMesh = new Mesh[2];
+        private readonly GraphicsBuffer[] _m8RenderVertices =
+            new GraphicsBuffer[2];
+        private readonly GraphicsBuffer[] _m8RenderIndices =
+            new GraphicsBuffer[2];
         private readonly ComputeBuffer[] _m8RenderIndex = new ComputeBuffer[2];
-        private ComputeBuffer _m8RenderPageQueues;
+        private readonly ComputeBuffer[] _m8RenderPageQueues =
+            new ComputeBuffer[2];
+        private readonly ComputeBuffer[] _m8PublishedIndices =
+            new ComputeBuffer[2];
+        private ComputeBuffer _m8RenderVersions;
         private ComputeBuffer _m8RenderMutationQueue;
-        private ComputeBuffer _m8PublishedIndices;
         private ComputeBuffer _m8VisiblePages;
         private ComputeBuffer _m8CullControl;
         private ComputeBuffer _m8RenderDrawArgs;
@@ -264,16 +273,28 @@ namespace Genesis.RoomScan
         internal ComputeBuffer M8CarveTiles => _m8CarveTiles;
         internal ComputeBuffer M8CarveDispatchArgs => _m8CarveDispatchArgs;
         internal ComputeBuffer M8VisibleTiles => _m8VisibleTiles;
-        internal Mesh M8RenderMesh => _m8RenderMesh;
-        internal GraphicsBuffer M8RenderVertices => _m8RenderVertices;
-        internal GraphicsBuffer M8RenderIndices => _m8RenderIndices;
+        internal Mesh GetM8RenderMesh(int slot) =>
+            _m8RenderMesh[ValidateReadoutSlot(slot)];
+        internal GraphicsBuffer GetM8RenderVertices(int slot) =>
+            _m8RenderVertices[ValidateReadoutSlot(slot)];
+        internal GraphicsBuffer GetM8RenderIndices(int slot) =>
+            _m8RenderIndices[ValidateReadoutSlot(slot)];
         internal ComputeBuffer GetM8RenderIndex(int slot) =>
             _m8RenderIndex[ValidateReadoutSlot(slot)];
-        internal ComputeBuffer M8RenderPageQueues => _m8RenderPageQueues;
+        internal ComputeBuffer GetM8RenderPageQueues(int slot) =>
+            _m8RenderPageQueues[ValidateReadoutSlot(slot)];
+        internal ComputeBuffer GetM8PublishedIndices(int slot) =>
+            _m8PublishedIndices[ValidateReadoutSlot(slot)];
+        internal ComputeBuffer M8RenderVersions => _m8RenderVersions;
+        // Slot 0 views for fixtures and diagnostics.
+        internal Mesh M8RenderMesh => _m8RenderMesh[0];
+        internal GraphicsBuffer M8RenderVertices => _m8RenderVertices[0];
+        internal GraphicsBuffer M8RenderIndices => _m8RenderIndices[0];
+        internal ComputeBuffer M8RenderPageQueues => _m8RenderPageQueues[0];
         internal ComputeBuffer M8RenderMutationQueue =>
             _m8RenderMutationQueue;
-        /// <summary>Published indices of the readout, addressed per page.</summary>
-        internal ComputeBuffer M8PublishedIndices => _m8PublishedIndices;
+        /// <summary>Slot 0 published indices, for fixtures and diagnostics.</summary>
+        internal ComputeBuffer M8PublishedIndices => _m8PublishedIndices[0];
         internal ComputeBuffer M8VisiblePages => _m8VisiblePages;
         internal ComputeBuffer M8CullControl => _m8CullControl;
         internal ComputeBuffer M8RenderDrawArgs => _m8RenderDrawArgs;
@@ -361,12 +382,15 @@ namespace Genesis.RoomScan
                 _m8VisibleTiles);
             Set(MerkabaNativeVulkanExecutor.Resource.FrameDispatchArgs,
                 _m8FrameDispatchArgs);
+            // Slot-bound publication storage is overridden per readout job.
             Set(MerkabaNativeVulkanExecutor.Resource.RenderPageQueues,
-                _m8RenderPageQueues);
+                _m8RenderPageQueues[0]);
             Set(MerkabaNativeVulkanExecutor.Resource.RenderMutationQueue,
                 _m8RenderMutationQueue);
             Set(MerkabaNativeVulkanExecutor.Resource.RenderIndices,
-                _m8PublishedIndices);
+                _m8PublishedIndices[0]);
+            Set(MerkabaNativeVulkanExecutor.Resource.RenderVersions,
+                _m8RenderVersions);
         }
 
         internal bool GpuReady => _gpuReady;
@@ -465,15 +489,19 @@ namespace Genesis.RoomScan
                     ComputeBufferType.IndirectArguments);
                 _m8VisibleTiles = Allocate(ReadoutVisibleBufferCount,
                     sizeof(uint) * 2);
-                _m8RenderMesh = AllocateRenderMesh();
-                for (int slot = 0; slot < 2; slot++)
+                for (int slot = 0; slot < PublicationSlotCount; slot++)
+                {
+                    _m8RenderMesh[slot] = AllocateRenderMesh(slot);
                     _m8RenderIndex[slot] = Allocate(RenderIndexCount,
                         sizeof(uint));
-                _m8RenderPageQueues = Allocate(RenderPageQueueCount,
-                    sizeof(uint));
+                    _m8RenderPageQueues[slot] = Allocate(RenderPageQueueCount,
+                        sizeof(uint));
+                    _m8PublishedIndices[slot] = Allocate(ReadoutIndexCapacity,
+                        sizeof(uint));
+                }
                 _m8RenderMutationQueue = Allocate(RenderMutationJournalCount,
                     sizeof(uint));
-                _m8PublishedIndices = Allocate(ReadoutIndexCapacity,
+                _m8RenderVersions = Allocate(MerkabaSpatial.PhysicalTileCapacity,
                     sizeof(uint));
                 _m8VisiblePages = Allocate(RenderPageCapacity, sizeof(uint));
                 _m8CullControl = Allocate(4, sizeof(uint),
@@ -522,7 +550,7 @@ namespace Genesis.RoomScan
                 BindWorldBuffers(worldCompute,
                     _seedRenderLoadJournalKernel);
                 worldCompute.SetBuffer(_initializeRenderPagesKernel,
-                    "_M8RenderPageQueues", _m8RenderPageQueues);
+                    "_M8RenderPageQueues", _m8RenderPageQueues[0]);
                 foreach (int kernel in new[]
                          {
                              _selectEvictionVictimsKernel,
@@ -634,11 +662,11 @@ namespace Genesis.RoomScan
             return buffer;
         }
 
-        private Mesh AllocateRenderMesh()
+        private Mesh AllocateRenderMesh(int slot)
         {
             var mesh = new Mesh
             {
-                name = "Merkaba M8 Readout Page Pool",
+                name = "Merkaba M8 Publication Slot " + slot,
                 indexFormat = IndexFormat.UInt32,
                 bounds = new Bounds(Vector3.zero,
                     Vector3.one * 1_000_000f)
@@ -677,8 +705,8 @@ namespace Genesis.RoomScan
                 mesh.UploadMeshData(true);
                 vertices = mesh.GetVertexBuffer(0);
                 indices = mesh.GetIndexBuffer();
-                _m8RenderVertices = vertices;
-                _m8RenderIndices = indices;
+                _m8RenderVertices[slot] = vertices;
+                _m8RenderIndices[slot] = indices;
                 return mesh;
             }
             catch
@@ -1006,12 +1034,17 @@ namespace Genesis.RoomScan
 
         private void ResetRenderPool()
         {
-            for (int slot = 0; slot < 2; slot++)
-                ClearUInt(_m8RenderIndex[slot], _m8RenderIndex[slot].count);
             ClearUInt(_m8CullControl, _m8CullControl.count);
             ClearUInt(_m8RenderDrawArgs, _m8RenderDrawArgs.count);
-            worldCompute.Dispatch(_initializeRenderPagesKernel,
-                DivideRoundUp(RenderPageCapacity, 256), 1, 1);
+            ClearUInt(_m8RenderVersions, _m8RenderVersions.count);
+            for (int slot = 0; slot < PublicationSlotCount; slot++)
+            {
+                ClearUInt(_m8RenderIndex[slot], _m8RenderIndex[slot].count);
+                worldCompute.SetBuffer(_initializeRenderPagesKernel,
+                    "_M8RenderPageQueues", _m8RenderPageQueues[slot]);
+                worldCompute.Dispatch(_initializeRenderPagesKernel,
+                    DivideRoundUp(RenderPageCapacity, 256), 1, 1);
+            }
             unchecked
             {
                 RenderResetGeneration++;
@@ -1085,9 +1118,11 @@ namespace Genesis.RoomScan
         internal Action CaptureOwnedGpuResourceRelease()
         {
             ComputeBuffer[] captured = _allGpuBuffers.ToArray();
-            GraphicsBuffer capturedVertices = _m8RenderVertices;
-            GraphicsBuffer capturedIndices = _m8RenderIndices;
-            Mesh capturedMesh = _m8RenderMesh;
+            GraphicsBuffer[] capturedVertices = (GraphicsBuffer[])
+                _m8RenderVertices.Clone();
+            GraphicsBuffer[] capturedIndices = (GraphicsBuffer[])
+                _m8RenderIndices.Clone();
+            Mesh[] capturedMesh = (Mesh[])_m8RenderMesh.Clone();
             bool released = false;
             return () =>
             {
@@ -1099,9 +1134,12 @@ namespace Genesis.RoomScan
                     return;
                 }
                 foreach (ComputeBuffer buffer in captured) buffer?.Release();
-                capturedVertices?.Dispose();
-                capturedIndices?.Dispose();
-                DestroyMesh(capturedMesh);
+                for (int slot = 0; slot < PublicationSlotCount; slot++)
+                {
+                    capturedVertices[slot]?.Dispose();
+                    capturedIndices[slot]?.Dispose();
+                    DestroyMesh(capturedMesh[slot]);
+                }
             };
         }
 
@@ -1113,12 +1151,18 @@ namespace Genesis.RoomScan
             _gpuGeneration++;
             foreach (ComputeBuffer buffer in _allGpuBuffers) buffer?.Release();
             _allGpuBuffers.Clear();
-            _m8RenderVertices?.Dispose();
-            _m8RenderIndices?.Dispose();
-            DestroyMesh(_m8RenderMesh);
-            _m8RenderVertices = null;
-            _m8RenderIndices = null;
-            _m8RenderMesh = null;
+            for (int slot = 0; slot < PublicationSlotCount; slot++)
+            {
+                _m8RenderVertices[slot]?.Dispose();
+                _m8RenderIndices[slot]?.Dispose();
+                DestroyMesh(_m8RenderMesh[slot]);
+                _m8RenderVertices[slot] = null;
+                _m8RenderIndices[slot] = null;
+                _m8RenderMesh[slot] = null;
+                _m8RenderPageQueues[slot] = null;
+                _m8PublishedIndices[slot] = null;
+            }
+            _m8RenderVersions = null;
             _m8HashEntries = null;
             _m8OwnerRecords = null;
             _m8BlockChunkRefs = null;
@@ -1134,9 +1178,7 @@ namespace Genesis.RoomScan
             _m8TileBits = null;
             _m8TileRecords = null;
             _m8RenderIndex[0] = _m8RenderIndex[1] = null;
-            _m8RenderPageQueues = null;
             _m8RenderMutationQueue = null;
-            _m8PublishedIndices = null;
             _m8VisiblePages = null;
             _m8CullControl = null;
             _m8RenderDrawArgs = null;

@@ -64,6 +64,7 @@ namespace
         kResourceRenderPageQueues,
         kResourceRenderMutationQueue,
         kResourceRenderIndices,
+        kResourceRenderVersions,
         kResourceCount,
     };
 
@@ -112,7 +113,7 @@ namespace
     constexpr uint32_t kExecutorAbiVersion = 4;
     constexpr uint32_t kObservationPipelineEnd = 33;
     constexpr uint32_t kReadoutPipelineBegin = 33;
-    constexpr uint32_t kFineErasePipelineBegin = 47;
+    constexpr uint32_t kFineErasePipelineBegin = 48;
     constexpr uint32_t kMaximumExecutorQueries =
         kMerkabaExecutorPipelineCount * 2 + 2;
     // 32768 physical tile slots in 256-lane groups.

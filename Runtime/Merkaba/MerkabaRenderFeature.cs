@@ -122,7 +122,7 @@ namespace Genesis.RoomScan
                 !MerkabaGridRenderer.TryGetActive(camera, out var gridRenderer) ||
                 MerkabaGrid.Instance == null)
                 return;
-            _pass.Setup(gridRenderer, MerkabaGrid.Instance.M8RenderIndices);
+            _pass.Setup(gridRenderer, gridRenderer.FrontVisibleIndices);
             renderer.EnqueuePass(_pass);
         }
     }

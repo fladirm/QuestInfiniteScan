@@ -24,25 +24,30 @@
 #define M8_RENDER_TILE_MAX_PAGES 512u
 #define M8_RENDER_RECORD_WORDS 8u
 #define M8_RENDER_RECORD_FIRST_PAGE 6u
-#define M8_RENDER_RECORD_LIST_SLOT 7u
+// Publication version of the tile this record was built from.
+#define M8_RENDER_RECORD_VERSION 7u
+// Header: 0 tiles, 1 indices, 2 identity of this slot, 3 active list region,
+// 4 tile count of the previous list of this slot.
+#define M8_RENDER_HEADER_LIST_REGION 3u
+#define M8_RENDER_HEADER_PREVIOUS_TILES 4u
 #define M8_RENDER_INDEX_HEADER 8u
 #define M8_RENDER_TILE_LIST_BASE \
     (M8_RENDER_INDEX_HEADER + MERKABA_M8_PHYSICAL_TILE_CAPACITY * \
     M8_RENDER_RECORD_WORDS)
+// Two tile-list regions per slot alternate between builds of that slot.
+#define M8_RENDER_TILE_LIST_REGION_WORDS MERKABA_M8_PHYSICAL_TILE_CAPACITY
 // Page allocator state lives at the head of its own queue buffer.
 #define M8_RENDER_CONTROL_FREE_PAGES 0u
 #define M8_RENDER_CONTROL_RETIRE_COUNT 1u
 #define M8_RENDER_CONTROL_ALLOC_COUNT 2u
 #define M8_RENDER_CONTROL_RECLAIM_COUNT 3u
-// Retire is a generation-tagged ring: a page returns to the free stack only
-// once no frame can still draw the publication generation that held it.
+// Retire is a ring owned by one publication slot. A slot is never drawn while
+// it is BACK, so everything retired by its previous build is free again when
+// that slot builds next.
 #define M8_RENDER_CONTROL_RETIRE_HEAD 4u
 #define M8_RENDER_CONTROL_RETIRE_TAIL 5u
 #define M8_RENDER_CONTROL_WORDS 8u
 #define M8_RENDER_RETIRE_MASK (M8_RENDER_PAGE_CAPACITY - 1u)
-#define M8_RENDER_RETIRE_GENERATION_SHIFT 17u
-#define M8_RENDER_RETIRE_GENERATION_MASK 0x7fffu
-#define M8_RENDER_RETIRE_GENERATION_HALF 0x4000u
 #define M8_RENDER_FREE_BASE M8_RENDER_CONTROL_WORDS
 #define M8_RENDER_RETIRE_BASE (M8_RENDER_CONTROL_WORDS + M8_RENDER_PAGE_CAPACITY)
 #define M8_RENDER_ALLOC_BASE \
@@ -191,7 +196,7 @@
 #define M8_COUNTER_RENDER_JOURNAL_HEAD 102u
 #define M8_COUNTER_RENDER_JOURNAL_TAIL 103u
 #define M8_COUNTER_RENDER_VIEW_OVERFLOW 104u
-#define M8_COUNTER_RENDER_RESERVED_105 105u
+#define M8_COUNTER_RENDER_PUBLICATION_INVALID 105u
 #define M8_COUNTER_RENDER_RESERVED_106 106u
 #define M8_COUNTER_RENDER_JOURNAL_OVERFLOW 107u
 #define M8_COUNTER_RENDER_PENDING_TILES 108u

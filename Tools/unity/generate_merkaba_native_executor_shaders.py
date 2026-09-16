@@ -112,6 +112,8 @@ PIPELINES = (
              "PublishRenderTileList", "one"),
     Pipeline("RecountRenderPatches", "MerkabaReadout.compute",
              "RecountRenderPatches", "readout_indirect"),
+    Pipeline("ValidatePublication", "MerkabaReadout.compute",
+             "ValidatePublication", "front_tiles"),
     Pipeline("FinalizeReadout", "MerkabaReadout.compute",
              "FinalizeReadout", "one"),
     Pipeline("ResetFineErase", "MerkabaIntegration.compute",
@@ -141,7 +143,7 @@ RESOURCE_NAMES = (
     "DilationB", "CameraLeft", "CameraRight", "VisibleTiles",
     "FrameDispatchArgs", "RenderVertices", "RenderIndexBack",
     "RenderIndexFront", "RenderPageQueues", "RenderMutationQueue",
-    "RenderIndices",
+    "RenderIndices", "RenderVersions",
 )
 RESOURCE_IDS = {name: index for index, name in enumerate(RESOURCE_NAMES)}
 
@@ -159,7 +161,7 @@ ALIASES = {
         "ObservationDispatchArgs", "CarveDispatchArgs", "AttemptCompletion",
         "VisibleTiles", "FrameDispatchArgs", "RenderVertices",
         "RenderIndexBack", "RenderIndexFront", "RenderPageQueues",
-        "RenderMutationQueue", "RenderIndices")},
+        "RenderMutationQueue", "RenderIndices", "RenderVersions")},
     "_RefineMetrics": "RefineMetrics",
     "_SrcDepth": "RawDepth",
     "_DstDepth": "RefinedDepth",

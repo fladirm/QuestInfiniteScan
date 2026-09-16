@@ -11,6 +11,7 @@
 #pragma kernel BuildRenderTiles
 #pragma kernel PublishRenderTileList
 #pragma kernel RecountRenderPatches
+#pragma kernel ValidatePublication
 #pragma kernel FinalizeReadout
 #pragma kernel CullRenderTiles
 #pragma kernel PrepareVisibleIndices
@@ -42,6 +43,10 @@ RWStructuredBuffer<uint> _M8RenderPageQueues;
 RWStructuredBuffer<uint> _M8RenderMutationQueue;
 RWStructuredBuffer<uint> _M8RenderIndices;
 StructuredBuffer<uint> _M8RenderIndicesRead;
+// Canonical publication version per physical tile: bumped by every mutation
+// that can change the tile's skin, compared against each slot's record.
+RWStructuredBuffer<uint> _M8RenderVersions;
+StructuredBuffer<uint> _M8RenderVersionsRead;
 RWStructuredBuffer<uint> _M8FrameDispatchArgs;
 RWStructuredBuffer<uint4> _M8AttemptCompletion;
 
@@ -68,15 +73,39 @@ float4 _M8CullGridPlanes[12];
 uint _M8ReadoutRevision;
 uint _M8PreviousPublished;
 uint _M8ResidencyChanged;
-// Publication generation of the build being recorded, and the newest
-// generation no frame can still be drawing.
-uint _M8RetireGeneration;
-uint _M8SafeReclaimGeneration;
 
-// Published tile count of the FRONT generation.
+// Published tile count and active list of the FRONT slot.
 uint M8FrontTileCount()
 {
     return min(_M8RenderIndexFrontRead[0],
+        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
+}
+
+uint M8FrontListBase()
+{
+    return M8_RENDER_TILE_LIST_BASE +
+        (_M8RenderIndexFrontRead[M8_RENDER_HEADER_LIST_REGION] & 1u) *
+        M8_RENDER_TILE_LIST_REGION_WORDS;
+}
+
+// The list being built in BACK and the list BACK published last time.
+uint M8BackListBase()
+{
+    return M8_RENDER_TILE_LIST_BASE +
+        (_M8RenderIndexBack[M8_RENDER_HEADER_LIST_REGION] & 1u) *
+        M8_RENDER_TILE_LIST_REGION_WORDS;
+}
+
+uint M8BackPreviousListBase()
+{
+    return M8_RENDER_TILE_LIST_BASE +
+        ((_M8RenderIndexBack[M8_RENDER_HEADER_LIST_REGION] ^ 1u) & 1u) *
+        M8_RENDER_TILE_LIST_REGION_WORDS;
+}
+
+uint M8BackPreviousTileCount()
+{
+    return min(_M8RenderIndexBack[M8_RENDER_HEADER_PREVIOUS_TILES],
         MERKABA_M8_PHYSICAL_TILE_CAPACITY);
 }
 
@@ -125,8 +154,8 @@ void M8AppendPageQueue(uint queueBase, uint control, uint page)
         _M8RenderPageQueues[queueBase + index] = page;
 }
 
-// A retired page keeps the generation that last referenced it. The allocator
-// cannot hand it out again before that generation is provably undrawn.
+// A page retired by this slot is free again at this slot's next build: the
+// slot is BACK for the whole of that build and no frame draws BACK.
 void M8RetirePage(uint page)
 {
     uint ticket;
@@ -135,18 +164,7 @@ void M8RetirePage(uint page)
     uint head = _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_HEAD];
     if (ticket - head >= M8_RENDER_PAGE_CAPACITY) return;
     _M8RenderPageQueues[M8_RENDER_RETIRE_BASE +
-        (ticket & M8_RENDER_RETIRE_MASK)] = (page & M8_RENDER_PAGE_ID_MASK) |
-        ((_M8RetireGeneration & M8_RENDER_RETIRE_GENERATION_MASK) <<
-            M8_RENDER_RETIRE_GENERATION_SHIFT);
-}
-
-bool M8RetiredPageIsFree(uint entry)
-{
-    uint generation = (entry >> M8_RENDER_RETIRE_GENERATION_SHIFT) &
-        M8_RENDER_RETIRE_GENERATION_MASK;
-    uint distance = (generation - _M8SafeReclaimGeneration) &
-        M8_RENDER_RETIRE_GENERATION_MASK;
-    return distance == 0u || distance > M8_RENDER_RETIRE_GENERATION_HALF;
+        (ticket & M8_RENDER_RETIRE_MASK)] = page & M8_RENDER_PAGE_ID_MASK;
 }
 
 void M8RetireBackRecordPages(uint base)
@@ -181,14 +199,20 @@ void BeginRenderBuild(uint id : SV_DispatchThreadID)
     _M8Counters[M8_COUNTER_READOUT_EMITTED_VERTICES] = 0u;
     _M8Counters[M8_COUNTER_RENDER_REBUILD_TILES] = 0u;
     _M8Counters[M8_COUNTER_RENDER_VIEW_OVERFLOW] = 0u;
+    _M8Counters[M8_COUNTER_RENDER_PUBLICATION_INVALID] = 0u;
     _M8Counters[M8_COUNTER_RENDER_PENDING_TILES] = 0u;
     _M8Counters[M8_COUNTER_RENDER_CAPACITY_FAILED] = 0u;
     _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] = MERKABA_READOUT_BUILDING;
     _M8Counters[M8_COUNTER_FRAME_EPOCH] += 1u;
+    // The list built now goes to the other region of this slot; the list
+    // this slot published last time stays readable for CopyRenderIndex and
+    // CollectRenderRebuildTiles.
+    _M8RenderIndexBack[M8_RENDER_HEADER_PREVIOUS_TILES] =
+        _M8RenderIndexBack[0];
+    _M8RenderIndexBack[M8_RENDER_HEADER_LIST_REGION] =
+        (_M8RenderIndexBack[M8_RENDER_HEADER_LIST_REGION] ^ 1u) & 1u;
     _M8RenderIndexBack[0] = 0u;
     _M8RenderIndexBack[1] = 0u;
-    // Reclaim selection is taken by PrepareRenderReclaim, which knows the
-    // generation no frame can still draw.
 }
 
 groupshared uint gFrameBlockRef;
@@ -348,7 +372,7 @@ void RequestWarmResidency(uint3 groupId : SV_GroupID, uint thread : SV_GroupInde
                     uint physicalSlot = M8PhysicalSlot(tileRef);
                     uint base = M8RecordBase(physicalSlot);
                     uint currentIdentity = tileRefIndex + 1u;
-                    uint frontIdentity = _M8RenderIndexFrontRead[base + 2u];
+                    uint backIdentity = _M8RenderIndexBack[base + 2u];
                     uint previousBits;
                     InterlockedOr(_M8TileRecords[
                         M8TileRuntimeIndex(physicalSlot)].w,
@@ -358,50 +382,30 @@ void RequestWarmResidency(uint3 groupId : SV_GroupID, uint thread : SV_GroupInde
                     InterlockedAdd(_M8RenderIndexBack[0], 1u, listIndex);
                     if (listIndex < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
                     {
-                        _M8RenderIndexBack[
-                            M8_RENDER_TILE_LIST_BASE + listIndex] = physicalSlot;
-                        if (frontIdentity == currentIdentity)
+                        _M8RenderIndexBack[M8BackListBase() + listIndex] =
+                            physicalSlot;
+                        // BACK keeps its own previous record of this tile.
+                        // A record of another logical tile is retired here;
+                        // a stale version is rebuilt below.
+                        if (backIdentity != currentIdentity)
                         {
-                            [unroll]
-                            for (uint word = 0u; word < M8_RENDER_RECORD_WORDS;
-                                 word++)
-                                _M8RenderIndexBack[base + word] =
-                                    _M8RenderIndexFrontRead[base + word];
-                        }
-                        else
-                        {
-                            if (frontIdentity != 0u)
-                            {
-                                uint oldPages = min(
-                                    _M8RenderIndexFrontRead[base + 1u],
-                                    M8_RENDER_TILE_MAX_PAGES);
-                                uint oldPage = _M8RenderIndexFrontRead[
-                                    base + M8_RENDER_RECORD_FIRST_PAGE];
-                                for (uint ordinal = 0u;
-                                    ordinal < oldPages &&
-                                    oldPage != M8_RENDER_PAGE_INVALID;
-                                    ordinal++)
-                                {
-                                    uint next = _M8RenderPageQueues[
-                                        M8_RENDER_LINK_BASE + oldPage];
-                                    M8RetirePage(oldPage);
-                                    oldPage = next;
-                                }
-                            }
+                            if (backIdentity != 0u)
+                                M8RetireBackRecordPages(base);
                             _M8RenderIndexBack[base + 0u] = 0u;
                             _M8RenderIndexBack[base + 1u] = 0u;
                             _M8RenderIndexBack[base + 2u] = 0u;
                             _M8RenderIndexBack[
                                 base + M8_RENDER_RECORD_FIRST_PAGE] =
                                 M8_RENDER_PAGE_INVALID;
+                            _M8RenderIndexBack[
+                                base + M8_RENDER_RECORD_VERSION] = 0u;
                         }
-                        _M8RenderIndexBack[
-                            base + M8_RENDER_RECORD_LIST_SLOT] = listIndex + 1u;
 
                         uint bits = _M8TileRecords[
                             M8TileRuntimeIndex(physicalSlot)].w;
-                        bool needsBuild = frontIdentity != currentIdentity ||
-                            (bits & M8_RENDER_DIRTY) != 0u ||
+                        bool needsBuild = backIdentity != currentIdentity ||
+                            _M8RenderIndexBack[base + M8_RENDER_RECORD_VERSION]
+                                != _M8RenderVersionsRead[physicalSlot] ||
                             (_M8ResidencyChanged != 0u &&
                              (bits & M8_RENDER_PENDING) != 0u);
                         if (needsBuild)
@@ -666,22 +670,8 @@ void PrepareRenderReclaim(uint id : SV_DispatchThreadID)
     uint head = _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_HEAD];
     uint tail = _M8RenderPageQueues[M8_RENDER_CONTROL_RETIRE_TAIL];
     uint pending = min(tail - head, M8_RENDER_PAGE_CAPACITY);
-    // Entries are appended in generation order, so the safe prefix is found
-    // by bisection instead of a serial walk.
-    uint low = 0u;
-    uint high = pending;
-    [loop]
-    for (uint step = 0u; step < 18u; step++)
-    {
-        if (low >= high) break;
-        uint middle = low + ((high - low) >> 1u);
-        uint entry = _M8RenderPageQueues[M8_RENDER_RETIRE_BASE +
-            ((head + middle) & M8_RENDER_RETIRE_MASK)];
-        if (M8RetiredPageIsFree(entry)) low = middle + 1u;
-        else high = middle;
-    }
-    _M8RenderPageQueues[M8_RENDER_CONTROL_RECLAIM_COUNT] = low;
-    _M8FrameDispatchArgs[0] = max(1u, (low + 255u) >> 8u);
+    _M8RenderPageQueues[M8_RENDER_CONTROL_RECLAIM_COUNT] = pending;
+    _M8FrameDispatchArgs[0] = max(1u, (pending + 255u) >> 8u);
     _M8FrameDispatchArgs[1] = 1u;
     _M8FrameDispatchArgs[2] = 1u;
 }
@@ -721,9 +711,8 @@ void ApplyRenderReclaim(uint id : SV_DispatchThreadID)
 [numthreads(128, 1, 1)]
 void CopyRenderIndex(uint id : SV_DispatchThreadID)
 {
-    if (id >= M8FrontTileCount()) return;
-    uint physicalSlot = _M8RenderIndexFrontRead[
-        M8_RENDER_TILE_LIST_BASE + id];
+    if (id >= M8BackPreviousTileCount()) return;
+    uint physicalSlot = _M8RenderIndexBack[M8BackPreviousListBase() + id];
     if (physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) return;
     uint ignored;
     InterlockedAnd(_M8TileRecords[M8TileRuntimeIndex(physicalSlot)].w,
@@ -797,6 +786,7 @@ void M8MarkDependencyDirty(uint physicalSlot)
     uint previous;
     InterlockedOr(_M8TileRecords[M8TileRuntimeIndex(physicalSlot)].w,
         M8_RENDER_DIRTY, previous);
+    InterlockedAdd(_M8RenderVersions[physicalSlot], 1u, previous);
     if ((previous & M8_RENDER_DIRTY) == 0u)
         M8CounterIncrement(M8_COUNTER_RENDER_DIRTY_MARKS);
 }
@@ -855,6 +845,8 @@ void ApplyRenderMutationJournal(uint id : SV_DispatchThreadID)
     uint previous;
     InterlockedAnd(_M8TileRecords[M8TileRuntimeIndex(physicalSlot)].w,
         ~(M8_RENDER_DIRTY_QUEUED | M8_RENDER_DEPENDENCY_MASK), previous);
+    uint version;
+    InterlockedAdd(_M8RenderVersions[physicalSlot], 1u, version);
     M8QueueRenderDependencies(physicalSlot,
         previous & M8_RENDER_DEPENDENCY_MASK);
 }
@@ -862,30 +854,21 @@ void ApplyRenderMutationJournal(uint id : SV_DispatchThreadID)
 [numthreads(128, 1, 1)]
 void CollectRenderRebuildTiles(uint id : SV_DispatchThreadID)
 {
-    if (id >= M8FrontTileCount()) return;
-    uint physicalSlot = _M8RenderIndexFrontRead[
-        M8_RENDER_TILE_LIST_BASE + id];
+    // Tiles that BACK published last time but which left coverage now.
+    if (id >= M8BackPreviousTileCount()) return;
+    uint physicalSlot = _M8RenderIndexBack[M8BackPreviousListBase() + id];
     if (physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) return;
     uint bits = _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].w;
     if ((bits & M8_RENDER_VIEW_MARK) != 0u) return;
     uint base = M8RecordBase(physicalSlot);
-    uint pages = min(_M8RenderIndexFrontRead[base + 1u],
-        M8_RENDER_TILE_MAX_PAGES);
-    uint page = _M8RenderIndexFrontRead[
-        base + M8_RENDER_RECORD_FIRST_PAGE];
-    for (uint ordinal = 0u;
-        ordinal < pages && page != M8_RENDER_PAGE_INVALID; ordinal++)
-    {
-        uint next = _M8RenderPageQueues[M8_RENDER_LINK_BASE + page];
-        M8RetirePage(page);
-        page = next;
-    }
+    if (_M8RenderIndexBack[base + 2u] == 0u) return;
+    M8RetireBackRecordPages(base);
     _M8RenderIndexBack[base + 0u] = 0u;
     _M8RenderIndexBack[base + 1u] = 0u;
     _M8RenderIndexBack[base + 2u] = 0u;
     _M8RenderIndexBack[base + M8_RENDER_RECORD_FIRST_PAGE] =
         M8_RENDER_PAGE_INVALID;
-    _M8RenderIndexBack[base + M8_RENDER_RECORD_LIST_SLOT] = 0u;
+    _M8RenderIndexBack[base + M8_RENDER_RECORD_VERSION] = 0u;
 }
 
 [numthreads(1, 1, 1)]
@@ -1688,6 +1671,8 @@ void BuildRenderTiles(uint3 groupId : SV_GroupID,
     _M8RenderIndexBack[base + M8_RENDER_RECORD_FIRST_PAGE] =
         gM8MembranePageCount != 0u ? gM8MembranePageIds[0] :
             M8_RENDER_PAGE_INVALID;
+    _M8RenderIndexBack[base + M8_RENDER_RECORD_VERSION] =
+        _M8RenderVersionsRead[physicalSlot];
     for (uint page = 0u; page < gM8MembranePageCount; page++)
         M8AppendPageQueue(M8_RENDER_ALLOC_BASE,
             M8_RENDER_CONTROL_ALLOC_COUNT, gM8MembranePageIds[page]);
@@ -1716,12 +1701,58 @@ void RecountRenderPatches(uint id : SV_DispatchThreadID)
 {
     uint tiles = _M8RenderIndexBack[0];
     if (id >= tiles) return;
-    uint physicalSlot = _M8RenderIndexBack[
-        M8_RENDER_TILE_LIST_BASE + id];
+    uint physicalSlot = _M8RenderIndexBack[M8BackListBase() + id];
     if (physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) return;
     uint patches = _M8RenderIndexBack[M8RecordBase(physicalSlot) + 0u];
     uint ignored;
     InterlockedAdd(_M8RenderIndexBack[1], patches, ignored);
+}
+
+// Every published record of BACK is checked before it can become FRONT: page
+// ids in range, chains of exactly the recorded length, index counts within
+// the chain and every index inside this slot's vertex arena. One violation
+// keeps the whole build from publishing.
+[numthreads(128, 1, 1)]
+void ValidatePublication(uint id : SV_DispatchThreadID)
+{
+    uint tiles = min(_M8RenderIndexBack[0], MERKABA_M8_PHYSICAL_TILE_CAPACITY);
+    if (id >= tiles) return;
+    uint physicalSlot = _M8RenderIndexBack[M8BackListBase() + id];
+    bool valid = physicalSlot < MERKABA_M8_PHYSICAL_TILE_CAPACITY;
+    if (valid)
+    {
+        uint base = M8RecordBase(physicalSlot);
+        uint indexCount = _M8RenderIndexBack[base + 0u];
+        uint pages = _M8RenderIndexBack[base + 1u];
+        valid = pages <= M8_RENDER_TILE_MAX_PAGES &&
+            indexCount <= pages * M8_RENDER_PAGE_INDICES;
+        uint page = _M8RenderIndexBack[base + M8_RENDER_RECORD_FIRST_PAGE];
+        uint remaining = indexCount;
+        [loop]
+        for (uint ordinal = 0u; valid && ordinal < pages; ordinal++)
+        {
+            if (page >= M8_RENDER_PAGE_CAPACITY)
+            {
+                valid = false;
+                break;
+            }
+            uint used = min(remaining, M8_RENDER_PAGE_INDICES);
+            uint source = page * M8_RENDER_PAGE_INDICES;
+            [loop]
+            for (uint slot = 0u; slot < used; slot++)
+                if (_M8RenderIndicesRead[source + slot] >=
+                    M8_RENDER_PAGE_CAPACITY * M8_RENDER_PAGE_VERTICES)
+                {
+                    valid = false;
+                    break;
+                }
+            remaining -= used;
+            page = _M8RenderPageQueues[M8_RENDER_LINK_BASE + page];
+        }
+        if (valid && pages != 0u && page != M8_RENDER_PAGE_INVALID)
+            valid = false;
+    }
+    if (!valid) _M8Counters[M8_COUNTER_RENDER_PUBLICATION_INVALID] = 1u;
 }
 
 [numthreads(1, 1, 1)]
@@ -1750,7 +1781,8 @@ void FinalizeReadout(uint id : SV_DispatchThreadID)
     // FRONT stays and the scan transaction retries its readout.
     bool failed = _M8Counters[M8_COUNTER_RENDER_CAPACITY_FAILED] != 0u ||
         _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] != 0u ||
-        _M8Counters[M8_COUNTER_RENDER_VIEW_OVERFLOW] != 0u;
+        _M8Counters[M8_COUNTER_RENDER_VIEW_OVERFLOW] != 0u ||
+        _M8Counters[M8_COUNTER_RENDER_PUBLICATION_INVALID] != 0u;
     if (_M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] ==
             MERKABA_READOUT_BUILDING)
         _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] = failed
@@ -1786,8 +1818,7 @@ void CullRenderTiles(uint3 groupId : SV_GroupID,
     uint pages = 0u;
     if (listIndex < M8FrontTileCount())
     {
-        uint slot = _M8RenderIndexFrontRead[M8_RENDER_TILE_LIST_BASE +
-            listIndex];
+        uint slot = _M8RenderIndexFrontRead[M8FrontListBase() + listIndex];
         base = M8RecordBase(slot);
         int3 origin = int3(asint(_M8RenderIndexFrontRead[base + 3u]),
             asint(_M8RenderIndexFrontRead[base + 4u]),

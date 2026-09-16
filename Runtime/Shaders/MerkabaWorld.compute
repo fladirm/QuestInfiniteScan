@@ -189,6 +189,7 @@ void InitializeRenderPageStack(uint id : SV_DispatchThreadID)
         _M8Counters[M8_COUNTER_RENDER_JOURNAL_HEAD] = 0u;
         _M8Counters[M8_COUNTER_RENDER_JOURNAL_TAIL] = 0u;
         _M8Counters[M8_COUNTER_RENDER_VIEW_OVERFLOW] = 0u;
+        _M8Counters[M8_COUNTER_RENDER_PUBLICATION_INVALID] = 0u;
         _M8Counters[M8_COUNTER_RENDER_JOURNAL_OVERFLOW] = 0u;
     }
 }

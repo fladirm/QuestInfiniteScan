@@ -14,8 +14,8 @@ namespace Genesis.RoomScan
     {
         private const float TimingLogIntervalSeconds = 5f;
         internal const int AbiVersion = 4;
-        internal const int ResourceCount = 47;
-        internal const int PipelineCount = 52;
+        internal const int ResourceCount = 48;
+        internal const int PipelineCount = 53;
         internal const int MaximumTimestampCount = PipelineCount * 2 + 2;
 
         internal enum JobKind : uint
@@ -75,6 +75,7 @@ namespace Genesis.RoomScan
             RenderPageQueues,
             RenderMutationQueue,
             RenderIndices,
+            RenderVersions,
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -154,6 +155,7 @@ namespace Genesis.RoomScan
             "BuildRenderTiles",
             "PublishRenderTileList",
             "RecountRenderPatches",
+            "ValidatePublication",
             "FinalizeReadout",
             "ResetFineErase",
             "QueryFineEraseTiles",
