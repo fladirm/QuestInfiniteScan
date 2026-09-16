@@ -964,7 +964,7 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
         inBranch[slot] = valid[slot] && signatures[slot] == seedSignature &&
             all(coords[slot] == seedCoord);
     [unroll]
-    for (uint pass = 0u; pass < 11u; pass++)
+    for (uint expansion = 0u; expansion < 11u; expansion++)
     {
         [unroll]
         for (uint slot = 0u; slot < 12u; slot++)
