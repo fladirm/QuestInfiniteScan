@@ -28,6 +28,10 @@ namespace Genesis.RoomScan
         private float readoutTranslationGuard = 1f;
         [SerializeField, Range(0f, 1f)] private float scanOpacity = 1f;
         [SerializeField] private bool readoutDrawEnabled = true;
+        // Diagnostic hard-off of the publication producer: no readout build
+        // is submitted while false, the canonical world keeps scanning. It
+        // exists so that draw cost and producer cost can be measured apart.
+        [SerializeField] private bool readoutProducerEnabled = true;
         [SerializeField] private bool checkerReadoutEnabled;
 
         /// <summary>
@@ -170,6 +174,21 @@ namespace Genesis.RoomScan
             get => readoutDrawEnabled;
             set => readoutDrawEnabled = value;
         }
+
+        public bool ReadoutProducerEnabled
+        {
+            get => readoutProducerEnabled;
+            set
+            {
+                if (readoutProducerEnabled == value) return;
+                readoutProducerEnabled = value;
+                if (!value) return;
+                // Re-enabling republishes the latest canonical world; the scan
+                // kept mutating it while the producer was hard-off.
+                _residencyQueryRequested = true;
+                MarkCanonicalReadoutDirty();
+            }
+        }
         public bool CheckerReadoutEnabled
         {
             get => checkerReadoutEnabled;
@@ -262,7 +281,7 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_FinePreviewColor");
         private static readonly int CullGridPlanesId =
             Shader.PropertyToID("_M8CullGridPlanes");
-        private static readonly uint[] ZeroCullControl = { 0u, 0u, 1u, 1u };
+        private static readonly uint[] ZeroCullControl = { 0u, 0u, 0u, 0u };
         private readonly Plane[] _leftCullPlanes = new Plane[6];
         private readonly Plane[] _rightCullPlanes = new Plane[6];
         private readonly Vector4[] _gridCullPlanes = new Vector4[12];
@@ -295,8 +314,12 @@ namespace Genesis.RoomScan
         /// The producer cycle is strictly serial: a scan transaction ends only
         /// once its readout publication has been adopted.
         /// </summary>
-        internal bool ReadoutCycleBusy => readoutDrawEnabled && _initialized &&
-            !_gpuSubmissionSuspended && (_cycleReadoutPending || _buildInFlight);
+        // Work already submitted stays a scan barrier even when the producer
+        // is hard-off; only a not yet submitted cycle is skipped.
+        internal bool ReadoutCycleBusy => _initialized &&
+            !_gpuSubmissionSuspended &&
+            (_buildInFlight || MerkabaNativeVulkanExecutor.HasJobInFlight ||
+             (readoutProducerEnabled && _cycleReadoutPending));
 
         /// <summary>Closes a scan transaction by requesting its readout.</summary>
         internal void RequestCycleReadout()
@@ -574,7 +597,8 @@ namespace Genesis.RoomScan
                 residencyQuery;
             // A readout that closes a scan transaction runs at once; a readout
             // without a scan keeps the free-running cadence.
-            if (!queueBusy && buildRequested && BackSlotReleased() &&
+            if (readoutProducerEnabled && !queueBusy && buildRequested &&
+                BackSlotReleased() &&
                 (_cycleReadoutPending ||
                  Time.unscaledTime >= _nextReadoutBuild))
                 SubmitReadoutBuild(cameraGrid, residencyQuery);
@@ -1093,7 +1117,8 @@ namespace Genesis.RoomScan
                 CaptureOwner.Draw,
                 _submissionRevision == 0u ? 1u : _submissionRevision, command);
             ComputeBuffer cullControl = _grid.M8CullControl;
-            command.SetBufferData(cullControl, ZeroCullControl, 0, 0, 4);
+            command.SetBufferData(cullControl, ZeroCullControl, 0, 0,
+                MerkabaGrid.CullControlWords);
             Matrix4x4 gridToWorld = _grid.GridToWorldMatrix;
             MerkabaReadoutCoverage.WriteGridMetric(gridToWorld,
                 out Vector3 metricDiagonal, out Vector3 metricCross);

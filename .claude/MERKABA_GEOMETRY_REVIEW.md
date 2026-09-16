@@ -18,7 +18,7 @@ lattice axes, the two tangent axes are lattice axes, and the patch is an
 **axis-aligned 25 mm square with four corner heights**. That is a per-axis height field,
 not a Merkaba tetrahedral support. The name in the live path is vestigial.
 
-## FINDING B — stitching is two hard quantizations of a noisy normal
+## FINDING B — stitching is two hard quantizations of a noisy normal [CLOSED 2026-09-17: residual-based admission, see RISK-2]
 
 A contributor is admitted to a corner only if BOTH hold as exact equalities:
 

@@ -10,6 +10,10 @@
 #define M8_MEMBRANE_PATCH_PITCH 0.025
 #define M8_MEMBRANE_HALF_PITCH 0.0125
 #define M8_MEMBRANE_NUMERICAL_EPSILON 1.0e-6
+// A contributor plane must be well conditioned against the corner line of
+// MAIN's chart; the connected height branch and the free side decide sheet
+// membership. No quantized dominant-axis or 26-cell equality.
+#define M8_MEMBRANE_COMPATIBLE_AXIS_COSINE 0.5
 
 struct M8OverlapPatch
 {
@@ -17,6 +21,18 @@ struct M8OverlapPatch
     float3 corner10;
     float3 corner11;
     float3 corner01;
+    // Knot colour and global identity per corner: the half-lattice address
+    // of its corner line (chart component zero) plus the chart axis. Two
+    // patches share one vertex exactly when line, chart and position agree.
+    uint color00;
+    uint color10;
+    uint color11;
+    uint color01;
+    int3 line00;
+    int3 line10;
+    int3 line11;
+    int3 line01;
+    int chart;
     float3 normal;
     uint packedColor;
 };
@@ -33,12 +49,6 @@ void M8MembraneTangentAxes(int dominantAxis, out int tangentAxis0,
 {
     tangentAxis0 = dominantAxis == 0 ? 1 : 0;
     tangentAxis1 = dominantAxis == 2 ? 1 : 2;
-}
-
-int3 M8MembraneCanonicalSheet(int3 step)
-{
-    int first = step.x != 0 ? step.x : step.y != 0 ? step.y : step.z;
-    return first < 0 ? -step : step;
 }
 
 int3 M8MembraneAxis(int axis)
@@ -144,15 +154,17 @@ bool M8MembraneSeparatedByFree(int3 contributor, int normalOffset,
 bool M8MembraneResolveCorner(int3 main, KernelState mainState,
     float3 mainNormal, float mainOffset, int dominantAxis,
     int tangentAxis0, int tangentAxis1, int cornerSign0, int cornerSign1,
-    int3 mainSheet, uint mainFreeSignature, out float3 position,
-    out bool unresolved)
+    uint mainFreeSignature, out float3 position, out uint packedColor,
+    out int3 lineAddress, out bool unresolved)
 {
     unresolved = false;
+    packedColor = 0u;
     int3 halfAddress = main * 2;
     halfAddress = M8MembraneSetIntComponent(halfAddress, tangentAxis0,
         halfAddress[tangentAxis0] + cornerSign0);
     halfAddress = M8MembraneSetIntComponent(halfAddress, tangentAxis1,
         halfAddress[tangentAxis1] + cornerSign1);
+    lineAddress = M8MembraneSetIntComponent(halfAddress, dominantAxis, 0);
     float3 cornerLine = (float3)halfAddress *
         (M8_MEMBRANE_PATCH_PITCH * 0.5);
     float mainHeight;
@@ -213,9 +225,8 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
             float candidateOffset;
             M8DecodeSurfacePlane(candidate.flags, candidateNormal,
                 candidateOffset);
-            if (M8MembraneDominantAxis(candidateNormal) != dominantAxis ||
-                any(M8MembraneCanonicalSheet(MerkabaNearestGridNormalStep(
-                    candidateNormal)) != mainSheet))
+            if (abs(candidateNormal[dominantAxis]) <
+                M8_MEMBRANE_COMPATIBLE_AXIS_COSINE)
                 continue;
             float height;
             if (!M8MembranePlaneLineHeight(coord, candidateNormal,
@@ -315,6 +326,10 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
 
     float heightSum = 0.0;
     uint accepted = 0u;
+    uint red = 0u;
+    uint green = 0u;
+    uint blue = 0u;
+    uint weightTotal = 0u;
     [loop]
     for (uint columnIndex = 0u; columnIndex < 4u; columnIndex++)
     {
@@ -339,6 +354,16 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
         if (best < 0) continue;
         heightSum += heights[(uint)best];
         accepted++;
+        // The knot's colour is the confidence-weighted mean of the same
+        // contributors in the same column order: one value per shared knot.
+        uint ownerColor;
+        uint ownerConfidence;
+        M8LoadMembraneColor(coords[(uint)best], ownerColor, ownerConfidence);
+        uint weight = max(1u, ownerConfidence);
+        red += (ownerColor & 255u) * weight;
+        green += ((ownerColor >> 8u) & 255u) * weight;
+        blue += ((ownerColor >> 16u) & 255u) * weight;
+        weightTotal += weight;
     }
     if (accepted == 0u)
     {
@@ -348,7 +373,13 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
     cornerLine = M8MembraneSetFloatComponent(cornerLine, dominantAxis,
         heightSum / (float)accepted);
     position = cornerLine;
-    return all(isfinite(position));
+    if (!all(isfinite(position))) return false;
+    float inverse = 1.0 / (float)max(1u, weightTotal);
+    uint r = min(255u, (uint)floor((float)red * inverse + 0.5));
+    uint g = min(255u, (uint)floor((float)green * inverse + 0.5));
+    uint b = min(255u, (uint)floor((float)blue * inverse + 0.5));
+    packedColor = r | (g << 8u) | (b << 16u) | 0xff000000u;
+    return true;
 }
 
 bool M8TryBuildMembranePatch(int3 main, KernelState state,
@@ -366,24 +397,26 @@ bool M8TryBuildMembranePatch(int3 main, KernelState state,
     int tangentAxis0;
     int tangentAxis1;
     M8MembraneTangentAxes(dominantAxis, tangentAxis0, tangentAxis1);
-    int3 sheet = M8MembraneCanonicalSheet(
-        MerkabaNearestGridNormalStep(normal));
     uint freeSignature;
     if (!M8MembraneFreeSideSignature(main, dominantAxis, freeSignature,
             unresolved))
         return false;
     if (!M8MembraneResolveCorner(main, state, normal, signedOffset,
-            dominantAxis, tangentAxis0, tangentAxis1, -1, -1, sheet,
-            freeSignature, patch.corner00, unresolved) ||
+            dominantAxis, tangentAxis0, tangentAxis1, -1, -1,
+            freeSignature, patch.corner00, patch.color00, patch.line00,
+            unresolved) ||
         !M8MembraneResolveCorner(main, state, normal, signedOffset,
-            dominantAxis, tangentAxis0, tangentAxis1, 1, -1, sheet,
-            freeSignature, patch.corner10, unresolved) ||
+            dominantAxis, tangentAxis0, tangentAxis1, 1, -1,
+            freeSignature, patch.corner10, patch.color10, patch.line10,
+            unresolved) ||
         !M8MembraneResolveCorner(main, state, normal, signedOffset,
-            dominantAxis, tangentAxis0, tangentAxis1, 1, 1, sheet,
-            freeSignature, patch.corner11, unresolved) ||
+            dominantAxis, tangentAxis0, tangentAxis1, 1, 1,
+            freeSignature, patch.corner11, patch.color11, patch.line11,
+            unresolved) ||
         !M8MembraneResolveCorner(main, state, normal, signedOffset,
-            dominantAxis, tangentAxis0, tangentAxis1, -1, 1, sheet,
-            freeSignature, patch.corner01, unresolved))
+            dominantAxis, tangentAxis0, tangentAxis1, -1, 1,
+            freeSignature, patch.corner01, patch.color01, patch.line01,
+            unresolved))
         return false;
     if (dot(cross(patch.corner10 - patch.corner00,
             patch.corner11 - patch.corner00), normal) < 0.0)
@@ -391,7 +424,14 @@ bool M8TryBuildMembranePatch(int3 main, KernelState state,
         float3 temporary = patch.corner10;
         patch.corner10 = patch.corner01;
         patch.corner01 = temporary;
+        uint temporaryColor = patch.color10;
+        patch.color10 = patch.color01;
+        patch.color01 = temporaryColor;
+        int3 temporaryLine = patch.line10;
+        patch.line10 = patch.line01;
+        patch.line01 = temporaryLine;
     }
+    patch.chart = dominantAxis;
     patch.normal = normal;
     patch.packedColor = state.packedColor;
     return true;
@@ -403,6 +443,22 @@ float3 M8OverlapPatchCorner(M8OverlapPatch patch, uint corner)
     if (corner == 1u) return patch.corner10;
     if (corner == 2u) return patch.corner11;
     return patch.corner01;
+}
+
+uint M8OverlapPatchColor(M8OverlapPatch patch, uint corner)
+{
+    if (corner == 0u) return patch.color00;
+    if (corner == 1u) return patch.color10;
+    if (corner == 2u) return patch.color11;
+    return patch.color01;
+}
+
+int3 M8OverlapPatchLine(M8OverlapPatch patch, uint corner)
+{
+    if (corner == 0u) return patch.line00;
+    if (corner == 1u) return patch.line10;
+    if (corner == 2u) return patch.line11;
+    return patch.line01;
 }
 
 uint M8OverlapTriangleCorner(uint vertex)

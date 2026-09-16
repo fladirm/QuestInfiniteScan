@@ -16,7 +16,7 @@ grid = text("Runtime/Merkaba/MerkabaGrid.Gpu.cs")
 renderer = text("Runtime/Merkaba/MerkabaGridRenderer.cs")
 integrator = text("Runtime/Merkaba/MerkabaIntegrator.cs")
 native = text("Runtime/Telemetry/MerkabaNativeVulkanExecutor.cs")
-skin = text("Runtime/Merkaba/MerkabaSkin.cs")
+membrane = text("Runtime/Merkaba/MerkabaOverlapShell.cs")
 exporter = text("Runtime/Merkaba/MerkabaExportMembrane.cs")
 glb = text("Runtime/Merkaba/MerkabaGlbWriter.cs")
 viewer = text("Runtime/UI/MerkabaArtifactViewer.cs")
@@ -35,8 +35,8 @@ checks = {
     "render journal has dedicated GPU storage":
         "RenderMutationJournalCount" in grid and
         "_m8RenderMutationQueue" in grid,
-    "25mm carrier uses one sixth lattice half-vertex unit":
-        "MerkabaConstants.LatticeStep / 6f" in skin,
+    "membrane knots sit on the half-lattice of the 25 mm pitch":
+        "MembraneHalfPitch =\n            MerkabaConstants.LatticeStep * 0.5f" in membrane,
     "integrator seals observation delta into journal":
         "SeedRenderMutationJournal(true, true)" in integrator,
     "fine erase seals its delta into journal":
@@ -62,16 +62,6 @@ checks = {
     "journal entries carry a logical identity":
         "M8_RENDER_JOURNAL_ENTRY_WORDS" in world and
         "journalledIdentity" in readout,
-    "live skin rides the measured signed plane offset":
-        "M8SkinMeasuredShift" in readout and
-        "M8SkinVertexPosition(int3 globalCoord" in readout,
-    "live skin publishes shared vertices and real indices":
-        "M8SkinUsedVertices" in readout and
-        "M8SkinVertexRank" in readout and
-        "_M8RenderIndices[M8SkinIndexSlot" in readout,
-    "export consumes the same boundary authority":
-        "MerkabaSkin.VertexPosition(kernel.Coord" in exporter and
-        "MerkabaSkin.VertexColor(kernel.Coord" in exporter,
     "departed view pages are retired":
         "M8_RENDER_VIEW_MARK" in readout and
         "M8_RENDER_RETIRE_BASE" in readout and
@@ -81,9 +71,6 @@ checks = {
         "HasPendingFineErase" not in renderer,
     "patch recount is parallel over current view":
         "void RecountRenderPatches" in readout,
-    "legacy per-kernel overlap oracle absent from live path":
-        '#include "MerkabaOverlapShell.generated.hlsl"' not in readout and
-        "M8TryBuildMembranePatch" not in readout,
     "BuildTileCap tuning authority removed":
         "BuildTileCap" not in renderer and
         "_M8RenderBuildTileCap" not in readout,
@@ -101,18 +88,9 @@ checks = {
         "Editor only" in renderer,
     "coverage radius is the world sphere":
         "ReadoutCoverageRadius = 6.4f" in renderer,
-    "skin is one analytic authority, not a hardcoded table":
-        "BuildBoundary()" in skin and "ConstraintsValue" in skin and
-        "SupportHalfUnits = 6" in skin,
-    "the support is 50 mm on the 25 mm lattice":
-        "LatticeUnits = 6" in skin and
-        "MerkabaConstants.LatticeStep / 6f" in skin,
     "no field sampling or marching reconstruction in the readout":
         "marching" not in readout.lower() and "SDF" not in readout and
         "TrilinearField" not in readout,
-    "CPU export uses same Skin SSOT":
-        "MerkabaSkin.Facelets" in exporter and
-        "MerkabaSkin.CompatibleNeighbourMask" in exporter,
     "stereo invalid UV rejection remains":
         "MerkabaCameraUvValid" in stereo and
         "MerkabaSampleStereoRgb" in stereo,
@@ -170,9 +148,6 @@ def pipeline_begins_match() -> bool:
 
 checks["managed stage timing begins equal the plugin job boundaries"] = \
     pipeline_begins_match()
-checks["vertex owners are walked in canonical order without owner arrays"] = \
-    "M8SkinOwnerAt(" in readout and "M8_SKIN_MAX_OWNERS" not in readout and \
-    "OwnerAt(" in skin and "SelfOrder = 13" in skin
 checks["publication validates page ownership, not only index range"] = \
     "M8_RENDER_OWNER_BASE" in readout and \
     "InterlockedCompareExchange(\n            _M8RenderPageQueues[M8_RENDER_OWNER_BASE + page]" in readout and \
@@ -187,20 +162,48 @@ checks["native front-tile sweeps cover every physical tile slot"] = \
     "kRenderSlotGroupCount = 256" in text(
         "Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp") and \
     "MerkabaSpatial.PhysicalTileCapacity / 128" in renderer
-checks["live vertex colour comes from the canonical owner record"] = \
-    "owner = M8LoadOwnerState(coord);" in readout
 checks["per-tile page chain bound is the contract's 2560"] = \
     "RenderTileMaxPages = 2560" in grid and \
     "M8_RENDER_TILE_MAX_PAGES 2560u" in text("Runtime/Shaders/MerkabaWorld.hlsl")
+checks["the visible index stream is exact: no page padding, whole triangles"] = \
+    "RWStructuredBuffer<uint4> _M8VisiblePages" in readout and \
+    "InterlockedAdd(_M8CullControl[1], indexCount, tileOutputBase)" in readout and \
+    "_M8RenderDrawArgs[0] = valid ? totalIndices : 0u" in readout and \
+    "(totalIndices % 3u) == 0u" in readout and \
+    "_M8RenderDrawArgs[0] = pages * M8_RENDER_PAGE_INDICES" not in readout and \
+    "slot < used ?" not in readout and \
+    "Allocate(RenderPageCapacity, sizeof(uint) * 4)" in grid
+checks["live readout consumes the generated membrane oracle"] = \
+    '#include "MerkabaOverlapShell.generated.hlsl"' in readout and \
+    "M8TryBuildMembranePatch(globalCoord, state, patch" in readout and \
+    "M8EmitMembranePatch" in readout and \
+    "M8_MEMBRANE_INDICES_PER_PATCH" in readout
+checks["the 50 mm support no longer defines production topology"] = \
+    "MerkabaSkin" not in readout and "M8_SKIN_" not in readout and \
+    not (ROOT / "Runtime/Merkaba/MerkabaSkin.cs").exists() and \
+    not (ROOT / "Runtime/Shaders/MerkabaSkin.generated.hlsl").exists() and \
+    not (ROOT / "Editor/MerkabaSkinGenerator.cs").exists()
+checks["CPU export uses the same membrane oracle with knot colours"] = \
+    "MerkabaOverlapShell.TryBuildPatch(kernel.Coord, context" in exporter and \
+    "MerkabaSkin" not in exporter and \
+    "patch.Corner01.Normal, patch.Corner01.PackedColor" in exporter
+checks["membrane compatibility is residual-based, not quantized"] = \
+    "MembraneCompatibleAxisCosine = 0.5f" in membrane and \
+    "CanonicalSheet" not in membrane and \
+    "M8_MEMBRANE_COMPATIBLE_AXIS_COSINE" in text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl")
+checks["knots carry global identity and canonical colour"] = \
+    "internal readonly int3 LineAddress;" in membrane and \
+    "M8LoadMembraneColor(coords[(uint)best]" in text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl")
+checks["membrane pitch is frozen at one 25 mm lattice step"] = \
+    "MembranePatchPitch = MerkabaConstants.LatticeStep" in membrane
+checks["the publication producer has a diagnostic hard-off"] = \
+    "readoutProducerEnabled && !queueBusy" in renderer
 checks["capacity failure makes BACK non-publishable"] = \
     "MERKABA_READOUT_FAILED : MERKABA_READOUT_PUBLISHED" in readout
 checks["publication is decided from the native completion copy"] = \
     "MerkabaExecutor_ReadCompletion" in text(
         "Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp") and \
     "TryReadCompletion" in renderer and "RejectPublication" in renderer
-checks["skin classifies normals on the canonical 26-direction chart"] = \
-    "MerkabaOverlapShell.NearestGridNormalStep" in skin and \
-    "return MerkabaNearestGridNormalStep(normal);" in readout
 
 checks["publication is a strict two-slot ping-pong"] = \
     "PublicationSlotCount = 2" in grid and \

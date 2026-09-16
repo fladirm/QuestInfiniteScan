@@ -181,6 +181,14 @@ namespace Genesis.RoomScan
                 if (_renderer != null) _renderer.ReadoutDrawEnabled = value;
             }
         }
+        public bool ReadoutProducerEnabled
+        {
+            get => _renderer == null || _renderer.ReadoutProducerEnabled;
+            set
+            {
+                if (_renderer != null) _renderer.ReadoutProducerEnabled = value;
+            }
+        }
         public bool CheckerReadoutEnabled
         {
             get => _renderer != null && _renderer.CheckerReadoutEnabled;

@@ -35,12 +35,20 @@ offline: MerkabaExportShell -> MerkabaExportMembrane -> MerkabaGlbWriter
   HLSL is a hand-written string literal, not a translation of the C# algorithm.
 - `[x]` **C4** 25 mm pitch. `MembranePatchPitch = LatticeStep`, `HalfSupport` is never
   a patch half-extent (`PatchHalfExtent` has zero occurrences).
-- `[~]` **C5/C7** (2026-09-16: analytic connectivity template, vertices projected onto measured sheets, one owner per physical vertex in a tile, one authority for runtime and export with contract tests) Deterministic membrane + oracle cases. Implemented as specified;
-  the C7 list is only partly covered — see RISK-2.
+- `[x]` **C5/C7** (2026-09-17: the 422-facelet `MerkabaSkin` is deleted; live readout,
+  GLB and 3D Tiles consume `MerkabaOverlapShell` — one 25 mm quad per measured MAIN whose
+  four corners are shared knots solved once from the corner neighbourhood, with the
+  knot colour and export normal from the same contributors. Contributor compatibility is
+  residual-based (`MembraneCompatibleAxisCosine`, branch gap, free side), not the two
+  quantized equalities of GEOMETRY_REVIEW FINDING B. Oracle fixtures: isolated, pair,
+  plane corners, 3x3 and 8x8 walls across a tile boundary (one knot per corner), doorway,
+  chart-boundary noise, quantized slope, FREE separator, UNKNOWN, parallel sheets,
+  translation/tile/chunk/block invariance, generated HLSL identical to the CPU text.)
+  Plan and deviations: `.claude/MERKABA_SKIN_PLAN.md`.
 - `[x]` **C6** 4 vertices / 6 indices / 2 triangles per patch.
 - `[x]` **C8** Tile-cooperative GPU build with groupshared occupancy + halo cache,
   cheap-occupancy-first, full `KernelState` loaded only for emitters.
-- `[x]` **C9** Scheduler (2026-09-16: serial 20 Hz scan->readout transaction closed only by a published BACK, strict two-slot FRONT/BACK publication with draw-fence release and pre-swap validation, 6.4 m world-sphere coverage, native scanner-queue readout at ABI 4 with host-visible completion copy; RISK-7, RISK-16). `MerkabaGridRenderer.LateUpdate` is the contract's conceptual
+- `[x]` **C9** Scheduler (2026-09-16: serial 20 Hz scan->readout transaction closed only by a published BACK, strict two-slot FRONT/BACK publication with draw-fence release and pre-swap validation, 6.4 m world-sphere coverage, native scanner-queue readout at ABI 5 with host-visible completion copy, exact visible index stream (no page padding, whole triangles), producer hard-off for measurement; RISK-7, RISK-16). `MerkabaGridRenderer.LateUpdate` is the contract's conceptual
   form verbatim: scanner work wins, coalesced dirty, no head-motion rebuild, no
   `GridToWorld`-difference rebuild.
 - `[x]` **C10** FRONT/BACK. Full capacity per slot, failed BACK leaves FRONT untouched.

@@ -106,8 +106,8 @@ namespace Genesis.RoomScan
         internal const long DefaultHardLeafBytes = 256L * 1024 * 1024;
         private const long GlbHeaderReserve = 2L * 1024;
         private const long SkinFaceletBytes =
-            MerkabaSkin.VerticesPerFacelet * 28L +
-            MerkabaSkin.IndicesPerFacelet * 4L;
+            MerkabaOverlapShell.VerticesPerPatch * 28L +
+            MerkabaOverlapShell.IndicesPerPatch * 4L;
         private const string EmptyNodeGeometricError = "1e30";
 
         /// <summary>

@@ -78,18 +78,14 @@ namespace Genesis.RoomScan.Tests
             Assert.That(completion.Z, Is.EqualTo(1u), "published tiles");
             uint[] back = Index(_front);
             Assert.That(back[0], Is.EqualTo(1u));
-            uint slot = back[MerkabaGrid.RenderTileListBase];
+            uint slot = back[ListBase(back)];
             int record = Header + (int)slot * RecordWords;
-            uint patches = back[record];
-            Assert.That(patches, Is.GreaterThan(0u));
-            Assert.That(back[1], Is.EqualTo(patches));
-            // A page carries both the shared vertices and the indices of one
-            // tile, so the chain length is whichever of the two needs more.
-            Assert.That(back[record + 1], Is.GreaterThan(0u));
-            Assert.That(back[record + 1], Is.LessThanOrEqualTo(
-                (patches + (uint)MerkabaGrid.RenderPageIndices - 1u) /
-                (uint)MerkabaGrid.RenderPageIndices +
-                (uint)MerkabaGrid.RenderTileMaxPages));
+            uint indexCount = back[record];
+            Assert.That(indexCount, Is.EqualTo(64u * 6u),
+                "one 25 mm membrane quad per measured MAIN");
+            Assert.That(back[1], Is.EqualTo(indexCount));
+            Assert.That(back[record + 1], Is.EqualTo(4u),
+                "64 patches = 256 vertices = four 64-vertex pages");
             Assert.That(Control(MerkabaGrid.RenderControlFreePages),
                 Is.EqualTo((uint)MerkabaGrid.RenderPageCapacity -
                     back[record + 1]));
@@ -99,8 +95,13 @@ namespace Genesis.RoomScan.Tests
         public void UnchangedWorldRebuildsNothingAndKeepsPublishedRecords()
         {
             InstallWallTiles(new int3(0, 0, 0), new int3(0, 0, 8));
+            // Two slots: each slot builds everything the first time it is
+            // BACK; from then on an unchanged world rebuilds nothing and a
+            // slot's records are byte-identical to its previous publication.
+            Build();
             Build();
             uint[] first = Index(_front);
+            Build();
             U4 completion = Build();
             Assert.That(completion.Y, Is.EqualTo(MerkabaGrid.ReadoutPublishedStatus));
             Assert.That(Counter(MerkabaGrid.CounterRenderRebuildTiles), Is.Zero);
@@ -111,7 +112,7 @@ namespace Genesis.RoomScan.Tests
             for (int list = 0; list < (int)first[0]; list++)
             {
                 int record = Header + (int)first[
-                    MerkabaGrid.RenderTileListBase + list] * RecordWords;
+                    ListBase(first) + list] * RecordWords;
                 for (int word = 0; word < RecordWords; word++)
                     Assert.That(second[record + word],
                         Is.EqualTo(first[record + word]), $"word {word}");
@@ -119,18 +120,19 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void ChangedTileRebuildsOnlyItselfAndResidentHaloNeighbours()
+        public void ChangedTileRebuildsOnlyItself()
         {
             InstallWallTiles(new int3(0, 0, 0), new int3(0, 0, 8),
-                new int3(800, 0, 0));
+                new int3(0, 0, 24));
             Build();
-            uint changed = SlotOf(new int3(0, 0, 0));
-            MarkRenderDirty(changed);
             Build();
-            // The changed tile and its one resident neighbour, never the
-            // distant tile: cost follows the change, not the world.
+            // A canonical mutation moves the tile's version; the 26-neighbour
+            // halo is the journal's job (SeedRenderMutationJournal), not the
+            // version's. Cost follows the change, never the world.
+            MarkTileDirty(new int3(0, 0, 0));
+            Build();
             Assert.That(Counter(MerkabaGrid.CounterRenderRebuildTiles),
-                Is.EqualTo(2u));
+                Is.EqualTo(1u));
             Assert.That(Index(_front)[0], Is.EqualTo(3u));
         }
 
@@ -139,7 +141,11 @@ namespace Genesis.RoomScan.Tests
         {
             InstallWallTiles(new int3(0, 0, 0));
             Build();
-            InstallWallTiles(new int3(800, 0, 0));
+            Build();
+            // A tile outside the first tile's 26-neighbour halo: only the
+            // new tile builds (an adjacent tile would also rebuild its
+            // neighbour, whose boundary knots gain contributors).
+            InstallWallTiles(new int3(0, 24, 0));
             Build();
             Assert.That(Counter(MerkabaGrid.CounterRenderRebuildTiles),
                 Is.EqualTo(1u));
@@ -151,15 +157,19 @@ namespace Genesis.RoomScan.Tests
         {
             InstallWallTiles(new int3(0, 0, 0));
             Build();
-            uint free = Control(MerkabaGrid.RenderControlFreePages);
-            uint slot = SlotOf(new int3(0, 0, 0));
-            MarkRenderDirty(slot);
             Build();
-            uint retired = Control(MerkabaGrid.RenderControlRetireCount);
+            uint free = Control(MerkabaGrid.RenderControlFreePages);
+            MarkTileDirty(new int3(0, 0, 0));
+            // The slot that rebuilds the tile retires its old pages into its
+            // own ring; they are free again only when that slot builds next.
+            Build();
+            uint retired = Retired();
             Assert.That(retired, Is.GreaterThan(0u));
             Assert.That(Control(MerkabaGrid.RenderControlFreePages),
-                Is.EqualTo(free - retired), "old pages still drawn by FRONT");
+                Is.EqualTo(free - retired), "old pages wait in the retire ring");
             Build();
+            Build();
+            Assert.That(Retired(), Is.Zero);
             Assert.That(Control(MerkabaGrid.RenderControlFreePages),
                 Is.EqualTo(free), "reclaimed after publication " + Diagnostics());
         }
@@ -171,7 +181,7 @@ namespace Genesis.RoomScan.Tests
             Build();
             uint free = Control(MerkabaGrid.RenderControlFreePages);
             int back = 1 - _front;
-            MarkRenderDirty(SlotOf(new int3(0, 0, 0)));
+            MarkTileDirty(new int3(0, 0, 0));
             Build(publish: false);
             // The rejected BACK still references the pages it allocated.
             uint allocated = ControlOf(back, MerkabaGrid.RenderControlAllocCount);
@@ -189,16 +199,16 @@ namespace Genesis.RoomScan.Tests
         [Test]
         public void EvictedTileLeavesThePublicationAndRetiresItsPages()
         {
-            InstallWallTiles(new int3(0, 0, 0), new int3(800, 0, 0));
+            InstallWallTiles(new int3(0, 0, 0), new int3(0, 24, 0));
             Build();
-            uint slot = SlotOf(new int3(800, 0, 0));
+            Build();
+            uint slot = SlotOf(new int3(0, 24, 0));
             SetTileRef(RefIndexOf(slot), RefCold);
             Build();
             uint[] back = Index(_front);
             Assert.That(back[0], Is.EqualTo(1u));
             Assert.That(back[Header + (int)slot * RecordWords + 2], Is.Zero);
-            Assert.That(Control(MerkabaGrid.RenderControlRetireCount),
-                Is.GreaterThan(0u));
+            Assert.That(Retired(), Is.GreaterThan(0u));
         }
 
         [Test]
@@ -211,7 +221,7 @@ namespace Genesis.RoomScan.Tests
             int record = Header + (int)target * RecordWords;
             uint[] before = Index(_front);
             SetTileRef(RefIndexOf(neighbour), RefLoading);
-            MarkRenderDirty(target);
+            MarkTileDirty(new int3(0, 0, 0));
             Build();
             uint[] after = Index(_front);
             Assert.That(Counter(MerkabaGrid.CounterRenderPendingTiles),
@@ -233,7 +243,7 @@ namespace Genesis.RoomScan.Tests
             int cull = _readout.FindKernel("CullRenderTiles");
             int prepare = _readout.FindKernel("PrepareVisibleIndices");
             int emit = _readout.FindKernel("EmitVisibleIndices");
-            _grid.M8CullControl.SetData(new uint[] { 0u, 0u, 1u, 1u });
+            _grid.M8CullControl.SetData(new uint[] { 0u, 0u, 0u, 0u });
             var planes = new Vector4[12];
             for (int plane = 0; plane < 12; plane++)
                 planes[plane] = new Vector4(0f, 0f, 0f, 1f);
@@ -264,26 +274,34 @@ namespace Genesis.RoomScan.Tests
             _readout.Dispatch(prepare, 1, 1, 1);
             _readout.DispatchIndirect(emit, _grid.M8CullControl, sizeof(uint));
 
-            var control = new uint[4];
+            var control = new uint[MerkabaGrid.CullControlWords];
             _grid.M8CullControl.GetData(control);
-            Assert.That(control[0], Is.EqualTo(nearPages), "far tile culled");
+            uint indexPages = (nearPatches +
+                (uint)MerkabaGrid.RenderPageIndices - 1u) /
+                (uint)MerkabaGrid.RenderPageIndices;
+            Assert.That(control[0], Is.EqualTo(indexPages), "far tile culled");
             var drawArgs = new uint[5];
             _grid.M8RenderDrawArgs.GetData(drawArgs);
-            Assert.That(drawArgs[0], Is.EqualTo(nearPages *
-                (uint)MerkabaGrid.RenderPageIndices));
-            var pages = new uint[nearPages];
-            _grid.M8VisiblePages.GetData(pages, 0, 0, (int)nearPages);
+            // The draw stream is exactly the published indices of the visible
+            // tiles: no page padding, whole triangles only.
+            Assert.That(drawArgs[0], Is.EqualTo(nearPatches),
+                "draw count is exact live indices, never pageCount*256");
+            Assert.That(drawArgs[0] % 3u, Is.Zero);
+            var pages = new U4[indexPages];
+            _grid.M8VisiblePages.GetData(pages, 0, 0, (int)indexPages);
             var indices = new uint[MerkabaGrid.RenderPageIndices];
             _grid.GetM8RenderIndices(_front).GetData(indices, 0, 0,
                 indices.Length);
-            uint firstPage = pages[0] & 0xffffu;
+            uint firstPage = pages[0].X;
             uint pageVertex = firstPage * (uint)MerkabaGrid.RenderPageVertices;
-            // Published indices address shared vertices of the same tile.
             Assert.That(indices[0], Is.GreaterThanOrEqualTo(pageVertex));
             Assert.That(indices[0], Is.LessThan((uint)
                 MerkabaGrid.ReadoutVertexCapacity));
-            uint used = ((pages[0] >> 16) & 0xffu) + 1u;
-            Assert.That(used, Is.GreaterThan(0u));
+            Assert.That(pages[0].Y, Is.GreaterThan(0u));
+            Assert.That(pages[0].Y, Is.LessThanOrEqualTo(
+                (uint)MerkabaGrid.RenderPageIndices));
+            Assert.That(pages[0].Z, Is.Zero,
+                "first visible tile owns one contiguous output range");
         }
 
         private U4 Build(bool publish = true)
@@ -405,14 +423,6 @@ namespace Genesis.RoomScan.Tests
         private void SetTileRef(uint refIndex, uint value) =>
             _grid.M8ChunkTileRefs.SetData(new[] { value }, 0, (int)refIndex, 1);
 
-        private void MarkRenderDirty(uint slot)
-        {
-            var runtime = new U4[1];
-            _grid.M8TileRecords.GetData(runtime, 0, (int)slot * 2 + 1, 1);
-            runtime[0].W |= 1u;
-            _grid.M8TileRecords.SetData(runtime, 0, (int)slot * 2 + 1, 1);
-        }
-
         private uint[] Index(int slot)
         {
             var values = new uint[MerkabaGrid.RenderIndexCount];
@@ -423,13 +433,26 @@ namespace Genesis.RoomScan.Tests
         private string Diagnostics() =>
             $"rebuild={Counter(MerkabaGrid.CounterRenderRebuildTiles)} " +
 
-            $"retire={Control(MerkabaGrid.RenderControlRetireCount)} " +
+            $"retire={Retired()} " +
             $"alloc={Control(MerkabaGrid.RenderControlAllocCount)} " +
             $"reclaim={Control(MerkabaGrid.RenderControlReclaimCount)} " +
 
             $"pending={Counter(MerkabaGrid.CounterRenderPendingTiles)}";
 
         private uint Control(int index) => ControlOf(_front, index);
+
+        // Pages waiting in the FRONT slot's retire ring.
+        private uint Retired() =>
+            ControlOf(_front, MerkabaGrid.RenderControlRetireTail) -
+            ControlOf(_front, MerkabaGrid.RenderControlRetireHead);
+
+        // The active tile-list region of a slot alternates between builds.
+        private static int ListBase(uint[] index) =>
+            MerkabaGrid.RenderTileListBase +
+            (int)(index[RenderHeaderListRegion] & 1u) *
+            MerkabaSpatial.PhysicalTileCapacity;
+
+        private const int RenderHeaderListRegion = 3;
 
         private uint ControlOf(int slot, int index)
         {

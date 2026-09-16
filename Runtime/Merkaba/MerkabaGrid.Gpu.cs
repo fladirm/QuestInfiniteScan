@@ -50,6 +50,9 @@ namespace Genesis.RoomScan
         internal const int ReadoutVisibleBufferCount =
             MerkabaSpatial.PhysicalTileCapacity;
         internal const int RenderDrawArgumentCount = 5;
+        // Cull control: visible pages, exact index count, overflow flag;
+        // PrepareVisibleIndices rewrites it into the emit dispatch tuple.
+        internal const int CullControlWords = 4;
         internal const int RenderMutationJournalCapacity = 65_536;
         // One entry is (physical slot, logical identity).
         internal const int RenderMutationJournalEntryWords = 2;
@@ -139,6 +142,8 @@ namespace Genesis.RoomScan
         internal const int RenderControlRetireCount = 1;
         internal const int RenderControlAllocCount = 2;
         internal const int RenderControlReclaimCount = 3;
+        internal const int RenderControlRetireHead = 4;
+        internal const int RenderControlRetireTail = 5;
         internal const int CounterRenderPendingTiles = 108;
         internal const int CounterRenderCapacityFailed = 109;
         internal const int CounterRenderPublishedPatches = 110;
@@ -505,7 +510,8 @@ namespace Genesis.RoomScan
                     sizeof(uint));
                 _m8RenderVersions = Allocate(MerkabaSpatial.PhysicalTileCapacity,
                     sizeof(uint));
-                _m8VisiblePages = Allocate(RenderPageCapacity, sizeof(uint));
+                // Visible page record: page, live indices, stream position.
+                _m8VisiblePages = Allocate(RenderPageCapacity, sizeof(uint) * 4);
                 _m8CullControl = Allocate(4, sizeof(uint),
                     ComputeBufferType.IndirectArguments);
                 _m8RenderDrawArgs = Allocate(RenderDrawArgumentCount,

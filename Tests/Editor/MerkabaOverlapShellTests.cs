@@ -248,6 +248,156 @@ namespace Genesis.RoomScan.Tests
             Assert.That(generated, Does.Not.Contain("Eye"));
         }
 
+        // ---- review fixtures: the skin is the connected measured sheet ----
+
+        private static Dictionary<int3, KernelState> Wall(int3 origin,
+            int width, int height, float3 normal, HashSet<int3> holes = null)
+        {
+            var context = new Dictionary<int3, KernelState>();
+            KernelState.DecodeSurfacePlane(Surface(origin, normal, 0f).Flags,
+                out float3 decoded, out _);
+            float planeConstant = math.dot((float3)origin *
+                MerkabaConstants.LatticeStep, decoded);
+            MerkabaOverlapShell.TangentAxes(
+                MerkabaOverlapShell.DominantAxis(decoded), out int tangent0,
+                out int tangent1);
+            for (int a = 0; a < width; a++)
+            for (int b = 0; b < height; b++)
+            {
+                int3 coord = origin;
+                coord[tangent0] += a;
+                coord[tangent1] += b;
+                if (holes != null && holes.Contains(coord)) continue;
+                float offset = planeConstant - math.dot((float3)coord *
+                    MerkabaConstants.LatticeStep, decoded);
+                context[coord] = Surface(coord, decoded, offset);
+            }
+            return context;
+        }
+
+        private static Dictionary<(int3, int), List<MerkabaOverlapShell.Corner>>
+            Knots(IReadOnlyDictionary<int3, KernelState> context,
+                out int patches)
+        {
+            var knots = new Dictionary<(int3, int),
+                List<MerkabaOverlapShell.Corner>>();
+            patches = 0;
+            foreach (int3 coord in context.Keys.OrderBy(value => value.x)
+                         .ThenBy(value => value.y).ThenBy(value => value.z))
+            {
+                if (!MerkabaOverlapShell.TryBuildPatch(coord, context,
+                        out MerkabaOverlapShell.Patch patch)) continue;
+                patches++;
+                for (int index = 0; index < 4; index++)
+                {
+                    MerkabaOverlapShell.Corner corner = patch.GetCorner(index);
+                    var key = (corner.LineAddress, corner.Chart);
+                    if (!knots.TryGetValue(key, out var list))
+                        knots[key] = list = new List<MerkabaOverlapShell.Corner>();
+                    list.Add(corner);
+                }
+            }
+            return knots;
+        }
+
+        private static void AssertKnotsShared(
+            Dictionary<(int3, int), List<MerkabaOverlapShell.Corner>> knots)
+        {
+            foreach (var pair in knots)
+                for (int index = 1; index < pair.Value.Count; index++)
+                    Assert.That(pair.Value[index].Equals(pair.Value[0]), Is.True,
+                        $"knot {pair.Key} differs between its patches");
+        }
+
+        [Test]
+        public void WallKnotsAreSharedBitIdenticallyAndScaleWithCells()
+        {
+            Dictionary<int3, KernelState> context = Wall(new int3(-1, -1, 0),
+                3, 3, new float3(0f, 0f, 1f));
+            var knots = Knots(context, out int patches);
+            Assert.That(patches, Is.EqualTo(9), "one quad per measured kernel");
+            // A 3x3 sheet has 4x4 knots; every knot is one shared vertex.
+            Assert.That(knots.Count, Is.EqualTo(16));
+            AssertKnotsShared(knots);
+            Assert.That(knots.Values.Count(list => list.Count == 4),
+                Is.EqualTo(4), "interior knots belong to four patches");
+        }
+
+        [Test]
+        public void EightByEightWallAcrossTileBoundaryHasOneKnotPerCorner()
+        {
+            // Tile boundary at x = 8 and y = 8: knots on it are one identity.
+            Dictionary<int3, KernelState> context = Wall(new int3(4, 4, 0),
+                8, 8, new float3(0f, 0f, 1f));
+            var knots = Knots(context, out int patches);
+            Assert.That(patches, Is.EqualTo(64));
+            Assert.That(knots.Count, Is.EqualTo(81));
+            AssertKnotsShared(knots);
+        }
+
+        [Test]
+        public void DoorwayLeavesARealHoleAndNoBridge()
+        {
+            var holes = new HashSet<int3>();
+            for (int x = -1; x <= 1; x++)
+            for (int y = -2; y <= 0; y++)
+                holes.Add(new int3(x, y, 0));
+            Dictionary<int3, KernelState> context = Wall(new int3(-4, -2, 0),
+                9, 5, new float3(0f, 0f, 1f), holes);
+            var knots = Knots(context, out int patches);
+            Assert.That(patches, Is.EqualTo(context.Count));
+            AssertKnotsShared(knots);
+            // The hole interior has no knot at all: nothing bridges it.
+            Assert.That(knots.Keys.Any(key => key.Item1.x == 0 &&
+                key.Item1.y == -2), Is.False);
+        }
+
+        [Test]
+        public void NoisyNormalsAcrossTheChartBoundaryStillContribute()
+        {
+            // Two neighbours on one physical wall whose noisy normals sit on
+            // either side of the 45 degree chart boundary (FINDING B).
+            float3 left = math.normalize(new float3(0.72f, 0f, 0.69f));
+            float3 right = math.normalize(new float3(0.69f, 0f, 0.72f));
+            var context = new Dictionary<int3, KernelState>
+            {
+                [new int3(0, 0, 0)] = Surface(new int3(0, 0, 0), left, 0f),
+                [new int3(1, 0, 0)] = Surface(new int3(1, 0, 0), right, 0f)
+            };
+            Assert.That(MerkabaOverlapShell.TryBuildPatch(new int3(0, 0, 0),
+                context, out MerkabaOverlapShell.Patch first), Is.True);
+            Assert.That(MerkabaOverlapShell.TryBuildPatch(new int3(1, 0, 0),
+                context, out MerkabaOverlapShell.Patch second), Is.True);
+            // The knot between them is solved from both planes, so it lies
+            // within half a pitch of each plane instead of tearing.
+            foreach (MerkabaOverlapShell.Patch patch in new[] { first, second })
+            foreach (float3 corner in Corners(patch))
+            {
+                KernelState.DecodeSurfacePlane(context[patch.Main].Flags,
+                    out float3 normal, out float offset);
+                float residual = math.abs(math.dot(corner - (float3)patch.Main *
+                    MerkabaConstants.LatticeStep, normal) - offset);
+                Assert.That(residual, Is.LessThan(
+                    MerkabaOverlapShell.MembraneHalfPitch));
+            }
+        }
+
+        [Test]
+        public void QuantizedSlopePublishesOneQuadPerKernelWithSharedKnots()
+        {
+            float3 normal = math.normalize(new float3(-0.45f, 0.89f, 0f));
+            var context = new Dictionary<int3, KernelState>();
+            for (int x = -5; x <= 5; x++)
+            for (int z = -1; z <= 1; z++)
+            {
+                int3 coord = new(x, (int)math.round(x / 2f), z);
+                context[coord] = Surface(coord, normal, 0f);
+            }
+            var knots = Knots(context, out int patches);
+            Assert.That(patches, Is.EqualTo(context.Count));
+            AssertKnotsShared(knots);
+        }
+
         private static Dictionary<int3, KernelState> PlaneNeighbourhood(
             int3 main, float3 requestedNormal, float mainOffset)
         {

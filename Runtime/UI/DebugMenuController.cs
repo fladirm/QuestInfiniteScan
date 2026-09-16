@@ -293,8 +293,17 @@ namespace Genesis.RoomScan.UI
             _readout?.RegisterCallback<ClickEvent>(evt =>
             {
                 RoomScanner scanner = RoomScanner.Instance;
-                if (scanner != null)
-                    scanner.ReadoutDrawEnabled = !scanner.ReadoutDrawEnabled;
+                // Draw on -> draw off -> producer off (diagnostic) -> draw on.
+                if (scanner == null) return;
+                if (scanner.ReadoutDrawEnabled)
+                    scanner.ReadoutDrawEnabled = false;
+                else if (scanner.ReadoutProducerEnabled)
+                    scanner.ReadoutProducerEnabled = false;
+                else
+                {
+                    scanner.ReadoutProducerEnabled = true;
+                    scanner.ReadoutDrawEnabled = true;
+                }
             });
             _occlusion?.RegisterCallback<ClickEvent>(evt =>
             {
@@ -1015,7 +1024,9 @@ namespace Genesis.RoomScan.UI
             RefreshFineTool();
             if (_readout != null)
                 _readout.text = scanner.ReadoutDrawEnabled
-                    ? "Readout On" : "Readout Off";
+                    ? "Readout On"
+                    : scanner.ReadoutProducerEnabled
+                        ? "Readout Off" : "Producer Off";
             if (_occlusion != null)
                 _occlusion.text = scanner.DynamicOcclusionEnabled
                     ? "Occlusion On" : "Occlusion Off";

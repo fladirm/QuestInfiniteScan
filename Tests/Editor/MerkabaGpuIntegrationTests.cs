@@ -132,7 +132,7 @@ namespace Genesis.RoomScan.Tests
                 (long)MerkabaGrid.RenderPageQueueCount * 4,
                 (long)MerkabaGrid.RenderMutationJournalCount * 4,
                 32768L * 4,
-                (long)MerkabaGrid.RenderPageCapacity * 4, 16, 20,
+                (long)MerkabaGrid.RenderPageCapacity * 16, 16, 20,
                 12, 12,
                 (long)MerkabaGrid.WritebackBatchCapacity * 8,
                 (long)MerkabaGrid.WritebackBatchCapacity * 513 * 16,
@@ -143,7 +143,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(allBuffers.Max(), Is.EqualTo(64L * 1024 * 1024));
             Assert.That(allBuffers.Max(), Is.LessThanOrEqualTo(
                 128L * 1024 * 1024));
-            Assert.That(allBuffers.Sum(), Is.EqualTo(905154760L));
+            Assert.That(allBuffers.Sum(), Is.EqualTo(905941192L));
 
             Assert.That(MerkabaSpatial.OwnerRecordCount,
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
@@ -240,10 +240,10 @@ namespace Genesis.RoomScan.Tests
             Assert.That(build, Does.Contain(
                 "cacheIndex < M8_MEMBRANE_CACHE_COUNT"));
             Assert.That(build, Does.Contain(
-                "M8SkinVertexPosition("));
+                "M8TryBuildMembranePatch(globalCoord, state, patch"));
             Assert.That(build, Does.Contain("[loop]"));
             Assert.That(build, Does.Contain(
-                "for (uint batchA = 0u; batchA < 4u; batchA++)"));
+                "for (uint batch = 0u; batch < 4u; batch++)"));
             Assert.That(build, Does.Not.Contain("M8FindBlock("));
             Assert.That(generated, Does.Contain(
                 "bool M8TryBuildMembranePatch"));
@@ -271,7 +271,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(frame, Does.Not.Contain("M8_READOUT_MAP_WORD_BASE"));
             Assert.That(frame, Does.Not.Contain("M8StoreReadoutLocalMapPair"));
             Assert.That(frame, Does.Not.Contain("M8BuildRecord"));
-            Assert.That(frame, Does.Contain("M8SkinResolveVertexSlot"));
+            Assert.That(frame, Does.Contain("M8EmitMembranePatch"));
         }
 
         [Test]
@@ -789,7 +789,7 @@ namespace Genesis.RoomScan.Tests
             string build = Slice(frame, "void BuildRenderTiles",
                 "void PublishRenderTileList");
             int occupiedPrefilter = build.IndexOf(
-                "bool occupied = (mainOccupancy &",
+                "if ((mainOccupancy & (1u << (kernelLocal & 31u))) == 0u ||",
                 StringComparison.Ordinal);
             int fullStateLoad = build.IndexOf(
                 "state = M8LoadKernelStateRead", StringComparison.Ordinal);
@@ -803,11 +803,11 @@ namespace Genesis.RoomScan.Tests
             Assert.That(fullStateLoad, Is.GreaterThan(occupiedPrefilter));
             Assert.That(Regex.Matches(build,
                 "GroupMemoryBarrierWithGroupSync\\(\\)"),
-                Has.Count.EqualTo(8));
+                Has.Count.EqualTo(7));
             Assert.That(build, Does.Not.Contain(
                 "M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES"));
             Assert.That(build, Does.Contain(
-                "M8SkinResolveVertexSlot(kernelLocal, neighbourMask,"));
+                "M8EmitMembranePatch(patch, patchIndex)"));
             Assert.That(generated, Does.Contain(
                 "M8_MEMBRANE_PATCH_PITCH 0.025"));
             Assert.That(generated, Does.Contain(
@@ -869,11 +869,13 @@ namespace Genesis.RoomScan.Tests
             Assert.That(frame, Does.Not.Contain("M8EmitReadoutGlyph"));
             Assert.That(frame, Does.Not.Contain("M8_READOUT_BUILD_GLYPH"));
             Assert.That(frame, Does.Not.Contain("M8ReadoutPin"));
+            // One measured MAIN is one 25 mm quad of the frozen oracle; the
+            // 50 mm support never enumerates facets.
             Assert.That(build, Does.Contain(
-                "M8SkinUsedVertices(neighbourMask,"));
-            Assert.That(build, Does.Contain(
-                "M8SkinFaceletVisible(entry, neighbourMask, facing)"));
-            Assert.That(frame, Does.Contain("M8_SKIN_VERTEX_COUNT"));
+                "M8TryBuildMembranePatch(globalCoord, state, patch"));
+            Assert.That(build, Does.Contain("M8EmitMembranePatch"));
+            Assert.That(frame, Does.Contain("M8_MEMBRANE_VERTICES_PER_PATCH"));
+            Assert.That(frame, Does.Not.Contain("M8_SKIN_"));
         }
 
         [Test]
@@ -942,7 +944,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(readout, Does.Contain("RWByteAddressBuffer _M8RenderVertices"));
             Assert.That(readout, Does.Contain("_M8RenderVertices.Store3(address"));
             Assert.That(readout, Does.Contain(
-                "_M8RenderIndices[M8SkinIndexSlot(indexBase + localIndex)] ="));
+                "_M8RenderIndices[M8MembraneIndexSlot(indexBase + index)] ="));
             Assert.That(shader, Does.Contain("half3(0.625h, 0.625h, 0.625h)"));
             Assert.That(shader, Does.Contain(
                 "round(saturate(input.packedColor.a) *"));
@@ -1021,7 +1023,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(world, Does.Contain(
                 "M8_COUNTER_READOUT_PLANE_LEGACY_INVALID 96u"));
             Assert.That(readout, Does.Contain(
-                "M8_COUNTER_READOUT_EMITTED_PATCHES] / 3u"));
+                "uint publishedTriangles = indices / 3u;"));
             Assert.That(readout, Does.Contain(
                 "M8_COUNTER_READOUT_EMITTED_TRIANGLES"));
             Assert.That(MerkabaGrid.CounterReadoutPlaneLegacyInvalid,

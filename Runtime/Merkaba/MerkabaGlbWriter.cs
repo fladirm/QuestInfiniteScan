@@ -502,8 +502,8 @@ namespace Genesis.RoomScan
                 }
                 else
                 {
-                    uint v3 = AddVertex(patch.Corner01, patch.Normal,
-                        patch.PackedColor);
+                    uint v3 = AddVertex(patch.Corner01, patch.Normal01,
+                        patch.PackedColor01);
                     AddTriangle(indices, v0, v2, v1);
                     AddTriangle(indices, v0, v3, v2);
                     completedPrimitives += 2;

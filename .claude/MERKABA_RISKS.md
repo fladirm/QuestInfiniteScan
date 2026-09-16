@@ -20,7 +20,13 @@ Cheapest real closure: a differential test that runs `TryBuildPatch` and the com
 `BuildReadoutVertices` over the same seeded lattice fixtures and compares corner
 positions bitwise. Until that exists, treat every edit to either side as a two-file edit.
 
-## RISK-2 — the shared-corner invariant is asymmetric and only tested flat [PARTLY FIXED IN CODE 2026-09-15]
+## RISK-2 — the shared-corner invariant is asymmetric and only tested flat [PARTLY FIXED IN CODE 2026-09-15; FINDING B CLOSED 2026-09-17]
+
+Update 2026-09-17: the two quantized admission predicates (`DominantAxis ==`,
+`CanonicalSheet(NearestGridNormalStep) ==`) are gone from both twins; a contributor is
+admitted when `abs(normal[chart]) >= 0.5`, and the connected height branch plus the free
+side decide sheet membership. `NoisyNormalsAcrossTheChartBoundaryStillContribute` covers
+the 45 degree straddle; walls and slopes assert bit-identical shared knots.
 
 Update 82c5a0a: TryResolveCorner (CPU + HLSL twin) gathers <=12 candidates from the four
 columns, picks a seed, grows the contiguous height branch (gap <= 0.6 patch pitch,
@@ -203,7 +209,24 @@ returns before anchor relocalizes -> "Room anchor not localized".
 only, not anchor tracked/stable; no TrackingOriginChangePending / trackingOriginUpdated
 handling; pause during unfinished resume clears `_resumeAfterPause`.
 
-## RISK-16 — the analytic skin is published and exported at full density; the artifact viewer collapses [PARTIALLY FIXED IN CODE 2026-09-16; DENSITY NOT CLOSED; DEVICE ACCEPTANCE PENDING]
+## RISK-16 — the analytic skin is published and exported at full density; the artifact viewer collapses [REPLACED IN CODE 2026-09-17 per .claude/MERKABA_SKIN_PLAN.md; DEVICE ACCEPTANCE PENDING]
+
+Replacement: the union-skin facelet authority is deleted. Live readout emits one 25 mm
+membrane quad per measured MAIN (4 knots, 6 indices) from the generated
+`MerkabaOverlapShell` oracle; export builds the same patches and the GLB writer keys
+identical knots (position, normal, colour) onto one vertex. Expected density: about two
+triangles per measured kernel, i.e. triangles scale with sheet cells. The numbers below
+are the state this replaces; a new device run and export must confirm the new ones.
+
+Export `Scan 2026-09-16 23-15.zip` (build c1dfef8): 3,263,647 vertices, 5,379,025
+triangles, 156 MB, largest leaf 1.6 M triangles, max edge 5.4 cm. Vertex duplication
+fell ~5x, triangles only ~20%: the mesh is still one triangle per visible support facet.
+Device (same build): BuildRenderTiles avg 241.8 ms / max 456.6 ms, readout job 259.7 ms,
+VrApi FPS avg 32.9 / min 2 — the 20 Hz producer (50 ms) and the 72 Hz-draw-while-producer
+contract are UNMET; the second Vulkan queue shares the Adreno, it does not add one.
+The metre-long live triangles were a separate defect: the visible index stream padded
+256-index pages (256 % 3 != 0), so page boundaries split triangles; fixed by exact
+compaction (step 0 of the plan). Producer hard-off added for the four-mode measurement.
 
 Still open after the review closure: every visible facelet is still one triangle
 (no merge of adjacent coplanar facelets on CPU or GPU), so the triangle density of

@@ -19,7 +19,6 @@
 
 #include "MerkabaWorld.hlsl"
 #include "MerkabaSurfaceOrientation.generated.hlsl"
-#include "MerkabaSkin.generated.hlsl"
 
 #define MERKABA_LATTICE_STEP 0.025
 #define MERKABA_HALF_SUPPORT 0.025
@@ -28,6 +27,15 @@
 #define M8_SHELL_GROUP_THREADS 128u
 #define M8_CULL_GROUP_THREADS 128u
 #define M8_EMIT_GROUP_THREADS 64u
+
+// The generated membrane oracle reads the tile-local halo cache and the
+// canonical colour of its contributors through these two accessors, which
+// are defined once the cache exists below. One HLSL authority, no copy.
+bool M8TryLoadMembraneState(int3 globalCoord, out KernelState state,
+    out bool resolved);
+void M8LoadMembraneColor(int3 globalCoord, out uint packedColor,
+    out uint colorConfidence);
+#include "MerkabaOverlapShell.generated.hlsl"
 
 // Disposable readout publication. A build rewrites only tiles whose membrane
 // inputs changed (plus their 26-tile dependency halo) into free pages of one
@@ -51,8 +59,8 @@ RWStructuredBuffer<uint> _M8FrameDispatchArgs;
 RWStructuredBuffer<uint4> _M8AttemptCompletion;
 
 // Per-frame visibility (graphics queue, FRONT only).
-RWStructuredBuffer<uint> _M8VisiblePages;
-StructuredBuffer<uint> _M8VisiblePagesRead;
+RWStructuredBuffer<uint4> _M8VisiblePages;
+StructuredBuffer<uint4> _M8VisiblePagesRead;
 RWStructuredBuffer<uint> _M8CullControl;
 StructuredBuffer<uint> _M8CullControlRead;
 RWStructuredBuffer<uint> _M8RenderDrawArgs;
@@ -455,16 +463,6 @@ groupshared uint gM8MembraneOccupiedWords[M8_MEMBRANE_TILE_WORD_COUNT];
 // One packed word per halo cell: an occupied cell keeps its plane flags with
 // bit 1 cleared, a free cell stores bit 1 when its evidence is KNOWN-FREE.
 groupshared uint gM8MembraneState[M8_MEMBRANE_CACHE_COUNT];
-// Vertex ownership inside one tile. A boundary vertex belongs to the lowest
-// ordered compatible kernel that uses it; every other user of the same
-// physical point references that kernel's slot instead of writing its own.
-#define M8_SKIN_KERNELS_PER_TILE 512u
-groupshared uint gM8SkinOwnedMasks[M8_SKIN_KERNELS_PER_TILE *
-    M8_SKIN_VERTEX_MASK_WORDS];
-// Per kernel: counts during selection, then vertexBase | indexBase << 15.
-groupshared uint gM8SkinKernelBase[M8_SKIN_KERNELS_PER_TILE];
-groupshared uint gM8SkinKernelNeighbours[M8_SKIN_KERNELS_PER_TILE];
-groupshared uint gM8SkinVertexTotal;
 groupshared uint gM8MembraneCanEmit;
 groupshared uint gM8MembraneMeasuredTotal;
 // First entry of this tile's page chain in the build's allocation list; the
@@ -472,7 +470,6 @@ groupshared uint gM8MembraneMeasuredTotal;
 groupshared uint gM8MembraneAllocBase;
 groupshared uint gM8MembranePageCount;
 groupshared uint gM8MembranePatchTotal;
-groupshared uint gM8MembraneBatchBase;
 groupshared uint gM8MembraneFailed;
 groupshared uint gM8MembraneUnresolved;
 
@@ -879,102 +876,34 @@ void M8StoreRenderVertex(uint vertex, float3 gridPosition, uint packedColor)
 
 // Exact union-skin topology. Missing neighbour tiles are empty; non-resident
 // neighbours are unresolved and defer publication so FRONT remains coherent.
-int3 M8SkinNormalStep(float3 normal)
+// Full canonical state of a resolved halo kernel through the cached tile
+// slots: colour and confidence come from the record, not from the halo
+// summary, so the live knot equals the export knot.
+KernelState M8LoadMembraneOwnerState(int3 globalCoord)
 {
-    // The canonical 26-direction chart, never a second classifier.
-    return MerkabaNearestGridNormalStep(normal);
+    int3 relative = globalCoord - gM8MembraneTileOrigin;
+    int3 tileOffset = int3(relative.x < 0 ? -1 : relative.x >= 8 ? 1 : 0,
+        relative.y < 0 ? -1 : relative.y >= 8 ? 1 : 0,
+        relative.z < 0 ? -1 : relative.z >= 8 ? 1 : 0);
+    int3 local = relative - tileOffset * 8;
+    uint slot = gM8MembraneTileSlots[M8MembraneTileIndex(tileOffset)];
+    uint kernelLocal = (uint)local.x | ((uint)local.y << 3u) |
+        ((uint)local.z << 6u);
+    return M8LoadKernelStateRead(slot, kernelLocal);
 }
 
-bool M8SkinKnownFree(int3 coord, out bool unresolved)
+void M8LoadMembraneColor(int3 globalCoord, out uint packedColor,
+    out uint colorConfidence)
 {
-    KernelState state;
-    bool resolved;
-    bool exists = M8TryLoadMembraneState(coord, state, resolved);
-    unresolved = !resolved;
-    return resolved && exists &&
-        (state.flags & MERKABA_OCCUPIED_FLAG) == 0u &&
-        state.evidence <= MERKABA_EXPORT_KNOWN_FREE;
+    KernelState owner = M8LoadMembraneOwnerState(globalCoord);
+    packedColor = owner.packedColor;
+    colorConfidence = owner.colorConfidence;
 }
 
-int3 M8SkinFreeSide(int3 coord, KernelState state, out bool unresolved)
-{
-    unresolved = false;
-    if (!M8HasSurfacePlane(state.flags)) return int3(0, 0, 0);
-    float3 normal;
-    float offset;
-    M8DecodeSurfacePlane(state.flags, normal, offset);
-    int3 step = M8SkinNormalStep(normal);
-    bool plusUnresolved;
-    bool minusUnresolved;
-    bool plus = M8SkinKnownFree(coord + step, plusUnresolved);
-    bool minus = M8SkinKnownFree(coord - step, minusUnresolved);
-    unresolved = plusUnresolved || minusUnresolved;
-    if (plus == minus) return int3(0, 0, 0);
-    return plus ? step : -step;
-}
-
-bool M8SkinCompatible(int3 mainCoord, KernelState main,
-    int3 neighbourCoord, KernelState neighbour, out bool unresolved)
-{
-    bool aUnresolved;
-    bool bUnresolved;
-    int3 a = M8SkinFreeSide(mainCoord, main, aUnresolved);
-    int3 b = M8SkinFreeSide(neighbourCoord, neighbour, bUnresolved);
-    unresolved = aUnresolved || bUnresolved;
-    if (unresolved) return false;
-    if (all(a == 0) || all(b == 0)) return true;
-    return dot(a, b) >= 0;
-}
-
-bool M8TrySkinNeighbourMask(int3 globalCoord, KernelState main,
-    out uint neighbourMask, out bool unresolved)
-{
-    neighbourMask = 0u;
-    unresolved = false;
-    // The connectivity key is the full 26-neighbour set.
-    [loop]
-    for (uint neighbour = 0u; neighbour < M8_SKIN_NEIGHBOUR_COUNT;
-        neighbour++)
-    {
-        int3 relative = globalCoord + M8_SKIN_NEIGHBOURS[neighbour] -
-            gM8MembraneTileOrigin;
-        int3 tileOffset = int3(relative.x < 0 ? -1 : relative.x >= 8 ? 1 : 0,
-            relative.y < 0 ? -1 : relative.y >= 8 ? 1 : 0,
-            relative.z < 0 ? -1 : relative.z >= 8 ? 1 : 0);
-        uint slot = gM8MembraneTileSlots[M8MembraneTileIndex(tileOffset)];
-        if (slot == M8_MEMBRANE_TILE_UNRESOLVED)
-        {
-            unresolved = true;
-            return false;
-        }
-        if (slot == M8_MEMBRANE_TILE_MISSING) continue;
-        int3 local = relative - tileOffset * 8;
-        uint kernelLocal = (uint)local.x | ((uint)local.y << 3u) |
-            ((uint)local.z << 6u);
-        uint occupied = gM8MembraneOccupiedWords[
-            M8MembraneTileIndex(tileOffset) * MERKABA_M8_TILE_WORDS +
-            (kernelLocal >> 5u)];
-        if ((occupied & (1u << (kernelLocal & 31u))) == 0u) continue;
-        KernelState neighbourState;
-        bool neighbourResolved;
-        if (!M8TryLoadMembraneState(globalCoord +
-                M8_SKIN_NEIGHBOURS[neighbour], neighbourState,
-                neighbourResolved))
-        {
-            if (!neighbourResolved) unresolved = true;
-            continue;
-        }
-        if (!M8HasSurfacePlane(neighbourState.flags)) continue;
-        bool compatibilityUnresolved;
-        if (M8SkinCompatible(globalCoord, main,
-                globalCoord + M8_SKIN_NEIGHBOURS[neighbour],
-                neighbourState, compatibilityUnresolved))
-            neighbourMask |= 1u << neighbour;
-        if (compatibilityUnresolved) unresolved = true;
-    }
-    return true;
-}
-
+// The membrane is the frozen CPU/HLSL oracle: one measured MAIN owns one
+// 25 mm quad (4 vertices, 6 indices, 2 triangles) whose corners are shared
+// knots solved from the corner neighbourhood. The 50 mm support decides only
+// which samples are joined; it never defines a triangle.
 // Page p of this tile's chain, from the build's allocation list.
 uint M8TilePage(uint ordinal)
 {
@@ -1013,6 +942,7 @@ bool M8TakeRenderPages(uint pagesNeeded)
     }
     gM8MembraneAllocBase = allocBase;
     uint previous = M8_RENDER_PAGE_INVALID;
+    [loop]
     for (uint page = 0u; page < pagesNeeded; page++)
     {
         uint pageId = _M8RenderPageQueues[
@@ -1027,227 +957,34 @@ bool M8TakeRenderPages(uint pagesNeeded)
     gM8MembranePageCount = pagesNeeded;
     return true;
 }
+
 void M8DiscardTilePages()
 {
     // Pages of a rejected tile belong to no record; they return through the
     // retire ring of this slot like every page a build stops referencing.
     uint count = gM8MembranePageCount;
+    [loop]
     for (uint page = 0u; page < count; page++)
         M8RetirePage(M8TilePage(page));
 }
 
-uint M8SkinVisibleFaceletCount(uint neighbourMask)
+// The upper bound taken before emission is trimmed to the pages the tile
+// really filled; the surplus returns through the retire ring.
+void M8TrimTilePages(uint keepPages)
 {
-    uint count = 0u;
-    // Rolled: Unity's Vulkan compiler refuses to unroll the enclosing
-    // four-phase tile walk when these facelet loops are unrolled inside it.
+    uint count = gM8MembranePageCount;
+    if (keepPages >= count) return;
+    if (keepPages != 0u)
+        _M8RenderPageQueues[M8_RENDER_LINK_BASE +
+            M8TilePage(keepPages - 1u)] = M8_RENDER_PAGE_INVALID;
     [loop]
-    for (uint facelet = 0u; facelet < M8_SKIN_FACELET_COUNT; facelet++)
-        if ((M8_SKIN_FACELETS[facelet].w & neighbourMask) == 0u)
-            count++;
-    return count;
-}
-
-float3 M8SkinMeasuredShift(KernelState state)
-{
-    float3 normal;
-    float signedOffset;
-    M8DecodeSurfacePlane(state.flags, normal, signedOffset);
-    return normal * signedOffset;
-}
-
-// Scaffold point of a templateIndex vertex. The 50 mm support is topology only
-// and is never emitted as is. The point is scaled from one integer canonical
-// coordinate so every kernel that shares the vertex computes the same bits.
-float3 M8SkinScaffoldPoint(int3 globalCoord, uint vertexIndex)
-{
-    return (float3)(globalCoord * M8_SKIN_LATTICE_UNITS +
-        M8_SKIN_VERTICES[vertexIndex].xyz) *
-        (MERKABA_LATTICE_STEP / 6.0);
-}
-
-// P = Q + N (d - dot(Q - C, N)): the scaffold point projected onto one
-// owner's measured plane, which passes through C + N d.
-float3 M8SkinProjectOntoPlane(float3 scaffold, int3 ownerCoord,
-    KernelState owner)
-{
-    float3 normal;
-    float offset;
-    M8DecodeSurfacePlane(owner.flags, normal, offset);
-    float3 center = (float3)ownerCoord * MERKABA_LATTICE_STEP;
-    return scaffold + normal * (offset - dot(scaffold - center, normal));
-}
-
-// Owners of a boundary vertex are visited in canonical lattice order: the
-// neighbours below this kernel, this kernel, the neighbours above. The
-// neighbour table is generated in that order (z, y, x ascending) and this
-// kernel sorts between entries 12 and 13. Both sides of a shared boundary
-// visit the same sequence, so their floats agree bit for bit, and no private
-// array exists for the Adreno compiler to spill.
-#define M8_SKIN_SELF_ORDER 13u
-#define M8_SKIN_OWNER_ORDERS (M8_SKIN_NEIGHBOUR_COUNT + 1u)
-
-// Full canonical state of a resolved halo kernel through the cached tile
-// slots: colour and confidence come from the record, not from the halo
-// summary, so the live vertex equals the export vertex.
-KernelState M8LoadOwnerState(int3 globalCoord)
-{
-    int3 relative = globalCoord - gM8MembraneTileOrigin;
-    int3 tileOffset = int3(relative.x < 0 ? -1 : relative.x >= 8 ? 1 : 0,
-        relative.y < 0 ? -1 : relative.y >= 8 ? 1 : 0,
-        relative.z < 0 ? -1 : relative.z >= 8 ? 1 : 0);
-    int3 local = relative - tileOffset * 8;
-    uint slot = gM8MembraneTileSlots[M8MembraneTileIndex(tileOffset)];
-    uint kernelLocal = (uint)local.x | ((uint)local.y << 3u) |
-        ((uint)local.z << 6u);
-    return M8LoadKernelStateRead(slot, kernelLocal);
-}
-
-bool M8SkinOwnerAt(int3 globalCoord, KernelState state, uint sharedMask,
-    uint order, out int3 coord, out KernelState owner)
-{
-    if (order == M8_SKIN_SELF_ORDER)
-    {
-        coord = globalCoord;
-        owner = state;
-        return true;
-    }
-    uint index = order < M8_SKIN_SELF_ORDER ? order : order - 1u;
-    coord = globalCoord + M8_SKIN_NEIGHBOURS[index];
-    owner = (KernelState)0;
-    if ((sharedMask & (1u << index)) == 0u) return false;
-    KernelState summary;
-    bool resolved;
-    if (!M8TryLoadMembraneState(coord, summary, resolved) || !resolved ||
-        !M8HasSurfacePlane(summary.flags))
-        return false;
-    owner = M8LoadOwnerState(coord);
-    return true;
-}
-
-float3 M8SkinVertexPosition(int3 globalCoord, KernelState state,
-    uint neighbourMask, uint vertexIndex)
-{
-    float3 scaffold = M8SkinScaffoldPoint(globalCoord, vertexIndex);
-    if (!M8HasSurfacePlane(state.flags)) return scaffold;
-    uint sharedMask = asuint(M8_SKIN_VERTICES[vertexIndex].w) & neighbourMask;
-    float3 sum = 0.0;
-    uint count = 0u;
-    [loop]
-    for (uint order = 0u; order < M8_SKIN_OWNER_ORDERS; order++)
-    {
-        int3 coord;
-        KernelState owner;
-        if (!M8SkinOwnerAt(globalCoord, state, sharedMask, order, coord,
-                owner)) continue;
-        sum += M8SkinProjectOntoPlane(scaffold, coord, owner);
-        count++;
-    }
-    return sum / (float)count;
-}
-
-// Direction the visible sheet faces: the known-free side when the evidence
-// resolves it, otherwise the measured normal itself.
-float3 M8SkinFacing(int3 globalCoord, KernelState state)
-{
-    bool unresolved;
-    int3 free = M8SkinFreeSide(globalCoord, state, unresolved);
-    if (any(free != 0)) return normalize((float3)free);
-    float3 normal;
-    float offset;
-    M8DecodeSurfacePlane(state.flags, normal, offset);
-    return normal;
-}
-
-// Outward normal of a templateIndex facelet in the scaffold frame.
-float3 M8SkinFaceletNormal(uint4 facelet)
-{
-    int3 a = M8_SKIN_VERTICES[facelet.x].xyz;
-    int3 b = M8_SKIN_VERTICES[facelet.y].xyz;
-    int3 c = M8_SKIN_VERTICES[facelet.z].xyz;
-    return normalize((float3)cross(b - a, c - a));
-}
-
-#define M8_SKIN_FACING_THRESHOLD 0.2
-
-// Published when no compatible neighbour covers it and it faces the sheet's
-// free side: the projected boundary is the sheet, never the scaffold ridges.
-bool M8SkinFaceletVisible(uint4 facelet, uint neighbourMask, float3 facing)
-{
-    return (facelet.w & neighbourMask) == 0u &&
-        dot(M8SkinFaceletNormal(facelet), facing) > M8_SKIN_FACING_THRESHOLD;
-}
-
-uint M8SkinVertexColor(int3 globalCoord, KernelState state,
-    uint neighbourMask, uint vertexIndex)
-{
-    uint sharedMask = asuint(M8_SKIN_VERTICES[vertexIndex].w) & neighbourMask;
-    uint red = 0u, green = 0u, blue = 0u, total = 0u;
-    [loop]
-    for (uint order = 0u; order < M8_SKIN_OWNER_ORDERS; order++)
-    {
-        int3 coord;
-        KernelState owner;
-        if (!M8SkinOwnerAt(globalCoord, state, sharedMask, order, coord,
-                owner)) continue;
-        uint weight = max(1u, owner.colorConfidence);
-        uint packed = owner.packedColor;
-        red += (packed & 255u) * weight;
-        green += ((packed >> 8u) & 255u) * weight;
-        blue += ((packed >> 16u) & 255u) * weight;
-        total += weight;
-    }
-    // The gate forbids integer division here, so the mean uses a reciprocal.
-    float inverse = 1.0 / (float)max(1u, total);
-    uint r = min(255u, (uint)floor((float)red * inverse + 0.5));
-    uint g = min(255u, (uint)floor((float)green * inverse + 0.5));
-    uint b = min(255u, (uint)floor((float)blue * inverse + 0.5));
-    return r | (g << 8u) | (b << 16u) | 0xff000000u;
-}
-
-// The used-vertex set of one kernel, as a bitfield over the skin vertices.
-void M8SkinUsedVertices(uint neighbourMask, float3 facing, out uint used[
-    M8_SKIN_VERTEX_MASK_WORDS], out uint triangleCount)
-{
-    [unroll]
-    for (uint word = 0u; word < M8_SKIN_VERTEX_MASK_WORDS; word++)
-        used[word] = 0u;
-    triangleCount = 0u;
-    [loop]
-    for (uint facelet = 0u; facelet < M8_SKIN_FACELET_COUNT; facelet++)
-    {
-        uint4 entry = M8_SKIN_FACELETS[facelet];
-        if (!M8SkinFaceletVisible(entry, neighbourMask, facing)) continue;
-        triangleCount++;
-        used[entry.x >> 5u] |= 1u << (entry.x & 31u);
-        used[entry.y >> 5u] |= 1u << (entry.y & 31u);
-        used[entry.z >> 5u] |= 1u << (entry.z & 31u);
-    }
-}
-
-uint M8SkinVertexRank(uint used[M8_SKIN_VERTEX_MASK_WORDS], uint vertexIndex)
-{
-    uint word = vertexIndex >> 5u;
-    uint rank = 0u;
-    [unroll]
-    for (uint index = 0u; index < M8_SKIN_VERTEX_MASK_WORDS; index++)
-        if (index < word) rank += countbits(used[index]);
-    uint bit = vertexIndex & 31u;
-    uint below = bit == 0u ? 0u : ((1u << bit) - 1u);
-    return rank + countbits(used[word] & below);
-}
-
-uint M8SkinVertexCount(uint used[M8_SKIN_VERTEX_MASK_WORDS])
-{
-    uint count = 0u;
-    [unroll]
-    for (uint index = 0u; index < M8_SKIN_VERTEX_MASK_WORDS; index++)
-        count += countbits(used[index]);
-    return count;
+    for (uint page = keepPages; page < count; page++)
+        M8RetirePage(M8TilePage(page));
+    gM8MembranePageCount = keepPages;
 }
 
 // Vertex k of the tile lives in page chain[k >> 6], slot k & 63.
-uint M8SkinVertexSlot(uint tileVertex)
+uint M8MembraneVertexSlot(uint tileVertex)
 {
     return M8TilePage(tileVertex >> M8_RENDER_PAGE_VERTEX_SHIFT) *
         M8_RENDER_PAGE_VERTICES +
@@ -1255,82 +992,28 @@ uint M8SkinVertexSlot(uint tileVertex)
 }
 
 // Index j of the tile lives in page chain[j >> 8], slot j & 255.
-uint M8SkinIndexSlot(uint tileIndex)
+uint M8MembraneIndexSlot(uint tileIndex)
 {
     return M8TilePage(tileIndex >> M8_RENDER_PAGE_INDEX_SHIFT) *
         M8_RENDER_PAGE_INDICES +
         (tileIndex & (M8_RENDER_PAGE_INDICES - 1u));
 }
 
-// Template index of a neighbour's own vertex at scaffold offset (vertex
-// units), 255 when the point is not a templateIndex vertex of that neighbour.
-uint M8SkinLookupTemplate(int3 offset)
+// Four knots and six indices per patch. Knots shared with a neighbouring
+// patch are bit-identical duplicates (contract C6: no global vertex map).
+void M8EmitMembranePatch(M8OverlapPatch patch, uint patchIndex)
 {
-    if (any(abs(offset) > 6)) return 255u;
-    uint3 cell = (uint3)(offset + 6);
-    uint cellIndex = cell.x + cell.y * M8_SKIN_LOOKUP_SIDE +
-        cell.z * M8_SKIN_LOOKUP_SIDE * M8_SKIN_LOOKUP_SIDE;
-    return (M8_SKIN_VERTEX_LOOKUP[cellIndex >> 2u] >>
-        (8u * (cellIndex & 3u))) & 255u;
-}
-
-// Rank of a templateIndex vertex inside a kernel's ownership mask.
-uint M8SkinRankInKernel(uint kernelLocal, uint vertexIndex)
-{
-    uint base = kernelLocal * M8_SKIN_VERTEX_MASK_WORDS;
-    uint word = vertexIndex >> 5u;
-    uint rank = 0u;
+    uint vertexBase = patchIndex * M8_MEMBRANE_VERTICES_PER_PATCH;
+    uint indexBase = patchIndex * M8_MEMBRANE_INDICES_PER_PATCH;
     [unroll]
-    for (uint index = 0u; index < M8_SKIN_VERTEX_MASK_WORDS; index++)
-        if (index < word) rank += countbits(gM8SkinOwnedMasks[base + index]);
-    uint bit = vertexIndex & 31u;
-    uint below = bit == 0u ? 0u : ((1u << bit) - 1u);
-    return rank + countbits(gM8SkinOwnedMasks[base + word] & below);
-}
-
-bool M8SkinKernelHasVertex(uint kernelLocal, uint vertexIndex)
-{
-    return (gM8SkinOwnedMasks[kernelLocal * M8_SKIN_VERTEX_MASK_WORDS +
-        (vertexIndex >> 5u)] & (1u << (vertexIndex & 31u))) != 0u;
-}
-
-// The in-tile kernel of neighbour bit n relative to kernelLocal, or 0xffffffff
-// when that neighbour lies in another tile.
-uint M8SkinNeighbourKernel(uint kernelLocal, uint neighbour)
-{
-    int3 local = int3(kernelLocal & 7u, (kernelLocal >> 3u) & 7u,
-        (kernelLocal >> 6u) & 7u) + M8_SKIN_NEIGHBOURS[neighbour];
-    if (any(local < 0) || any(local > 7)) return 0xffffffffu;
-    return (uint)local.x | ((uint)local.y << 3u) | ((uint)local.z << 6u);
-}
-
-// Slot of a vertex this kernel uses: its own slot when it owns the point,
-// otherwise the slot of the lowest ordered compatible in-tile kernel that
-// owns the same physical point.
-uint M8SkinResolveVertexSlot(uint kernelLocal, uint neighbourMask,
-    uint vertexIndex, uint vertexBase)
-{
-    if (M8SkinKernelHasVertex(kernelLocal, vertexIndex))
-        return M8SkinVertexSlot(vertexBase +
-            M8SkinRankInKernel(kernelLocal, vertexIndex));
-    int3 vertex = M8_SKIN_VERTICES[vertexIndex].xyz;
-    uint contacts = asuint(M8_SKIN_VERTICES[vertexIndex].w) & neighbourMask;
-    [loop]
-    for (uint neighbour = 0u; neighbour < M8_SKIN_NEIGHBOUR_COUNT;
-        neighbour++)
-    {
-        if ((contacts & (1u << neighbour)) == 0u) continue;
-        uint other = M8SkinNeighbourKernel(kernelLocal, neighbour);
-        if (other >= kernelLocal) continue;
-        uint templateIndex = M8SkinLookupTemplate(vertex -
-            M8_SKIN_NEIGHBOURS[neighbour] * 6);
-        if (templateIndex == 255u || !M8SkinKernelHasVertex(other, templateIndex))
-            continue;
-        return M8SkinVertexSlot((gM8SkinKernelBase[other] & 0x7fffu) +
-            M8SkinRankInKernel(other, templateIndex));
-    }
-    // Unreachable by construction; degenerate onto this kernel's first slot.
-    return M8SkinVertexSlot(vertexBase);
+    for (uint corner = 0u; corner < M8_MEMBRANE_VERTICES_PER_PATCH; corner++)
+        M8StoreRenderVertex(M8MembraneVertexSlot(vertexBase + corner),
+            M8OverlapPatchCorner(patch, corner),
+            M8OverlapPatchColor(patch, corner));
+    [unroll]
+    for (uint index = 0u; index < M8_MEMBRANE_INDICES_PER_PATCH; index++)
+        _M8RenderIndices[M8MembraneIndexSlot(indexBase + index)] =
+            M8MembraneVertexSlot(vertexBase + M8OverlapTriangleCorner(index));
 }
 
 [numthreads(128, 1, 1)]
@@ -1340,13 +1023,12 @@ void BuildRenderTiles(uint3 groupId : SV_GroupID,
     // The build kernel owns the work slot: it reads through the RW view so
     // the gate never sees an RW/read alias pair for _M8VisibleTiles.
     uint physicalSlot = _M8VisibleTiles[groupId.x].x;
-    // One prologue barrier only: the gate caps this kernel at eight.
     if (thread == 0u)
     {
         gM8MembraneMeasuredTotal = 0u;
         gM8MembranePageCount = 0u;
         gM8MembranePatchTotal = 0u;
-        gM8SkinVertexTotal = 0u;
+        gM8MembraneCanEmit = 0u;
         gM8MembraneFailed = 0u;
         gM8MembraneUnresolved = 0u;
         uint ignored;
@@ -1357,6 +1039,9 @@ void BuildRenderTiles(uint3 groupId : SV_GroupID,
             _M8RenderIndexBack[base + 0u] = 0u;
             _M8RenderIndexBack[base + 1u] = 0u;
             _M8RenderIndexBack[base + 2u] = 0u;
+            _M8RenderIndexBack[base + M8_RENDER_RECORD_FIRST_PAGE] =
+                M8_RENDER_PAGE_INVALID;
+            _M8RenderIndexBack[base + M8_RENDER_RECORD_VERSION] = 0u;
             InterlockedAnd(
                 _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].w,
                 ~(M8_RENDER_DIRTY | M8_RENDER_PENDING |
@@ -1417,210 +1102,88 @@ void BuildRenderTiles(uint3 groupId : SV_GroupID,
     }
     GroupMemoryBarrierWithGroupSync();
 
-    // Phase A: every kernel's used-vertex set from its own boundary decision.
-    // The loops stay rolled so the Vulkan compiler does not clone the oracle.
+    // Cheap upper bound first: four vertices per measured MAIN dominate the
+    // six-index stream, so a full 512-kernel tile needs at most 32 pages.
     [loop]
-    for (uint batchA = 0u; batchA < 4u; batchA++)
+    for (uint batch = 0u; batch < 4u; batch++)
     {
-        uint kernelLocal = thread + batchA * M8_SHELL_GROUP_THREADS;
+        uint kernelLocal = thread + batch * M8_SHELL_GROUP_THREADS;
+        uint occupancy = gM8MembraneOccupiedWords[
+            M8_MEMBRANE_CENTER_TILE * MERKABA_M8_TILE_WORDS +
+            (kernelLocal >> 5u)];
+        if ((occupancy & (1u << (kernelLocal & 31u))) == 0u) continue;
+        uint flags = M8LoadKernelFlagsOnly(physicalSlot, kernelLocal);
+        if ((flags & MERKABA_OCCUPIED_FLAG) == 0u ||
+            !M8HasSurfacePlane(flags))
+            continue;
+        uint ignored;
+        InterlockedAdd(gM8MembraneMeasuredTotal, 1u, ignored);
+        InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_PLANE_VALID], 1u,
+            ignored);
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (thread == 0u)
+    {
+        uint vertexTotal = gM8MembraneMeasuredTotal *
+            M8_MEMBRANE_VERTICES_PER_PATCH;
+        uint indexTotal = gM8MembraneMeasuredTotal *
+            M8_MEMBRANE_INDICES_PER_PATCH;
+        uint vertexPages = (vertexTotal + M8_RENDER_PAGE_VERTICES - 1u) >>
+            M8_RENDER_PAGE_VERTEX_SHIFT;
+        uint indexPages = (indexTotal + M8_RENDER_PAGE_INDICES - 1u) >>
+            M8_RENDER_PAGE_INDEX_SHIFT;
+        if (M8TakeRenderPages(max(vertexPages, indexPages)))
+            gM8MembraneCanEmit = 1u;
+        else
+        {
+            gM8MembraneFailed = 1u;
+            _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] = 1u;
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // One oracle evaluation per measured MAIN. Patch order inside a tile is
+    // irrelevant to topology, so one atomic ticket places the patch; every
+    // ticket owns four vertices and six indices, so no storage page can
+    // change primitive grouping.
+    [loop]
+    for (uint batch = 0u; batch < 4u; batch++)
+    {
+        uint kernelLocal = thread + batch * M8_SHELL_GROUP_THREADS;
         uint mainOccupancy = gM8MembraneOccupiedWords[
             M8_MEMBRANE_CENTER_TILE * MERKABA_M8_TILE_WORDS +
             (kernelLocal >> 5u)];
-        bool occupied = (mainOccupancy &
-            (1u << (kernelLocal & 31u))) != 0u;
-        bool measured = false;
+        if ((mainOccupancy & (1u << (kernelLocal & 31u))) == 0u ||
+            gM8MembraneCanEmit == 0u)
+            continue;
+        KernelState state = M8LoadKernelStateRead(physicalSlot, kernelLocal);
+        if ((state.flags & MERKABA_OCCUPIED_FLAG) == 0u ||
+            !M8HasSurfacePlane(state.flags))
+            continue;
+        int3 globalCoord = context.tileOrigin + int3(
+            kernelLocal & 7u, (kernelLocal >> 3u) & 7u,
+            (kernelLocal >> 6u) & 7u);
         bool unresolved = false;
-        uint neighbourMask = 0u;
-        uint triangleCount = 0u;
-        uint used[M8_SKIN_VERTEX_MASK_WORDS];
-        [unroll]
-        for (uint clear = 0u; clear < M8_SKIN_VERTEX_MASK_WORDS; clear++)
-            used[clear] = 0u;
-        if (occupied)
-        {
-            KernelState state = M8LoadKernelStateRead(physicalSlot,
-                kernelLocal);
-            int3 globalCoord = context.tileOrigin + int3(
-                kernelLocal & 7u, (kernelLocal >> 3u) & 7u,
-                (kernelLocal >> 6u) & 7u);
-            measured = (state.flags & MERKABA_OCCUPIED_FLAG) != 0u &&
-                M8HasSurfacePlane(state.flags);
-            if (measured && M8TrySkinNeighbourMask(globalCoord, state,
-                    neighbourMask, unresolved))
-                M8SkinUsedVertices(neighbourMask,
-                    M8SkinFacing(globalCoord, state), used, triangleCount);
-        }
-        [unroll]
-        for (uint word = 0u; word < M8_SKIN_VERTEX_MASK_WORDS; word++)
-            gM8SkinOwnedMasks[kernelLocal * M8_SKIN_VERTEX_MASK_WORDS + word] =
-                used[word];
-        gM8SkinKernelBase[kernelLocal] = (triangleCount * 3u) << 15u;
-        gM8SkinKernelNeighbours[kernelLocal] = neighbourMask;
+        M8OverlapPatch patch = (M8OverlapPatch)0;
+        bool valid = M8TryBuildMembranePatch(globalCoord, state, patch,
+            unresolved);
+        uint ignored;
         if (unresolved)
-        {
-            uint ignored;
             InterlockedOr(gM8MembraneUnresolved, 1u, ignored);
-        }
-        if (measured)
+        if (!valid)
         {
-            uint ignored;
-            InterlockedAdd(gM8MembraneMeasuredTotal, 1u, ignored);
-            InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_PLANE_VALID],
-                1u, ignored);
+            if (!unresolved)
+                InterlockedAdd(
+                    _M8Counters[M8_COUNTER_READOUT_PLANE_LEGACY_INVALID],
+                    1u, ignored);
+            continue;
         }
-    }
-
-    // Phase B, ascending: a kernel owns a used vertex unless a lower ordered
-    // compatible in-tile kernel uses the same physical point. Lower kernels of
-    // earlier batches already hold ownership masks, same-batch lower kernels
-    // still hold used masks; both answer that question correctly.
-    [loop]
-    for (uint batchB = 0u; batchB < 4u; batchB++)
-    {
-        // Makes phase A, or the previous batch's ownership writes, visible.
-        GroupMemoryBarrierWithGroupSync();
-        uint kernelLocal = thread + batchB * M8_SHELL_GROUP_THREADS;
-        uint maskBase = kernelLocal * M8_SKIN_VERTEX_MASK_WORDS;
-        uint owned[M8_SKIN_VERTEX_MASK_WORDS];
-        [unroll]
-        for (uint word = 0u; word < M8_SKIN_VERTEX_MASK_WORDS; word++)
-            owned[word] = gM8SkinOwnedMasks[maskBase + word];
-        uint neighbourMask = gM8SkinKernelNeighbours[kernelLocal];
-        [loop]
-        for (uint neighbour = 0u; neighbour < M8_SKIN_NEIGHBOUR_COUNT;
-            neighbour++)
-        {
-            if ((neighbourMask & (1u << neighbour)) == 0u) continue;
-            uint other = M8SkinNeighbourKernel(kernelLocal, neighbour);
-            if (other >= kernelLocal) continue;
-            int3 shift = M8_SKIN_NEIGHBOURS[neighbour] * 6;
-            [unroll]
-            for (uint word = 0u; word < M8_SKIN_VERTEX_MASK_WORDS; word++)
-            {
-                uint candidates = owned[word] & M8_SKIN_NEIGHBOUR_CONTACTS[
-                    neighbour * M8_SKIN_VERTEX_MASK_WORDS + word];
-                [loop]
-                while (candidates != 0u)
-                {
-                    uint bit = firstbitlow(candidates);
-                    candidates &= ~(1u << bit);
-                    uint vertex = word * 32u + bit;
-                    uint templateIndex = M8SkinLookupTemplate(
-                        M8_SKIN_VERTICES[vertex].xyz - shift);
-                    if (templateIndex != 255u &&
-                        M8SkinKernelHasVertex(other, templateIndex))
-                        owned[word] &= ~(1u << bit);
-                }
-            }
-        }
-        uint ownedCount = M8SkinVertexCount(owned);
-        GroupMemoryBarrierWithGroupSync();
-        [unroll]
-        for (uint word = 0u; word < M8_SKIN_VERTEX_MASK_WORDS; word++)
-            gM8SkinOwnedMasks[maskBase + word] = owned[word];
-        gM8SkinKernelBase[kernelLocal] |= ownedCount;
+        uint patchIndex;
+        InterlockedAdd(gM8MembranePatchTotal, 1u, patchIndex);
+        M8EmitMembranePatch(patch, patchIndex);
     }
     GroupMemoryBarrierWithGroupSync();
-
-    // Prefix sums over the tile, one allocation for the whole publication.
-    if (thread == 0u)
-    {
-        uint vertexTotal = 0u;
-        uint indexTotal = 0u;
-        [loop]
-        for (uint kernel = 0u; kernel < M8_SKIN_KERNELS_PER_TILE; kernel++)
-        {
-            uint packed = gM8SkinKernelBase[kernel];
-            uint vertexCount = packed & 0x7fffu;
-            uint indexCount = packed >> 15u;
-            gM8SkinKernelBase[kernel] = vertexTotal | (indexTotal << 15u);
-            vertexTotal += vertexCount;
-            indexTotal += indexCount;
-        }
-        gM8SkinVertexTotal = vertexTotal;
-        gM8MembranePatchTotal = indexTotal;
-        gM8MembraneCanEmit = 0u;
-        if (gM8MembraneUnresolved == 0u && indexTotal != 0u)
-        {
-            // A page carries both the vertices and the indices of this tile,
-            // so the chain is as long as the denser of the two.
-            uint indexPages = (indexTotal + M8_RENDER_PAGE_INDICES - 1u) >>
-                M8_RENDER_PAGE_INDEX_SHIFT;
-            uint vertexPages = (vertexTotal + M8_RENDER_PAGE_VERTICES - 1u) >>
-                M8_RENDER_PAGE_VERTEX_SHIFT;
-            if (M8TakeRenderPages(max(indexPages, vertexPages)))
-                gM8MembraneCanEmit = 1u;
-            else
-            {
-                gM8MembraneFailed = 1u;
-                _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] = 1u;
-            }
-        }
-    }
-    GroupMemoryBarrierWithGroupSync();
-
-    // Phase C: owned vertices are written once; every facelet corner resolves
-    // to the slot of the kernel that owns that physical point.
-    if (gM8MembraneCanEmit != 0u)
-    {
-        [loop]
-        for (uint batchC = 0u; batchC < 4u; batchC++)
-        {
-            uint kernelLocal = thread + batchC * M8_SHELL_GROUP_THREADS;
-            uint packed = gM8SkinKernelBase[kernelLocal];
-            uint vertexBase = packed & 0x7fffu;
-            uint indexBase = packed >> 15u;
-            uint neighbourMask = gM8SkinKernelNeighbours[kernelLocal];
-            uint maskBase = kernelLocal * M8_SKIN_VERTEX_MASK_WORDS;
-            bool hasWork = false;
-            [unroll]
-            for (uint word = 0u; word < M8_SKIN_VERTEX_MASK_WORDS; word++)
-                hasWork = hasWork || gM8SkinOwnedMasks[maskBase + word] != 0u;
-            uint nextPacked = kernelLocal + 1u < M8_SKIN_KERNELS_PER_TILE
-                ? gM8SkinKernelBase[kernelLocal + 1u]
-                : (gM8SkinVertexTotal | (gM8MembranePatchTotal << 15u));
-            bool hasIndices = (nextPacked >> 15u) != indexBase;
-            if (!hasWork && !hasIndices) continue;
-
-            KernelState state = M8LoadKernelStateRead(physicalSlot,
-                kernelLocal);
-            int3 globalCoord = context.tileOrigin + int3(
-                kernelLocal & 7u, (kernelLocal >> 3u) & 7u,
-                (kernelLocal >> 6u) & 7u);
-            float3 facing = M8SkinFacing(globalCoord, state);
-            uint emitted = 0u;
-            [loop]
-            for (uint vertex = 0u; vertex < M8_SKIN_VERTEX_COUNT; vertex++)
-            {
-                if (!M8SkinKernelHasVertex(kernelLocal, vertex)) continue;
-                M8StoreRenderVertex(M8SkinVertexSlot(vertexBase + emitted),
-                    M8SkinVertexPosition(globalCoord, state, neighbourMask,
-                        vertex),
-                    M8SkinVertexColor(globalCoord, state, neighbourMask,
-                        vertex));
-                emitted++;
-            }
-            uint localIndex = 0u;
-            [loop]
-            for (uint facelet = 0u; facelet < M8_SKIN_FACELET_COUNT;
-                facelet++)
-            {
-                uint4 entry = M8_SKIN_FACELETS[facelet];
-                if (!M8SkinFaceletVisible(entry, neighbourMask, facing))
-                    continue;
-                _M8RenderIndices[M8SkinIndexSlot(indexBase + localIndex)] =
-                    M8SkinResolveVertexSlot(kernelLocal, neighbourMask,
-                        entry.x, vertexBase);
-                _M8RenderIndices[M8SkinIndexSlot(indexBase + localIndex + 1u)] =
-                    M8SkinResolveVertexSlot(kernelLocal, neighbourMask,
-                        entry.y, vertexBase);
-                _M8RenderIndices[M8SkinIndexSlot(indexBase + localIndex + 2u)] =
-                    M8SkinResolveVertexSlot(kernelLocal, neighbourMask,
-                        entry.z, vertexBase);
-                localIndex += 3u;
-            }
-        }
-    }
 
     if (thread != 0u) return;
     uint4 meta = _M8TileRecords[M8TileMetaIndex(physicalSlot)];
@@ -1653,9 +1216,20 @@ void BuildRenderTiles(uint3 groupId : SV_GroupID,
         }
         return;
     }
+
+    uint vertexTotal = gM8MembranePatchTotal *
+        M8_MEMBRANE_VERTICES_PER_PATCH;
+    uint indexTotal = gM8MembranePatchTotal *
+        M8_MEMBRANE_INDICES_PER_PATCH;
+    uint vertexPages = (vertexTotal + M8_RENDER_PAGE_VERTICES - 1u) >>
+        M8_RENDER_PAGE_VERTEX_SHIFT;
+    uint indexPages = (indexTotal + M8_RENDER_PAGE_INDICES - 1u) >>
+        M8_RENDER_PAGE_INDEX_SHIFT;
+    M8TrimTilePages(max(vertexPages, indexPages));
+
     M8RetireBackRecordPages(base);
     // Record 0 is the published index count of this tile.
-    _M8RenderIndexBack[base + 0u] = gM8MembranePatchTotal;
+    _M8RenderIndexBack[base + 0u] = indexTotal;
     _M8RenderIndexBack[base + 1u] = gM8MembranePageCount;
     _M8RenderIndexBack[base + 2u] =
         meta.x * MERKABA_M8_TILES_PER_CHUNK + meta.y + 1u;
@@ -1734,7 +1308,8 @@ void ValidatePublication(uint id : SV_DispatchThreadID)
         uint indexCount = _M8RenderIndexBack[base + 0u];
         uint pages = _M8RenderIndexBack[base + 1u];
         valid = pages <= M8_RENDER_TILE_MAX_PAGES &&
-            indexCount <= pages * M8_RENDER_PAGE_INDICES;
+            indexCount <= pages * M8_RENDER_PAGE_INDICES &&
+            (indexCount % M8_MEMBRANE_INDICES_PER_PATCH) == 0u;
         uint page = _M8RenderIndexBack[base + M8_RENDER_RECORD_FIRST_PAGE];
         uint remaining = indexCount;
         [loop]
@@ -1775,15 +1350,16 @@ void ValidatePublication(uint id : SV_DispatchThreadID)
 void FinalizeReadout(uint id : SV_DispatchThreadID)
 {
     uint tiles = _M8RenderIndexBack[0];
-    uint patches = _M8RenderIndexBack[1];
+    uint indices = _M8RenderIndexBack[1];
     _M8Counters[M8_COUNTER_RENDER_PUBLISHED_TILES] = tiles;
-    _M8Counters[M8_COUNTER_RENDER_PUBLISHED_PATCHES] = patches;
-    // The publication counts indices; report triangles.
-    uint publishedTriangles = patches / 3u;
-    _M8Counters[M8_COUNTER_RENDER_PUBLISHED_PATCHES] = publishedTriangles;
+    // The publication counts indices; report patches and triangles.
+    uint publishedPatches = indices / M8_MEMBRANE_INDICES_PER_PATCH;
+    uint publishedTriangles = indices / 3u;
+    _M8Counters[M8_COUNTER_RENDER_PUBLISHED_PATCHES] = publishedPatches;
     _M8Counters[M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES] = publishedTriangles;
     _M8Counters[M8_COUNTER_READOUT_EMITTED_TRIANGLES] =
-        _M8Counters[M8_COUNTER_READOUT_EMITTED_PATCHES] / 3u;
+        _M8Counters[M8_COUNTER_READOUT_EMITTED_PATCHES] *
+        M8_MEMBRANE_TRIANGLES_PER_PATCH;
     uint dirtyHead = _M8Counters[M8_COUNTER_RENDER_JOURNAL_HEAD];
     uint dirtyTail = _M8Counters[M8_COUNTER_RENDER_JOURNAL_TAIL];
     uint backlog = dirtyTail != dirtyHead ||
@@ -1827,12 +1403,15 @@ groupshared uint gM8CullPages[M8_CULL_GROUP_THREADS];
 groupshared uint gM8CullPrefix[M8_CULL_GROUP_THREADS];
 groupshared uint gM8CullBase;
 
+// Cull control while culling: 0 visible pages, 1 exact index count,
+// 2 overflow flag. PrepareVisibleIndices turns it into the emit dispatch.
 [numthreads(128, 1, 1)]
 void CullRenderTiles(uint3 groupId : SV_GroupID,
     uint lane : SV_GroupIndex)
 {
     uint listIndex = groupId.x * M8_CULL_GROUP_THREADS + lane;
     uint base = 0u;
+    uint indexCount = 0u;
     uint pages = 0u;
     if (listIndex < M8FrontTileCount())
     {
@@ -1850,9 +1429,15 @@ void CullRenderTiles(uint3 groupId : SV_GroupID,
             (!M8SphereOutsideFrustum(center, radius, 0u) ||
              !M8SphereOutsideFrustum(center, radius, 6u));
         if (visible)
-            pages = min(_M8RenderIndexFrontRead[base + 1u],
-                M8_RENDER_TILE_MAX_PAGES);
+        {
+            indexCount = _M8RenderIndexFrontRead[base + 0u];
+            // The record's page count is max(vertexPages, indexPages);
+            // visibility walks only the prefix that stores indices.
+            pages = (indexCount + M8_RENDER_PAGE_INDICES - 1u) >>
+                M8_RENDER_PAGE_INDEX_SHIFT;
+        }
     }
+
     gM8CullPages[lane] = pages;
     GroupMemoryBarrierWithGroupSync();
 
@@ -1866,24 +1451,41 @@ void CullRenderTiles(uint3 groupId : SV_GroupID,
             total += gM8CullPages[entry];
         }
         InterlockedAdd(_M8CullControl[0], total, gM8CullBase);
+        if (gM8CullBase + total > M8_RENDER_PAGE_CAPACITY)
+            _M8CullControl[2] = 1u;
     }
     GroupMemoryBarrierWithGroupSync();
 
-    if (pages == 0u) return;
-    uint indexCount = _M8RenderIndexFrontRead[base];
-    uint output = gM8CullBase + gM8CullPrefix[lane];
+    if (pages == 0u || indexCount == 0u) return;
+    uint outputPage = gM8CullBase + gM8CullPrefix[lane];
+    if (outputPage + pages > M8_RENDER_PAGE_CAPACITY) return;
+
+    // One contiguous primitive stream per visible tile: storage pages are
+    // never primitive boundaries, so no page tail can join unrelated
+    // triangle vertices.
+    uint tileOutputBase;
+    InterlockedAdd(_M8CullControl[1], indexCount, tileOutputBase);
+    if (tileOutputBase + indexCount >
+        M8_RENDER_PAGE_CAPACITY * M8_RENDER_PAGE_INDICES)
+    {
+        _M8CullControl[2] = 1u;
+        return;
+    }
+
     uint pageId = _M8RenderIndexFrontRead[
         base + M8_RENDER_RECORD_FIRST_PAGE];
-    // One entry per page of published indices, with how much of it is live.
+    [loop]
     for (uint page = 0u; page < pages; page++)
     {
-        if (output + page >= M8_RENDER_PAGE_CAPACITY ||
-            pageId == M8_RENDER_PAGE_INVALID) return;
+        if (pageId >= M8_RENDER_PAGE_CAPACITY)
+        {
+            _M8CullControl[2] = 1u;
+            return;
+        }
         uint consumed = page * M8_RENDER_PAGE_INDICES;
-        if (consumed >= indexCount) return;
         uint used = min(indexCount - consumed, M8_RENDER_PAGE_INDICES);
-        _M8VisiblePages[output + page] = pageId |
-            ((used - 1u) << M8_RENDER_VISIBLE_USED_SHIFT);
+        _M8VisiblePages[outputPage + page] = uint4(pageId, used,
+            tileOutputBase + consumed, 0u);
         pageId = _M8RenderPageQueues[M8_RENDER_LINK_BASE + pageId];
     }
 }
@@ -1892,32 +1494,43 @@ void CullRenderTiles(uint3 groupId : SV_GroupID,
 void PrepareVisibleIndices(uint id : SV_DispatchThreadID)
 {
     uint pages = min(_M8CullControl[0], M8_RENDER_PAGE_CAPACITY);
-    // One emit thread per published index page.
-    _M8CullControl[1] = (pages + M8_EMIT_GROUP_THREADS - 1u) >> 6u;
-    _M8CullControl[2] = 1u;
-    _M8CullControl[3] = 1u;
-    _M8RenderDrawArgs[0] = pages * M8_RENDER_PAGE_INDICES;
+    uint totalIndices = _M8CullControl[1];
+    // Exactly the published indices of the visible tiles are drawn. A stream
+    // that is not whole triangles is publication corruption: draw nothing.
+    bool valid = _M8CullControl[2] == 0u &&
+        totalIndices <= M8_RENDER_PAGE_CAPACITY * M8_RENDER_PAGE_INDICES &&
+        (totalIndices % 3u) == 0u;
+
+    _M8RenderDrawArgs[0] = valid ? totalIndices : 0u;
     _M8RenderDrawArgs[1] = 2u;
     _M8RenderDrawArgs[2] = 0u;
     _M8RenderDrawArgs[3] = 0u;
     _M8RenderDrawArgs[4] = 0u;
+
+    // Words 1..3 become the indirect emit dispatch once the exact index
+    // count has been copied to the draw arguments.
+    _M8CullControl[0] = valid ? pages : 0u;
+    _M8CullControl[1] = valid
+        ? (pages + M8_EMIT_GROUP_THREADS - 1u) >> 6u : 0u;
+    _M8CullControl[2] = 1u;
+    _M8CullControl[3] = 1u;
 }
 
 [numthreads(64, 1, 1)]
 void EmitVisibleIndices(uint id : SV_DispatchThreadID)
 {
     if (id >= min(_M8CullControlRead[0], M8_RENDER_PAGE_CAPACITY)) return;
-    uint entry = _M8VisiblePagesRead[id];
-    uint page = entry & M8_RENDER_PAGE_ID_MASK;
-    uint used = ((entry >> M8_RENDER_VISIBLE_USED_SHIFT) &
-        M8_RENDER_VISIBLE_USED_MASK) + 1u;
+    uint4 entry = _M8VisiblePagesRead[id];
+    uint page = entry.x;
+    uint used = entry.y;
+    uint output = entry.z;
+    if (page >= M8_RENDER_PAGE_CAPACITY || used == 0u ||
+        used > M8_RENDER_PAGE_INDICES)
+        return;
     uint source = page * M8_RENDER_PAGE_INDICES;
-    uint output = id * M8_RENDER_PAGE_INDICES * 4u;
-    uint first = _M8RenderIndicesRead[source];
-    // The published indices are copied verbatim; the tail of a partially
-    // filled page degenerates onto its first vertex.
+    // Exactly the live indices of this page at the tile's stream position.
     [loop]
-    for (uint slot = 0u; slot < M8_RENDER_PAGE_INDICES; slot++)
-        _M8VisibleIndices.Store(output + slot * 4u,
-            slot < used ? _M8RenderIndicesRead[source + slot] : first);
+    for (uint slot = 0u; slot < used; slot++)
+        _M8VisibleIndices.Store((output + slot) * 4u,
+            _M8RenderIndicesRead[source + slot]);
 }
