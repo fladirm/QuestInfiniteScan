@@ -781,6 +781,35 @@ namespace Genesis.RoomScan
             return normal * signedOffset;
         }
 
+        internal const int LookupSide = 13;
+
+        /// <summary>
+        /// Template index of the scaffold offset (x, y, z) in vertex units, or
+        /// -1. A neighbour at lattice offset o sees this kernel's vertex v as
+        /// its own template vertex v - 6 o.
+        /// </summary>
+        internal static int TemplateIndexOfOffset(int3 offset)
+        {
+            if (math.any(math.abs(offset) > SupportHalfUnits)) return -1;
+            for (int index = 0; index < _vertices.Length; index++)
+                if (math.all(_vertices[index] == offset)) return index;
+            return -1;
+        }
+
+        /// <summary>Template vertices in contact with neighbour bit n.</summary>
+        internal static uint ContactMaskWord(int neighbour, int word)
+        {
+            uint result = 0u;
+            for (int bit = 0; bit < 32; bit++)
+            {
+                int vertex = word * 32 + bit;
+                if (vertex >= _vertexContacts.Length) break;
+                if ((_vertexContacts[vertex] & (1u << neighbour)) != 0u)
+                    result |= 1u << bit;
+            }
+            return result;
+        }
+
         internal static string BuildGeneratedHlsl()
         {
             var text = new StringBuilder(96 * 1024);
@@ -830,6 +859,59 @@ namespace Genesis.RoomScan
                     .Append("u, 0x").Append(facelet.OccluderMask
                         .ToString("x8")).Append("u)");
                 text.AppendLine(index + 1 == _facelets.Length ? "" : ",");
+            }
+            text.AppendLine("};");
+            text.AppendLine();
+            int words = (_vertices.Length + 31) / 32;
+            text.AppendLine("// Template vertices in contact with each neighbour.");
+            text.AppendLine("static const uint M8_SKIN_NEIGHBOUR_CONTACTS[" +
+                (NeighboursValue.Length * words) + "] = {");
+            for (int neighbour = 0; neighbour < NeighboursValue.Length; neighbour++)
+            {
+                text.Append("    ");
+                for (int word = 0; word < words; word++)
+                {
+                    text.Append("0x").Append(ContactMaskWord(neighbour, word)
+                        .ToString("x8")).Append('u');
+                    bool last = neighbour + 1 == NeighboursValue.Length &&
+                        word + 1 == words;
+                    text.Append(last ? "" : ", ");
+                }
+                text.AppendLine();
+            }
+            text.AppendLine("};");
+            text.AppendLine();
+            text.AppendLine("// Template index of a scaffold offset in [-6, 6]^3, " +
+                "255 when none.");
+            text.AppendLine("#define M8_SKIN_LOOKUP_SIDE 13u");
+            text.AppendLine("static const uint M8_SKIN_VERTEX_LOOKUP[" +
+                (LookupSide * LookupSide * LookupSide / 4 + 1) + "] = {");
+            var packed = new List<uint>();
+            uint current = 0u;
+            int filled = 0;
+            for (int z = -SupportHalfUnits; z <= SupportHalfUnits; z++)
+            for (int y = -SupportHalfUnits; y <= SupportHalfUnits; y++)
+            for (int x = -SupportHalfUnits; x <= SupportHalfUnits; x++)
+            {
+                int index = TemplateIndexOfOffset(new int3(x, y, z));
+                uint value = index < 0 ? 255u : (uint)index;
+                current |= value << (8 * filled);
+                if (++filled == 4)
+                {
+                    packed.Add(current);
+                    current = 0u;
+                    filled = 0;
+                }
+            }
+            packed.Add(current);
+            for (int index = 0; index < packed.Count; index++)
+            {
+                if (index % 6 == 0) text.Append("    ");
+                text.Append("0x").Append(packed[index].ToString("x8"))
+                    .Append('u');
+                text.Append(index + 1 == packed.Count ? "" : ", ");
+                if (index % 6 == 5 || index + 1 == packed.Count)
+                    text.AppendLine();
             }
             text.AppendLine("};");
             text.AppendLine();

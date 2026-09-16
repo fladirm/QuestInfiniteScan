@@ -27,7 +27,7 @@ namespace Genesis.RoomScan
         internal const int RenderPageVertices = 64;
         internal const int RenderPageIndices = 256;
         internal const int RenderPageCapacity = 65536;
-        internal const int RenderTileMaxPages = 2560;
+        internal const int RenderTileMaxPages = 512;
         // Records carry a linked-list head; page links live in the allocator.
         internal const int RenderRecordWords = 8;
         internal const int RenderIndexHeader = 8;
