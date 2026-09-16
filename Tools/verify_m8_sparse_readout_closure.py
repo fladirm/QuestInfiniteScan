@@ -193,7 +193,7 @@ checks["membrane compatibility is residual-based, not quantized"] = \
     "M8_MEMBRANE_COMPATIBLE_AXIS_COSINE" in text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl")
 checks["knots carry global identity and canonical colour"] = \
     "internal readonly int3 LineAddress;" in membrane and \
-    "M8LoadMembraneColor(coords[(uint)best]" in text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl")
+    "M8LoadMembraneColor(bestCoord, ownerColor, ownerConfidence)" in text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl")
 checks["membrane pitch is frozen at one 25 mm lattice step"] = \
     "MembranePatchPitch = MerkabaConstants.LatticeStep" in membrane
 checks["the publication producer has a diagnostic hard-off"] = \

@@ -139,28 +139,15 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                 half3 color = input.hasRgb != 0u
                     ? input.color : half3(0.625h, 0.625h, 0.625h);
 #if defined(M8_CHECKER_READOUT)
-                // Coverage readout: the parity is the canonical 25 mm lattice
-                // cell, so every hole in the scan stays exactly where it is
-                // while the head moves. One parity is near black, the other is
-                // a deterministic iridescent hue of the same cell.
-                int3 coverageCell = (int3)floor(input.gridPosition / 0.025);
-                uint coverageParity = (uint(coverageCell.x) ^
-                    uint(coverageCell.y) ^ uint(coverageCell.z)) & 1u;
-                uint coverageKey = uint(coverageCell.x) * 0x9e3779b9u ^
-                    uint(coverageCell.y) * 0x85ebca6bu ^
-                    uint(coverageCell.z) * 0xc2b2ae35u;
-                coverageKey ^= coverageKey >> 15u;
-                coverageKey *= 0x2545f491u;
-                coverageKey ^= coverageKey >> 13u;
-                float coverageHue = frac((float)(coverageKey & 0xffffffu) /
-                    16777216.0 + 0.61803399 * (float)(coverageCell.x +
-                        coverageCell.y + coverageCell.z));
+                // Coverage readout: one continuous iridescent field over the
+                // canonical grid position, so a connected sheet reads as one
+                // smooth surface and every hole stays exactly where it is
+                // while the head moves. No per-cell parity, no black cells.
+                float coverageHue = frac(dot(input.gridPosition,
+                    float3(1.7, 2.3, 1.1)) * 1.25);
                 float3 iridescent = 0.5 + 0.5 * cos(6.2831853 *
                     (coverageHue + float3(0.0, 0.33, 0.67)));
-                iridescent = saturate(iridescent * 1.15);
-                color = coverageParity == 0u
-                    ? half3(0.02h, 0.025h, 0.035h)
-                    : (half3)iridescent;
+                color = (half3)saturate(iridescent * 1.15);
 #endif
 #if defined(M8_FINE_PREVIEW)
                 if (_FineBrushParams.x > 0.5)
