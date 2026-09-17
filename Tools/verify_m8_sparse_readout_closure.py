@@ -207,7 +207,8 @@ checks["BACK is one transaction in batches: no batch publishes, no carry-over FR
     "RecountRenderPatches" not in readout and \
     "JobKind.ReadoutBegin" in renderer and "JobKind.ReadoutBatch" in renderer and \
     "JobKind.ReadoutFinalize" in renderer and \
-    "NativeReadoutPhase.Finalize" in renderer
+    "NativeReadoutPhase.Finalize" in renderer and \
+    renderer.index("job.Dispose();") < renderer.index("TrySubmitNativeReadoutJob(next, ticket, query)")
 checks["page ownership is written at allocation and cleared at reclaim"] = \
     "gM8MembranePhysicalSlot + 1u" in readout[readout.index("bool M8TakeRenderPages"):] and \
     "M8_RENDER_OWNER_BASE + (entry & M8_RENDER_PAGE_ID_MASK)" in readout and \

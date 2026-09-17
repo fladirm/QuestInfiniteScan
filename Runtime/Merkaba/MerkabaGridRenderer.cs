@@ -1053,14 +1053,13 @@ namespace Genesis.RoomScan
             MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob job =
                 _nativeReadoutJob;
             _nativeReadoutJob = null;
-            using var release = job;
-            if (!string.IsNullOrEmpty(error))
-            {
-                Logger.Error(error);
-                AbortNativeTransaction(ticket);
-                return;
-            }
-            if (!job.TryReadCompletion(_completionRecord))
+            bool completed = string.IsNullOrEmpty(error) &&
+                job.TryReadCompletion(_completionRecord);
+            // The executor runs one job at a time: the finished job must be
+            // released before the next job of this transaction is created.
+            job.Dispose();
+            if (!string.IsNullOrEmpty(error)) Logger.Error(error);
+            if (!completed)
             {
                 AbortNativeTransaction(ticket);
                 return;
@@ -1081,6 +1080,14 @@ namespace Genesis.RoomScan
                         AbortNativeTransaction(ticket);
                         return;
                     }
+                    if (_gpuSubmissionSuspended ||
+                        _grid.GpuSubmissionSuspended)
+                    {
+                        // Retirement or a storage operation owns the GPU now:
+                        // no further job of this transaction, FRONT stays.
+                        AbortNativeTransaction(ticket);
+                        return;
+                    }
                     bool more = cursor < total;
                     MerkabaNativeVulkanExecutor.JobKind next = more
                         ? MerkabaNativeVulkanExecutor.JobKind.ReadoutBatch
@@ -1089,6 +1096,9 @@ namespace Genesis.RoomScan
                         ticket.CameraGridMeters);
                     if (!TrySubmitNativeReadoutJob(next, ticket, query))
                     {
+                        Logger.Warning("Merkaba readout transaction " +
+                            $"revision={ticket.Revision} could not submit " +
+                            $"{next}; BACK rejected, FRONT kept.");
                         AbortNativeTransaction(ticket);
                         return;
                     }
