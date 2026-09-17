@@ -328,11 +328,9 @@ namespace Genesis.RoomScan
         {
             DecodePlane(coord, state, cache, out float3 normal,
                 out float planeConstant);
-            // Binding plan section 1: radius one means the SIX FACE
-            // neighbours only. Diagonals never vote the chart. The available
-            // canonical confidence is ColorConfidence, so the CPU and HLSL
-            // twins use the same integer weight and the same fixed order.
-            float3 sum = normal * math.max(1u, state.ColorConfidence);
+            // Geometry charting must not depend on RGB confidence. Six face
+            // neighbours only, fixed order, equal geometric weight.
+            float3 sum = normal;
             for (int axis = 0; axis < 3; axis++)
             for (int direction = -1; direction <= 1; direction += 2)
             {
@@ -356,8 +354,7 @@ namespace Genesis.RoomScan
                 if (residualHere > BranchHeightGap ||
                     residualThere > BranchHeightGap)
                     continue;
-                sum += neighbourNormal *
-                    math.max(1u, neighbourState.ColorConfidence);
+                sum += neighbourNormal;
             }
             return DominantAxis(sum);
         }
@@ -1211,10 +1208,7 @@ bool M8MembraneCanonicalChart(int3 coord, out int chart, out bool unresolved)
     chart = 0;
     float4 plane = M8MembranePlaneOf(coord);
     float3 normal = plane.xyz;
-    uint ownColor;
-    uint ownConfidence;
-    M8LoadMembraneColor(coord, ownColor, ownConfidence);
-    float3 sum = normal * (float)max(1u, ownConfidence);
+    float3 sum = normal;
     float planeConstant = plane.w;
     // Binding plan section 1: SIX face neighbours only, fixed axis/sign
     // order, no abs(dot), confidence weighted.
@@ -1245,10 +1239,7 @@ bool M8MembraneCanonicalChart(int3 coord, out int chart, out bool unresolved)
         if (residualHere > M8_MEMBRANE_BRANCH_GAP ||
             residualThere > M8_MEMBRANE_BRANCH_GAP)
             continue;
-        uint neighbourColor;
-        uint neighbourConfidence;
-        M8LoadMembraneColor(neighbour, neighbourColor, neighbourConfidence);
-        sum += neighbourNormal * (float)max(1u, neighbourConfidence);
+        sum += neighbourNormal;
     }
     chart = M8MembraneDominantAxis(sum);
     return true;

@@ -1504,6 +1504,34 @@ uint M8KnotRootTask(uint cornerBase, uint task)
     return root;
 }
 
+// Adjacent layer tasks of one line/chart/side may select a neighbouring
+// winner in one column because RGB-D plane noise moves the reference height.
+// They are still one physical branch when solved heights remain connected and
+// the winner sets overlap. This removes the plate seams without any spatial
+// epsilon weld or distance-two search.
+bool M8WinnerKeysSameBranch(uint a, uint b)
+{
+    uint maskA = a & 15u;
+    uint maskB = b & 15u;
+    // (`shared` is an HLSL storage keyword, hence sharedMask.)
+    uint sharedMask = maskA & maskB;
+    if (sharedMask == 0u) return false;
+    bool exactShared = false;
+    [unroll]
+    for (uint column = 0u; column < 4u; column++)
+    {
+        uint bit = 1u << column;
+        if ((sharedMask & bit) == 0u) continue;
+        uint la = (a >> (4u + column * 4u)) & 15u;
+        uint lb = (b >> (4u + column * 4u)) & 15u;
+        uint d = la > lb ? la - lb : lb - la;
+        d = min(d, 16u - d);
+        if (d > 1u) return false;
+        exactShared = exactShared || la == lb;
+    }
+    return exactShared;
+}
+
 void M8PatchEdgeTasks(uint compactIndex, int chart, int faceAxis,
     int direction, out uint lowTask, out uint highTask)
 {
@@ -1740,10 +1768,11 @@ void SolveSharedKnots(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
     }
     DeviceMemoryBarrierWithGroupSync();
 
-    // Phase B: exact adjacent-layer merge from the binding plan. There is no
-    // twelve-neighbour post-solve weld. An owner at L may reference the owner
-    // of the same line/chart/side task at L-1 only when the solved winner set
-    // is exactly identical.
+    // Phase B: adjacent layers of one connected physical branch share one
+    // root. Same line/chart/side remains mandatory; winner-layer jitter is
+    // accepted only inside the branch-height gap and only with overlapping
+    // winner support. No spatial epsilon weld, and no
+    // twelve-neighbour post-solve weld is reintroduced.
     [loop]
     for (uint task = thread; task < taskCount; task += M8_SOLVE_GROUP_THREADS)
     {
@@ -1794,8 +1823,12 @@ void SolveSharedKnots(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
         if (previousRoot >= task) continue;
         uint4 theirs =
             _M8RenderKnotScratch[cornerBase + previousRoot];
+        uint mineWinners = mine.w >> 8u;
+        uint theirWinners = theirs.w >> 8u;
         if ((theirs.w & 1u) == 0u || theirs.z != mine.z ||
-            (theirs.w >> 8u) != (mine.w >> 8u))
+            abs(asfloat(theirs.x) - asfloat(mine.x)) >
+                M8_MEMBRANE_BRANCH_GAP ||
+            !M8WinnerKeysSameBranch(mineWinners, theirWinners))
             continue;
         _M8RenderKnotOwner[cornerBase + task] = previousRoot;
     }
@@ -1843,6 +1876,30 @@ void SolveSharedKnots(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
                 tangent2 + (h2 - h1) * (h2 - h1) <= maxEdge2 &&
                 tangent2 + (h3 - h2) * (h3 - h2) <= maxEdge2 &&
                 tangent2 + (h0 - h3) * (h0 - h3) <= maxEdge2;
+        }
+        if (valid && M8DescriptorReady(descriptor))
+        {
+            // Edge length alone cannot detect a whole 25 mm plate translated
+            // far from its measured MAIN. Every corner must remain on the
+            // MAIN's own connected plane branch. Reject; never clamp.
+            int chart = M8DescriptorChart(descriptor);
+            int3 local3 = int3(kernelLocal & 7u,
+                (kernelLocal >> 3u) & 7u, (kernelLocal >> 6u) & 7u);
+            int3 mainGlobal = context.tileOrigin + local3;
+            float3 mainNormal;
+            float mainOffset;
+            M8DecodeSurfacePlane(descriptor.y, mainNormal, mainOffset);
+            float mainConstant = dot((float3)mainGlobal *
+                M8_MEMBRANE_PATCH_PITCH, mainNormal) + mainOffset;
+            [unroll]
+            for (uint c = 0u; c < 4u; c++)
+            {
+                float3 p = M8KnotTaskPosition(context, patchBase,
+                    cornerBase, firstTask + c);
+                if (abs(dot(p, mainNormal) - mainConstant) >
+                    M8_MEMBRANE_BRANCH_GAP)
+                    valid = false;
+            }
         }
         if (valid)
         {
@@ -1949,6 +2006,17 @@ void SolveSharedKnots(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
                     dot(p2 - p1, p2 - p1) > maxEdge2 ||
                     dot(p3 - p2, p3 - p2) > maxEdge2 ||
                     dot(p0 - p3, p0 - p3) > maxEdge2)
+                    continue;
+                // Two crossing chart-edge segments are not a membrane quad.
+                // Emit a stitch only for co-directed facing edges; otherwise
+                // leave the seam rather than producing a long shard.
+                float3 e0 = p1 - p0;
+                float3 e1 = p2 - p3;
+                float e02 = dot(e0, e0);
+                float e12 = dot(e1, e1);
+                if (e02 <= M8_MEMBRANE_NUMERICAL_EPSILON ||
+                    e12 <= M8_MEMBRANE_NUMERICAL_EPSILON ||
+                    dot(e0, e1) * rsqrt(e02 * e12) < 0.5)
                     continue;
 
                 float4 firstPlane = M8MembranePlaneOf(mainGlobal);

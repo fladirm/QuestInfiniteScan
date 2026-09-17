@@ -103,6 +103,7 @@ namespace Genesis.RoomScan
         private uint _builtResidencyEpoch;
         private uint _pendingRetryEpoch;
         private bool _retryPendingTiles;
+        private bool _waitingForResidencyEpoch;
         private bool _residencyQueryRequested = true;
         private Vector3 _lastResidencyQueryCamera;
         private bool _coverageIncomplete = true;
@@ -671,17 +672,25 @@ namespace Genesis.RoomScan
             bool queueBusy = _buildInFlight ||
                 MerkabaNativeVulkanExecutor.HasJobInFlight ||
                 _nativeReadoutJob != null || _grid.StorageControlReady;
+            bool residencyAdvanced =
+                _grid.ResidencyEpoch != _pendingRetryEpoch;
+            if (_waitingForResidencyEpoch && residencyAdvanced)
+            {
+                _waitingForResidencyEpoch = false;
+                _residencyQueryRequested = true;
+                _canonicalDirty = true;
+            }
             // Head motion alone never rebuilds geometry. Entering new
             // coverage only requests residency (loads), whose installation
             // then marks the affected tiles dirty.
             bool residencyQuery = _residencyQueryRequested ||
-                _coverageIncomplete ||
+                (!_waitingForResidencyEpoch && _coverageIncomplete) ||
                 Vector3.Distance(cameraGrid, _lastResidencyQueryCamera) >
                     ResidencyQueryTranslation;
             bool residencyChanged =
                 _grid.ResidencyEpoch != _builtResidencyEpoch;
-            bool buildRequested = _canonicalDirty || residencyChanged ||
-                residencyQuery;
+            bool buildRequested = !_waitingForResidencyEpoch &&
+                (_canonicalDirty || residencyChanged || residencyQuery);
             // A readout that closes a scan transaction runs at once; a readout
             // without a scan keeps the free-running cadence.
             if (readoutProducerEnabled && !queueBusy && buildRequested &&
@@ -1120,7 +1129,7 @@ namespace Genesis.RoomScan
                 {
                     _nativePhase = NativeReadoutPhase.None;
                     if (!DecidePublication(ticket, _completionRecord, 4))
-                        RejectPublication(ticket);
+                        RejectPublication(ticket, _completionRecord[7]);
                     return;
                 }
                 default:
@@ -1161,6 +1170,8 @@ namespace Genesis.RoomScan
             _frontTileCount = (int)Math.Min(record[offset + 2],
                 (uint)MerkabaSpatial.PhysicalTileCapacity);
             _previousPublished = true;
+            _waitingForResidencyEpoch = false;
+            _coverageIncomplete = false;
             bool backlog = (record[offset + 3] & ReadoutBacklogBit) != 0u;
             if (backlog) _canonicalDirty = true;
             if (ticket.ResidencyQuery) _residencyQueryRequested = false;
@@ -1173,13 +1184,40 @@ namespace Genesis.RoomScan
         /// next build and the scan transaction stays open until a readout
         /// publishes, so no further scan mutates the world in between.
         /// </summary>
-        private void RejectPublication(ReadoutBuildTicket ticket)
+        private void RejectPublication(ReadoutBuildTicket ticket,
+            uint completionFlags = 0u)
         {
             // FRONT, its tile count and _previousPublished stay exactly as
             // they were: the draw keeps the last valid publication while the
             // rejected BACK is completed by its next build.
             _buildInFlight = false;
             _pendingBuild = default;
+            uint unresolved = completionFlags & ~ReadoutBacklogBit;
+            if (unresolved != 0u)
+            {
+                _coverageIncomplete = true;
+                if (!ticket.ResidencyQuery)
+                {
+                    // First unresolved result gets exactly one warm-load
+                    // retry. It may enqueue the missing cold halo.
+                    _waitingForResidencyEpoch = false;
+                    _residencyQueryRequested = true;
+                    _canonicalDirty = true;
+                    _nextReadoutBuild = 0f;
+                }
+                else
+                {
+                    // A warm-load retry already ran. Do not spin readout and
+                    // hold the scan barrier forever. Wait for installation to
+                    // advance ResidencyEpoch, then retry the same transaction.
+                    _waitingForResidencyEpoch = true;
+                    _pendingRetryEpoch = ticket.ResidencyEpoch;
+                    _residencyQueryRequested = false;
+                    _canonicalDirty = false;
+                }
+                return;
+            }
+            _waitingForResidencyEpoch = false;
             _canonicalDirty = true;
             _nextReadoutBuild = 0f;
         }
@@ -1223,7 +1261,8 @@ namespace Genesis.RoomScan
                         valid = DecidePublication(ticket, _completionRecord,
                             0);
                     }
-                    if (!valid) RejectPublication(ticket);
+                    if (!valid)
+                        RejectPublication(ticket, _completionRecord[3]);
                 });
         }
 

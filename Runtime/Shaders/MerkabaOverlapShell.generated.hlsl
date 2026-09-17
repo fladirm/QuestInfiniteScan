@@ -236,10 +236,7 @@ bool M8MembraneCanonicalChart(int3 coord, out int chart, out bool unresolved)
     chart = 0;
     float4 plane = M8MembranePlaneOf(coord);
     float3 normal = plane.xyz;
-    uint ownColor;
-    uint ownConfidence;
-    M8LoadMembraneColor(coord, ownColor, ownConfidence);
-    float3 sum = normal * (float)max(1u, ownConfidence);
+    float3 sum = normal;
     float planeConstant = plane.w;
     // Binding plan section 1: SIX face neighbours only, fixed axis/sign
     // order, no abs(dot), confidence weighted.
@@ -270,10 +267,7 @@ bool M8MembraneCanonicalChart(int3 coord, out int chart, out bool unresolved)
         if (residualHere > M8_MEMBRANE_BRANCH_GAP ||
             residualThere > M8_MEMBRANE_BRANCH_GAP)
             continue;
-        uint neighbourColor;
-        uint neighbourConfidence;
-        M8LoadMembraneColor(neighbour, neighbourColor, neighbourConfidence);
-        sum += neighbourNormal * (float)max(1u, neighbourConfidence);
+        sum += neighbourNormal;
     }
     chart = M8MembraneDominantAxis(sum);
     return true;

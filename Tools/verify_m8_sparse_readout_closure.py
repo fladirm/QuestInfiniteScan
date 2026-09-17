@@ -247,16 +247,24 @@ checks["one physical knot is owner-solved before any merge (no post-solve neighb
     "only the lexicographic owner solves" in readout and \
     "twelve-neighbour post-solve weld" in readout and \
     "M8_MEMBRANE_WELD_EPSILON" not in readout
-checks["adjacent normal layers merge only by exact winner identity"] = \
-    "exact adjacent-layer merge" in readout and \
-    "(theirs.w >> 8u) != (mine.w >> 8u)" in readout
-checks["binding-plan canonical chart is six-face confidence weighted"] = \
+checks["adjacent normal layers merge only inside one connected winner branch"] = \
+    "M8WinnerKeysSameBranch" in readout and \
+    "M8_MEMBRANE_BRANCH_GAP" in readout and \
+    "twelve-neighbour post-solve weld" in readout
+checks["binding-plan canonical chart is six-face geometry weighted"] = \
     "SIX face neighbours only" in membrane and \
-    "state.ColorConfidence" in membrane and \
+    "float3 sum = normal;" in membrane and \
     "for (int dx = -1; dx <= 1; dx++)" not in \
         membrane[membrane.index("private static int CanonicalChart"): \
                  membrane.index("private static bool TryBuildPatch", \
                                 membrane.index("private static int CanonicalChart"))]
+checks["unresolved readout waits for a residency epoch instead of starving scan"] = \
+    "_waitingForResidencyEpoch" in renderer and \
+    "RejectPublication(ticket, _completionRecord[7])" in renderer and \
+    "!_waitingForResidencyEpoch &&" in renderer
+checks["published patches are guarded against coherent off-plane drift"] = \
+    "Every corner must remain on the" in readout and \
+    "mainConstant" in readout and "M8_MEMBRANE_BRANCH_GAP" in readout
 checks["readout scratch is exactly one 64-tile batch"] = \
     "RenderScratchTiles = 64" in grid and \
     "M8_RENDER_SCRATCH_TILES 64u" in readout
