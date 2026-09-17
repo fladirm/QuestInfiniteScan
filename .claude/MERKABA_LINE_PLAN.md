@@ -359,3 +359,38 @@ conversion); FXC log grep; Unity EditMode 100 %; APK build clean.
 - C0: C9 was already the SCHEDULER section of contr.md. The scheduling rules were
   added there as an amendment block instead of a new section with the same number.
   Content identical to section 2 C9.
+- C1: the readout part of 6.3 (ring-resident listing, event build triggers,
+  RejectPublication without residency, one job per frame, loaded-session readiness
+  from the published record) moved from C3 into C1. Deleting the epoch retry without
+  its replacement would leave C1 unable to publish. Only the ring-invariant counter
+  inside the new SolveSharedKnotLines stays in C3.
+- C1: the preflight needs two kernels per job (PrepareDependencyRingArgs,
+  QueryDependencyRing) in the observation and the FINE erase pipeline ranges. Pipeline
+  indices shift by two/four, so the native ABI is 8 already in C1; C3 makes it 9.
+- C1: no separate `_M8AttemptDependencies` buffer. The 16 dependency slots are
+  counters 112..127 (tileRefIndex + 1), which replace the eight carve-halo request
+  slots, and FinalizeObservation/FinalizeFineErase publish them as logical tile
+  addresses (bit 31 = record present) in attempt-completion records 3..18. The CPU
+  reads records 0..18 (304 B) in the one existing completion readback. Counter layout
+  compacted to 128 slots (render batch cursor moved to 64).
+- C1: the install-before-readback race is closed by recording install events while
+  the attempt is in flight (`_installedSinceSubmit`), not by a storage query. Retry
+  rule: no recorded dependency and no unaddressed one, or at least one residency
+  event (tiles installed, load failed, eviction writeback finished or failed) since
+  the attempt was submitted while storage has no unresolved request. Storage exposes
+  the extra `TilesReleased` event for the writeback cases.
+- C1: pins are values, not a bit with an explicit clear. The preflight stamps
+  runtime.z with the open attempt's pin (observation token << 1, FINE erase token
+  << 1 | 1); eviction skips a tile whose z equals a pin the CPU passes for the attempts
+  that are open now. A closed attempt's stamp simply stops matching.
+- C1: the residency focus radius stays coverage + BlockWorldSize (6.4 m). It already
+  exceeds the coverage + 0.35 m minimum of 6.4; reducing it would add evictions and
+  reloads without a contract reason.
+- C1: a ring tile in state CLAIMED_NEW (claimed, not created) is ABSENT for the
+  preflight and for readout listing; EVICTING is not resident.
+- C1: an observation or FINE erase is not submitted while a readout transaction is
+  open. With one readout job per frame the transaction has frame gaps in which a
+  commit would otherwise land between its batches.
+- C1: a failed load of a dependency aborts the observation through one GPU attempt
+  with the abort flag (claims are cleaned by the normal failure path); a FINE erase
+  is dropped (it writes nothing before its ring is resident).

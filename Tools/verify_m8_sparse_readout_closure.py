@@ -16,6 +16,8 @@ visibility = text("Runtime/Resources/Merkaba/MerkabaVisibility.compute")
 grid = text("Runtime/Merkaba/MerkabaGrid.Gpu.cs")
 renderer = text("Runtime/Merkaba/MerkabaGridRenderer.cs")
 integrator = text("Runtime/Merkaba/MerkabaIntegrator.cs")
+storage = text("Runtime/Merkaba/MerkabaGrid.Storage.cs")
+integration = text("Runtime/Shaders/MerkabaIntegration.compute")
 native = text("Runtime/Telemetry/MerkabaNativeVulkanExecutor.cs")
 membrane = text("Runtime/Merkaba/MerkabaOverlapShell.cs")
 exporter = text("Runtime/Merkaba/MerkabaExportMembrane.cs")
@@ -79,8 +81,8 @@ checks = {
         "slotGroups" not in renderer,
     "native readout executes on the scanner queue":
         "if (kind == JobKind.Readout) return false;" not in native and
-        "AbiVersion = 7" in native and
-        "kExecutorAbiVersion = 7;" in text(
+        "AbiVersion = 8" in native and
+        "kExecutorAbiVersion = 8;" in text(
             "Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp") and
         "SubmitNativeReadoutBuild" in renderer,
     "device publication is confirmed by the native fence copy":
@@ -154,8 +156,11 @@ checks["publication validates page ownership, not only index range"] = \
     "_M8RenderPageQueues[M8_RENDER_OWNER_BASE + page] !=" in readout and \
     "physicalSlot + 1u" in readout[readout.index("void ValidatePublication"):] and \
     "InterlockedOr(_M8Counters[M8_COUNTER_RENDER_PUBLICATION_INVALID]" in readout[readout.index("void EmitRenderTileGeometry"):readout.index("void PublishRenderTileList")]
-checks["an unresolved halo keeps the scan transaction open"] = \
-    "unresolved != 0u;" in readout
+checks["a non-resident ring neither fails nor holds a publication"] = \
+    "unresolved != 0u;" not in readout and \
+    "backlog | coldInCoverage" in readout and \
+    "M8_COUNTER_READOUT_RING_INVARIANT" in readout and \
+    "M8_RENDER_PENDING" not in world
 checks["a rejected BACK keeps FRONT and its own pages"] = \
     "_previousPublished = false" not in renderer[renderer.index("void RejectPublication"):renderer.index("void RejectPublication")+600] and \
     "_frontTileCount = VisibleTileCount" not in renderer and \
@@ -213,9 +218,9 @@ checks["page ownership is written at allocation and cleared at reclaim"] = \
     "gM8MembranePhysicalSlot + 1u" in readout[readout.index("bool M8TakeRenderPages"):] and \
     "M8_RENDER_OWNER_BASE + (entry & M8_RENDER_PAGE_ID_MASK)" in readout and \
     "InterlockedAdd(_M8RenderIndexBack[1]" in readout
-checks["coverage traversal always builds the BACK list; cold loads are gated"] = \
-    "_M8AllowWarmLoads" in readout and \
-    "if (_M8AllowWarmLoads != 0u)" in readout
+checks["coverage traversal requests loads and lists only tiles with a resident ring"] = \
+    "_M8AllowWarmLoads" not in readout and \
+    "M8ReadoutRingResident(M8PhysicalSlot(tileRef))" in readout
 checks["live readout consumes the generated membrane oracle"] = \
     '#include "MerkabaOverlapShell.generated.hlsl"' in readout and \
     "M8MembraneSolveKnot(globalCoord, normal, chart," in readout and \
@@ -258,10 +263,25 @@ checks["binding-plan canonical chart is six-face geometry weighted"] = \
         membrane[membrane.index("private static int CanonicalChart"): \
                  membrane.index("private static bool TryBuildPatch", \
                                 membrane.index("private static int CanonicalChart"))]
-checks["unresolved readout waits for a residency epoch instead of starving scan"] = \
-    "_waitingForResidencyEpoch" in renderer and \
-    "RejectPublication(ticket, _completionRecord[7])" in renderer and \
-    "!_waitingForResidencyEpoch &&" in renderer
+checks["no epoch, age window or timer schedules scan, erase, readout or eviction"] = \
+    all("Epoch" not in source for source in (renderer, integrator, grid, storage)) and \
+    all(token not in world + world_compute + readout + integration for token in
+        ("FRAME_EPOCH", "RESIDENCY_EPOCH", "_M8SafeEpoch",
+         "M8SignalResidencyChange", "_M8ResidencyChanged")) and \
+    "_nextReadoutBuild" not in renderer and "readoutBuildHz" not in renderer and \
+    "DependenciesSatisfied()" in integrator and \
+    "TilesInstalled" in storage and "TilesInstalled" in renderer
+checks["dependency preflight gates every canonical commit"] = \
+    "void QueryDependencyRing" in integration and \
+    integration.count("M8_COUNTER_UNRESOLVED_RING_TILES] == 0u") >= 5 and \
+    "M8PublishAttemptDependencies()" in integration
+checks["eviction keeps pinned attempt tiles and listed tiles, no age test"] = \
+    "runtime.z == _M8ObservationPin" in world_compute and \
+    "(runtime.w & M8_RENDER_VIEW_MARK) != 0u" in world_compute
+checks["readout transaction jobs are paced one per frame"] = \
+    "_nativeEarliestSubmitFrame = Time.frameCount + 1" in renderer and \
+    "void PumpNativeReadoutTransaction" in renderer and \
+    "ReadoutTransactionOpen()" in integrator
 checks["published patches are guarded against coherent off-plane drift"] = \
     "Every corner must remain on the" in readout and \
     "mainConstant" in readout and "M8_MEMBRANE_BRANCH_GAP" in readout

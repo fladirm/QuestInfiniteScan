@@ -58,9 +58,8 @@
 #define M8_RENDER_OWNER_BASE \
     (M8_RENDER_CONTROL_WORDS + 4u * M8_RENDER_PAGE_CAPACITY)
 // Tile runtime.w: disposable readout scheduling bits, never persisted.
-// Bits 3..28 are exact 26-neighbour boundary dependencies.
+// Bits 3..28 are exact 26-neighbour boundary dependencies. Bit 1 is unused.
 #define M8_RENDER_DIRTY 1u
-#define M8_RENDER_PENDING 2u
 #define M8_RENDER_REBUILD 4u
 #define M8_RENDER_DEPENDENCY_SHIFT 3u
 #define M8_RENDER_DEPENDENCY_MASK 0x1ffffff8u
@@ -113,7 +112,9 @@
 #define M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES 22u
 #define M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW 23u
 #define M8_COUNTER_LATE_DRAW_COLD_MISSES 24u
-#define M8_COUNTER_FRAME_EPOCH 25u
+// Ring tiles (26-neighbour tile ring of every tile an attempt may dirty)
+// that are COLD or LOADING; any non-zero value blocks the canonical commit.
+#define M8_COUNTER_UNRESOLVED_RING_TILES 25u
 #define M8_COUNTER_CANDIDATE_BLOCKS 26u
 #define M8_COUNTER_HASH_HIT_BLOCKS 27u
 #define M8_COUNTER_VISIBLE_CHUNKS 28u
@@ -138,7 +139,9 @@
 #define M8_COUNTER_OBSERVATION_TOKEN 47u
 #define M8_COUNTER_CARVE_QUERY_BLOCKS 48u
 #define M8_COUNTER_WRITEBACK_TILES 49u
-#define M8_COUNTER_READOUT_UNRESOLVED 50u
+// Diagnostic only: tiles of the coverage sphere not drawn yet because the
+// tile or its 26-neighbour ring is not resident. Never a publication failure.
+#define M8_COUNTER_READOUT_COLD_IN_COVERAGE 50u
 #define M8_COUNTER_EVICTION_NEEDED 51u
 #define M8_COUNTER_OBSERVATION_FAILURE 52u
 #define M8_COUNTER_FAILED_OBSERVATIONS 53u
@@ -152,7 +155,7 @@
 #define M8_COUNTER_CARVE_BITS_RETIRED 61u
 #define M8_COUNTER_COLD_CARVE_TILES_REQUESTED 62u
 #define M8_COUNTER_UNRESOLVED_CARVE_TILES 63u
-#define M8_COUNTER_RESIDENCY_EPOCH 64u
+#define M8_COUNTER_RENDER_BATCH_CURSOR 64u
 #define M8_COUNTER_READOUT_BUILD_STATUS 69u
 
 #define MERKABA_READOUT_BUILDING 0u
@@ -192,7 +195,9 @@
 #define M8_COUNTER_CARVE_EXACT_DILATION_REJECT 95u
 #define M8_COUNTER_READOUT_PLANE_LEGACY_INVALID 96u
 #define M8_COUNTER_READOUT_EMITTED_VERTICES 97u
-#define M8_COUNTER_CARVE_HALO_LOAD_REQUEST 98u
+// 1 when the attempt was blocked by something no tile address describes
+// (EVICTING, CLAIMED chunk, more than M8_DEPENDENCY_SLOTS dependencies).
+#define M8_COUNTER_DEPENDENCY_UNADDRESSED 98u
 #define M8_COUNTER_RENDER_DIRTY_MARKS 99u
 #define M8_COUNTER_RENDER_REBUILD_TILES 100u
 #define M8_COUNTER_RENDER_JOURNAL_BATCH 101u
@@ -202,26 +207,36 @@
 #define M8_COUNTER_RENDER_PUBLICATION_INVALID 105u
 #define M8_COUNTER_RENDER_BATCH_BASE 106u
 #define M8_COUNTER_RENDER_JOURNAL_OVERFLOW 107u
-#define M8_COUNTER_RENDER_PENDING_TILES 108u
+// Invariant breach: a listed tile met a non-resident halo tile while
+// building. The tile fails closed; nothing waits or retries on it.
+#define M8_COUNTER_READOUT_RING_INVARIANT 108u
 #define M8_COUNTER_RENDER_CAPACITY_FAILED 109u
 #define M8_COUNTER_RENDER_PUBLISHED_PATCHES 110u
 #define M8_COUNTER_RENDER_PUBLISHED_TILES 111u
-#define M8_COUNTER_CARVE_HALO_LOAD_REQUEST_1 112u
-#define M8_COUNTER_CARVE_HALO_LOAD_REQUEST_2 113u
-#define M8_COUNTER_CARVE_HALO_LOAD_REQUEST_3 114u
-#define M8_COUNTER_CARVE_HALO_LOAD_REQUEST_4 115u
-#define M8_COUNTER_CARVE_HALO_LOAD_REQUEST_5 116u
-#define M8_COUNTER_CARVE_HALO_LOAD_REQUEST_6 117u
-#define M8_COUNTER_CARVE_HALO_LOAD_REQUEST_7 118u
-#define M8_COUNTER_RENDER_BATCH_CURSOR 119u
-#define M8_COUNTER_COUNT 120u
-#define M8_CARVE_HALO_REQUEST_SLOTS 8u
-#define M8_CARVE_HALO_REQUEST_EMPTY 0xffffffffu
-
-uint M8CarveHaloRequestCounter(uint slot)
-{
-    return slot == 0u ? M8_COUNTER_CARVE_HALO_LOAD_REQUEST : 111u + slot;
-}
+// Dependencies of the open scan/erase attempt: tileRefIndex + 1, 0 = empty.
+// FinalizeObservation/FinalizeFineErase issue their loads and publish them
+// as logical addresses in _M8AttemptCompletion[3..18]; the attempt retries
+// on their installation event, never on an epoch.
+#define M8_COUNTER_DEPENDENCY_0 112u
+#define M8_COUNTER_DEPENDENCY_1 113u
+#define M8_COUNTER_DEPENDENCY_2 114u
+#define M8_COUNTER_DEPENDENCY_3 115u
+#define M8_COUNTER_DEPENDENCY_4 116u
+#define M8_COUNTER_DEPENDENCY_5 117u
+#define M8_COUNTER_DEPENDENCY_6 118u
+#define M8_COUNTER_DEPENDENCY_7 119u
+#define M8_COUNTER_DEPENDENCY_8 120u
+#define M8_COUNTER_DEPENDENCY_9 121u
+#define M8_COUNTER_DEPENDENCY_10 122u
+#define M8_COUNTER_DEPENDENCY_11 123u
+#define M8_COUNTER_DEPENDENCY_12 124u
+#define M8_COUNTER_DEPENDENCY_13 125u
+#define M8_COUNTER_DEPENDENCY_14 126u
+#define M8_COUNTER_DEPENDENCY_15 127u
+#define M8_COUNTER_COUNT 128u
+#define M8_COUNTER_DEPENDENCY_BASE M8_COUNTER_DEPENDENCY_0
+#define M8_DEPENDENCY_SLOTS 16u
+#define M8_ATTEMPT_DEPENDENCY_RECORD 3u
 
 #define M8_OBSERVATION_FAILURE_SURFACE_CAPACITY 1u
 #define M8_OBSERVATION_FAILURE_BLOCK_CAPACITY 2u
@@ -469,9 +484,27 @@ void M8CounterIncrement(uint counter)
     InterlockedAdd(_M8Counters[counter], 1u, ignored);
 }
 
-void M8SignalResidencyChange()
+void M8RecordUnaddressedDependency()
 {
-    M8CounterIncrement(M8_COUNTER_RESIDENCY_EPOCH);
+    uint ignored;
+    InterlockedMax(_M8Counters[M8_COUNTER_DEPENDENCY_UNADDRESSED], 1u,
+        ignored);
+}
+
+// One distinct tile the open attempt waits for. Slots are claimed by
+// compare-exchange; a full table degrades to an unaddressed dependency.
+void M8RecordDependency(uint tileRefIndex)
+{
+    uint value = tileRefIndex + 1u;
+    [loop]
+    for (uint slot = 0u; slot < M8_DEPENDENCY_SLOTS; slot++)
+    {
+        uint prior;
+        InterlockedCompareExchange(
+            _M8Counters[M8_COUNTER_DEPENDENCY_BASE + slot], 0u, value, prior);
+        if (prior == 0u || prior == value) return;
+    }
+    M8RecordUnaddressedDependency();
 }
 
 // Union skin depends on occupancy, measured-plane/free-side compatibility
@@ -557,10 +590,7 @@ void M8PushPhysicalTile(uint physicalSlot)
     uint previous;
     InterlockedAdd(_M8Counters[M8_COUNTER_FREE_TILE_COUNT], 1u, previous);
     if (previous < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-    {
         _M8FreeTileStack[previous] = physicalSlot;
-        M8SignalResidencyChange();
-    }
 }
 
 uint M8HashEntryIndex(uint bucket, uint slot)

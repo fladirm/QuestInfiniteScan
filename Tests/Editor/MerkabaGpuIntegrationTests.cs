@@ -122,7 +122,8 @@ namespace Genesis.RoomScan.Tests
                 262144L * 64 * 4, 262144L * 9 * 4,
                 stateBank, stateBank, stateBank, stateBank,
                 32768L * 16 * 16, 32768L * 2 * 16,
-                32768L * 4, (long)MerkabaGrid.CounterCount * 4, 48,
+                32768L * 4, (long)MerkabaGrid.CounterCount * 4,
+                (long)MerkabaGrid.AttemptCompletionRecords * 16,
                 (8192L + 262144L + 32768L) * 8,
                 32768L * 4, 262144L * 16, 4,
                 2097152L * 16, 1048576L * 8,
@@ -161,7 +162,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(allBuffers.Max(), Is.EqualTo(64L * 1024 * 1024));
             Assert.That(allBuffers.Max(), Is.LessThanOrEqualTo(
                 128L * 1024 * 1024));
-            Assert.That(allBuffers.Sum(), Is.EqualTo(909219036L));
+            Assert.That(allBuffers.Sum(), Is.EqualTo(909219324L));
 
             Assert.That(MerkabaSpatial.OwnerRecordCount,
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
@@ -919,7 +920,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(frame, Does.Contain("_M8WarmDistance"));
             Assert.That(frame, Does.Contain("_M8RenderDistance"));
             Assert.That(frame, Does.Contain("M8RequestWarmLoad("));
-            Assert.That(frame, Does.Contain("M8_COUNTER_READOUT_UNRESOLVED"));
+            Assert.That(frame, Does.Contain("M8_COUNTER_READOUT_COLD_IN_COVERAGE"));
         }
 
         [Test]
@@ -1312,12 +1313,12 @@ namespace Genesis.RoomScan.Tests
             Assert.That(load, Does.Contain(
                 "int3 local = relative - tileOffset * 8"));
             Assert.That(load, Does.Contain(
-                "M8RecordCarveHaloRequest(slot & ~M8_CARVE_TILE_UNRESOLVED_BIT)"));
+                "M8RecordDependency(slot & ~M8_CARVE_TILE_UNRESOLVED_BIT)"));
             Assert.That(build, Does.Contain(
                 "if (thread < M8_CARVE_HALO_TILE_COUNT)"));
             Assert.That(build, Does.Contain(
                 "for (uint word = 0u; word < MERKABA_M8_TILE_WORDS; word++)"));
-            Assert.That(finalize, Does.Contain("M8IssueCarveHaloRequest(7u)"));
+            Assert.That(finalize, Does.Contain("M8PublishAttemptDependencies()"));
             Assert.That(finalize, Does.Contain(
                 "M8_COUNTER_UNRESOLVED_CARVE_TILES"));
 
@@ -1558,7 +1559,9 @@ namespace Genesis.RoomScan.Tests
                 "Runtime/Resources/Merkaba/MerkabaVisibility.compute");
             string all = world + scan + frame + visibility;
             Assert.That(Regex.Matches(all, @"^#pragma kernel ",
-                RegexOptions.Multiline), Has.Count.EqualTo(68));
+                // 68 + PrepareDependencyRingArgs and QueryDependencyRing
+                // (contract C9 amendment dependency preflight).
+                RegexOptions.Multiline), Has.Count.EqualTo(70));
             Assert.That(frame, Does.Not.Contain(
                 "#pragma kernel CullRenderTiles"));
             Assert.That(visibility, Does.Contain(
@@ -1583,6 +1586,7 @@ namespace Genesis.RoomScan.Tests
                 "MarkRenderRebuildTiles",
                 "PrepareAllocatedClearArgs",
                 "PrepareCarveArgs",
+                "PrepareDependencyRingArgs",
                 "PrepareEvictionSelection",
                 "PrepareFineEraseArgs",
                 "PrepareIntegrateArgs",
@@ -1698,7 +1702,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(audit, Does.Contain("NonWritable"));
             Assert.That(audit, Does.Contain("writable > 8"));
             Assert.That(audit, Does.Contain("RW/read alias pair"));
-            Assert.That(audit, Does.Contain("kernel_count != 74"));
+            Assert.That(audit, Does.Contain("kernel_count != 76"));
             Assert.That(audit, Does.Contain("DepthNormals.compute"));
             Assert.That(audit, Does.Contain("DepthDilation.compute"));
             Assert.That(audit, Does.Contain("StereoRgbdRefine.compute"));
@@ -1793,7 +1797,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(readout, Does.Contain(
                 "if (tileRef == MERKABA_REF_COLD_ON_SSD)"));
             Assert.That(readout, Does.Contain(
-                "M8_COUNTER_READOUT_UNRESOLVED"));
+                "M8_COUNTER_READOUT_COLD_IN_COVERAGE"));
             Assert.That(integration, Does.Contain(
                 "M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u"));
         }
@@ -1809,7 +1813,7 @@ namespace Genesis.RoomScan.Tests
             string prepareResolve = Slice(integration,
                 "void PrepareResolveArgs", "bool RequestColdTile");
             string query = Slice(integration, "void QueryCarveTiles",
-                "// Every COLD halo tile of one attempt");
+                "uint M8PublishAttemptDependencies()");
             string prepareSurface = Slice(integration,
                 "void PrepareIntegrateArgs", "void IntegrateSurfaceCandidates");
             string prepareCarve = Slice(integration,
@@ -1895,8 +1899,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(install, Does.Contain(
                 "state.flags & MERKABA_NEEDS_CARVE_FLAG"));
             Assert.That(retry, Does.Contain("_waitingForDependency"));
-            Assert.That(retry, Does.Contain("ResidencyEpoch"));
-            Assert.That(retry, Does.Contain("_attemptResidencyEpoch"));
+            Assert.That(retry, Does.Contain("DependenciesSatisfied()"));
             Assert.That(submit, Does.Contain("bool newObservation ="));
             Assert.That(submit, Does.Contain("else\n                    ConfigureAttempt();"));
             Assert.That(Regex.Matches(submit,
@@ -1979,8 +1982,10 @@ namespace Genesis.RoomScan.Tests
             }
         }
 
+        // Replaces the residency-epoch retry test: contract C9 amendment
+        // forbids epochs; the wait is on the GPU-reported dependency tiles.
         [Test]
-        public void ResidencyRetryEpoch_IsCapturedAtAttemptSubmitAndGpuOwned()
+        public void DependencyRetry_IsEventDrivenOnGpuReportedTiles()
         {
             string address = Source("Runtime/Shaders/MerkabaWorld.hlsl");
             string world = Source("Runtime/Shaders/MerkabaWorld.compute");
@@ -1993,27 +1998,33 @@ namespace Genesis.RoomScan.Tests
                 "private bool CanRetryPreparedObservation()");
             string retire = Slice(integrator,
                 "internal bool TryRetireObservationAttempt()",
-                "internal bool TrySubmitObservationAttempt()");
-            string retry = Slice(integrator,
-                "private bool CanRetryPreparedObservation()",
-                "private bool ObservationTimedOut()");
-            string apply = Slice(storage, "private void ApplySampledCounters",
-                "private void BeginLoadAddressReadback");
+                "internal bool TryPrepareFineErase(");
+            string satisfied = Slice(integrator,
+                "private bool DependenciesSatisfied()",
+                "private void ClearDependencyWait()");
 
+            foreach (string removed in new[]
+                     {
+                         "M8_COUNTER_RESIDENCY_EPOCH", "M8_COUNTER_FRAME_EPOCH",
+                         "M8SignalResidencyChange"
+                     })
+                Assert.That(address + world, Does.Not.Contain(removed),
+                    removed);
+            Assert.That(storage + integrator, Does.Not.Contain("ResidencyEpoch"));
             Assert.That(address, Does.Contain(
-                "#define M8_COUNTER_RESIDENCY_EPOCH 64u"));
-            Assert.That(MerkabaGrid.CounterResidencyEpoch, Is.EqualTo(64));
-            Assert.That(world, Does.Contain("M8SignalResidencyChange"));
-            Assert.That(submit, Does.Contain(
-                "_attemptResidencyEpoch = _grid.ResidencyEpoch"));
-            Assert.That(retire, Does.Not.Contain(
-                "_attemptResidencyEpoch ="));
-            Assert.That(retry, Does.Contain(
-                "_grid.ResidencyEpoch != _attemptResidencyEpoch"));
-            Assert.That(apply, Does.Contain(
-                "PublishResidencyEpoch(values[CounterResidencyEpoch])"));
-            Assert.That(storage, Does.Not.Contain(
-                "_dependencySampleInitialized"));
+                "void M8RecordDependency(uint tileRefIndex)"));
+            Assert.That(storage, Does.Contain("TilesInstalled?.Invoke(addresses)"));
+            Assert.That(storage, Does.Contain("TileLoadsFailed?.Invoke(failed)"));
+            Assert.That(storage, Does.Contain("_completedAttemptDependencies ="));
+            Assert.That(submit, Does.Contain("BeginDependencyWindow();"));
+            Assert.That(retire, Does.Contain("AdoptCompletedDependencies();"));
+            Assert.That(satisfied, Does.Contain(
+                "_dependencies.Count == 0 && !_dependencyUnaddressed"));
+            Assert.That(satisfied, Does.Contain("_residencyEventSinceSubmit &&"));
+            Assert.That(satisfied, Does.Contain(
+                "!_grid.HasUnresolvedStorageRequests"));
+            Assert.That(integrator, Does.Contain(
+                "(_observationPrepared && _dependencyLoadFailed)"));
         }
 
         [Test]
@@ -2034,14 +2045,14 @@ namespace Genesis.RoomScan.Tests
                 "internal void PumpStorageForLifecycleRetirement()");
             string exact = Slice(storage,
                 "internal void RequestAttemptCompletion(",
-                "private void PublishResidencyEpoch(");
+                "private void BeginLoadAddressReadback()");
 
             Assert.That(finalize, Does.Contain(
                 "_M8AttemptCompletion[0] = uint4(_M8AttemptToken"));
             Assert.That(finalize, Does.Contain(
                 "M8_COUNTER_OBSERVATION_TOKEN"));
             Assert.That(finalize, Does.Contain(
-                "M8_COUNTER_RESIDENCY_EPOCH"));
+                "M8PublishAttemptDependencies()"));
             Assert.That(finalize, Does.Contain(
                 "M8_COUNTER_RENDER_DIRTY_MARKS"));
 
@@ -2090,21 +2101,50 @@ namespace Genesis.RoomScan.Tests
             Assert.That(cleanup, Does.Not.Contain("MERKABA_REF_COLD_ON_SSD"));
         }
 
+        // Replaces the residency-epoch touch test: runtime.z now holds the
+        // pin of the open attempt, written only by the dependency preflight.
         [Test]
-        public void ZeroCarveHotTile_DoesNotRefreshItsResidencyEpoch()
+        public void DependencyPreflight_PinsTheRingAndGatesEveryCommit()
         {
             string integration = Source(
                 "Runtime/Shaders/MerkabaIntegration.compute");
+            string world = Source("Runtime/Shaders/MerkabaWorld.compute");
+            string integrator = Source("Runtime/Merkaba/MerkabaIntegrator.cs");
             string query = Slice(integration, "void QueryCarveTiles",
-                "// Every COLD halo tile of one attempt");
-            int zeroCarve = query.IndexOf(
-                "_M8TileRecords[M8TileMetaIndex(physicalSlot)].w == 0u",
-                StringComparison.Ordinal);
-            int residencyTouch = query.IndexOf(
-                "_M8TileRecords[M8TileRuntimeIndex(physicalSlot)].z =",
-                StringComparison.Ordinal);
-            Assert.That(zeroCarve, Is.GreaterThanOrEqualTo(0));
-            Assert.That(residencyTouch, Is.GreaterThan(zeroCarve));
+                "uint M8PublishAttemptDependencies()");
+            string ring = Slice(integration, "void M8QueryTileRing",
+                "void QueryDependencyRing");
+            string evict = Slice(world, "void SelectEvictionVictims",
+                "void GatherWritebackBatch");
+            string submit = Slice(integrator,
+                "internal bool TrySubmitObservationAttempt()",
+                "private bool CanRetryPreparedObservation()");
+
+            Assert.That(query, Does.Not.Contain(
+                "_M8TileRecords[M8TileRuntimeIndex(physicalSlot)].z ="));
+            Assert.That(ring, Does.Contain(".z = _M8AttemptPin"));
+            Assert.That(ring, Does.Contain("MERKABA_REF_CLAIMED_NEW) continue"));
+            Assert.That(ring, Does.Contain("M8_COUNTER_UNRESOLVED_RING_TILES"));
+            foreach (string gate in new[]
+                     {
+                         "void PrepareIntegrateArgs", "void PrepareCarveArgs",
+                         "void FinalizeObservation", "void PrepareFineEraseArgs",
+                         "void FinalizeFineErase"
+                     })
+            {
+                int start = integration.IndexOf(gate, StringComparison.Ordinal);
+                int end = integration.IndexOf("\n}", start,
+                    StringComparison.Ordinal);
+                Assert.That(integration.Substring(start, end - start),
+                    Does.Contain("M8_COUNTER_UNRESOLVED_RING_TILES] == 0u"), gate);
+            }
+            Assert.That(evict, Does.Contain("runtime.z == _M8ObservationPin"));
+            Assert.That(evict, Does.Contain("M8_RENDER_VIEW_MARK) != 0u"));
+            Assert.That(evict, Does.Not.Contain("_M8SafeEpoch"));
+            Assert.That(submit.IndexOf("DispatchDependencyRing(command)",
+                    StringComparison.Ordinal),
+                Is.LessThan(submit.IndexOf("_prepareIntegrateKernel, 1, 1, 1",
+                    StringComparison.Ordinal)));
         }
 
         [Test]

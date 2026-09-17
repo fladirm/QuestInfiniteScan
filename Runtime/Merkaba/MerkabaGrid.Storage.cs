@@ -51,7 +51,9 @@ namespace Genesis.RoomScan
         private uint _completedObservationFailure;
         private bool _completedObservationChangedReadout;
         private uint _completedAttemptToken;
-        private uint _residencyEpoch;
+        private MerkabaTileAddress[] _completedAttemptDependencies =
+            Array.Empty<MerkabaTileAddress>();
+        private bool _completedAttemptDependencyUnaddressed;
         private readonly uint[] _streamControlWord = new uint[1];
         private readonly double[] _loadLatencies = new double[64];
         private readonly double[] _writeLatencies = new double[64];
@@ -92,7 +94,21 @@ namespace Genesis.RoomScan
         internal bool CompletedObservationChangedReadout =>
             _completedObservationChangedReadout;
         internal uint CompletedAttemptToken => _completedAttemptToken;
-        internal uint ResidencyEpoch => _residencyEpoch;
+        /// <summary>Tiles the last completed attempt waits for.</summary>
+        internal IReadOnlyList<MerkabaTileAddress> CompletedAttemptDependencies =>
+            _completedAttemptDependencies;
+        /// <summary>The last attempt also waits for something without a tile
+        /// address (EVICTING, CLAIMED, or more dependencies than recorded).</summary>
+        internal bool CompletedAttemptDependencyUnaddressed =>
+            _completedAttemptDependencyUnaddressed;
+
+        // Residency events. Scheduling reacts to these, never to a counter.
+        /// <summary>Tiles became HOT (installed or already resident).</summary>
+        internal event Action<MerkabaTileAddress[]> TilesInstalled;
+        /// <summary>SSD reads failed; the tiles returned to COLD.</summary>
+        internal event Action<MerkabaTileAddress[]> TileLoadsFailed;
+        /// <summary>An eviction writeback finished or failed.</summary>
+        internal event Action TilesReleased;
 
         private void EnsureStorage()
         {
@@ -217,7 +233,8 @@ namespace Genesis.RoomScan
             _completedObservationFailure = 0u;
             _completedObservationChangedReadout = false;
             _completedAttemptToken = 0u;
-            _residencyEpoch = 0u;
+            _completedAttemptDependencies = Array.Empty<MerkabaTileAddress>();
+            _completedAttemptDependencyUnaddressed = false;
             _attemptCompletionReadbackPending = false;
             _attemptCompletionExpectedToken = 0u;
             _loadLatencyCount = _loadLatencyCursor = 0;
@@ -311,7 +328,6 @@ namespace Genesis.RoomScan
         {
             uint hotTiles = values[CounterHotTileCount];
             uint coldTiles = values[CounterColdTileCount];
-            PublishResidencyEpoch(values[CounterResidencyEpoch]);
             M8BlockCount = ToInt(values[CounterBlockCount]);
             M8ChunkCount = ToInt(values[CounterChunkCount]);
             M8HotTileCount = ToInt(hotTiles);
@@ -334,7 +350,9 @@ namespace Genesis.RoomScan
             _attemptCompletionReadbackPending = true;
             _attemptCompletionExpectedToken = expectedAttemptToken;
             int generation = _gpuGeneration;
-            AsyncGPUReadback.Request(_m8AttemptCompletion, 16, 0, request =>
+            int recordBytes = AttemptCompletionRecords * 16;
+            AsyncGPUReadback.Request(_m8AttemptCompletion, recordBytes, 0,
+                request =>
             {
                 // A stale callback must not clear or publish a newer request.
                 if (generation != _gpuGeneration ||
@@ -352,9 +370,10 @@ namespace Genesis.RoomScan
 
                 Unity.Collections.NativeArray<Raw16> values =
                     request.GetData<Raw16>();
-                if (values.Length != 1 || values[0].X != expectedAttemptToken)
+                if (values.Length != AttemptCompletionRecords ||
+                    values[0].X != expectedAttemptToken)
                 {
-                    uint actual = values.Length == 1 ? values[0].X : 0u;
+                    uint actual = values.Length >= 1 ? values[0].X : 0u;
                     Logger.Error("Ignored stale M8 attempt-completion record; " +
                                  $"expected={expectedAttemptToken} actual={actual}.");
                     return;
@@ -366,16 +385,25 @@ namespace Genesis.RoomScan
                 _completedObservationChangedReadout =
                     (completion.Z & 0x80000000u) != 0u;
                 _completedObservationFailure = completion.Z & 0x7fffffffu;
-                PublishResidencyEpoch(completion.W);
+                // W = recorded dependency count | 0x80000000 unaddressed.
+                int recorded = (int)Math.Min(completion.W & 0x7fffffffu,
+                    (uint)AttemptDependencySlots);
+                var dependencies = new List<MerkabaTileAddress>(recorded);
+                for (int slot = 0; slot < AttemptDependencySlots; slot++)
+                {
+                    Raw16 record = values[AttemptDependencyRecord + slot];
+                    if ((record.W & 0x80000000u) == 0u) continue;
+                    dependencies.Add(new MerkabaTileAddress(new int3(
+                        unchecked((int)record.X), unchecked((int)record.Y),
+                        unchecked((int)record.Z)), record.W & 0x7fffu));
+                }
+                _completedAttemptDependencies = dependencies.ToArray();
+                _completedAttemptDependencyUnaddressed =
+                    (completion.W & 0x80000000u) != 0u ||
+                    dependencies.Count != recorded;
                 // CPU accounting only. This callback must never enqueue GPU
                 // work after a quiesce retirement marker.
             });
-        }
-
-        private void PublishResidencyEpoch(uint candidate)
-        {
-            if (unchecked((int)(candidate - _residencyEpoch)) >= 0)
-                _residencyEpoch = candidate;
         }
 
         private void BeginLoadAddressReadback()
@@ -428,11 +456,13 @@ namespace Genesis.RoomScan
                 {
                     Logger.Error("M8 SSD tile load failed: " +
                                  task.Exception?.GetBaseException().Message);
-                    UploadLoadAddresses(_loadAddresses);
-                    FailLoadedTiles(_loadAddresses.Length);
-                    _loadRequestCursor += (uint)_loadAddresses.Length;
+                    MerkabaTileAddress[] failed = _loadAddresses;
+                    UploadLoadAddresses(failed);
+                    FailLoadedTiles(failed.Length);
+                    _loadRequestCursor += (uint)failed.Length;
                     AcknowledgeLoadRequests();
                     _loadAddresses = null;
+                    TileLoadsFailed?.Invoke(failed);
                 }
                 else
                 {
@@ -462,6 +492,7 @@ namespace Genesis.RoomScan
                     _flushProgress = null;
                     FailWritebackBatch(_writebackBatchCount,
                         _writebackBatchPersist);
+                    if (!_writebackBatchPersist) TilesReleased?.Invoke();
                 }
                 else
                 {
@@ -475,6 +506,7 @@ namespace Genesis.RoomScan
                     }
                     AcknowledgeWritebackBatch(_writebackBatchCount,
                         _writebackBatchPersist);
+                    if (!_writebackBatchPersist) TilesReleased?.Invoke();
                 }
                 _writebackBatchCount = 0;
                 // Chain the next batch immediately; the idle poll interval
@@ -525,6 +557,7 @@ namespace Genesis.RoomScan
                         AcknowledgeLoadRequests();
                         _loadAddresses = null;
                         _nextStreamPoll = 0f;
+                        TilesInstalled?.Invoke(addresses);
                     }
                     else
                     {
@@ -631,6 +664,7 @@ namespace Genesis.RoomScan
             int count = _deferredWritebackFailureCount;
             _deferredWritebackFailureCount = 0;
             FailWritebackBatch(count, _deferredWritebackFailurePersist);
+            if (!_deferredWritebackFailurePersist) TilesReleased?.Invoke();
         }
 
         internal void CaptureStorageMetrics(out float loadBytesPerSecond,

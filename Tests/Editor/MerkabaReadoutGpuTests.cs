@@ -94,10 +94,10 @@ namespace Genesis.RoomScan.Tests
             Assert.That(indexCount, Is.EqualTo(64u * 6u),
                 "one 25 mm membrane quad per measured MAIN; " +
                 $"planeValid={Counter(30)} emittedPatches={Counter(31)} " +
-                $"emittedVertices={Counter(97)} unresolved={Counter(50)} " +
-                $"pending={Counter(108)} overflow={Counter(23)} " +
+                $"emittedVertices={Counter(97)} coldInCoverage={Counter(50)} " +
+                $"ringInvariant={Counter(108)} overflow={Counter(23)} " +
                 $"rebuild={Counter(100)} batchBase={Counter(106)} " +
-                $"cursor={Counter(119)} header=({header[0].X},{header[0].Y}," +
+                $"cursor={Counter(64)} header=({header[0].X},{header[0].Y}," +
                 $"{header[0].Z},{header[0].W})");
             Assert.That(back[1], Is.EqualTo(indexCount));
             // Shared knots: an 8x8 sheet has 9x9 = 81 knot vertices (two
@@ -224,7 +224,8 @@ namespace Genesis.RoomScan.Tests
         {
             // The second tile spans y = 6.0..6.2 m: inside the 6.4 m coverage
             // sphere from the origin, outside it once the head moved 0.5 m.
-            // (A tile evicted INSIDE coverage is unresolved: FRONT stays.)
+            // (A tile that is not resident INSIDE coverage is simply not
+            // drawn yet; see TileWithNonResidentRingIsNotListedUntilInstalled.)
             InstallWallTiles(new int3(0, 0, 0), new int3(0, 240, 0));
             Build();
             Build();
@@ -239,23 +240,40 @@ namespace Genesis.RoomScan.Tests
             Assert.That(Retired(), Is.GreaterThan(0u));
         }
 
+        // Replaces UnresolvedHaloKeepsThePreviousTileRecord (contract C9
+        // amendment): a tile whose ring is not resident is not drawn yet and
+        // never holds or fails the publication; the tile is listed and built
+        // in the first transaction after its ring member is installed.
         [Test]
-        public void UnresolvedHaloKeepsThePreviousTileRecord()
+        public void TileWithNonResidentRingIsNotListedUntilInstalled()
         {
             InstallWallTiles(new int3(0, 0, 0), new int3(0, 0, 8));
             Build();
             uint target = SlotOf(new int3(0, 0, 0));
             uint neighbour = SlotOf(new int3(0, 0, 8));
-            int record = Header + (int)target * RecordWords;
-            uint[] before = Index(_front);
-            SetTileRef(RefIndexOf(neighbour), RefLoading);
+            uint neighbourRef = RefIndexOf(neighbour);
+            SetTileRef(neighbourRef, RefLoading);
             MarkTileDirty(new int3(0, 0, 0));
-            Build();
+            U4 withoutRing = Build();
+            Assert.That(withoutRing.Y,
+                Is.EqualTo(MerkabaGrid.ReadoutPublishedStatus),
+                "a non-resident ring never fails the publication");
+            Assert.That(withoutRing.Z, Is.Zero, "neither tile is drawn");
+            Assert.That(withoutRing.W & 0x7fffffffu, Is.EqualTo(2u),
+                "both coverage tiles are reported as not drawn yet");
+            Assert.That(Counter(MerkabaGrid.CounterReadoutRingInvariant),
+                Is.Zero);
+
+            SetTileRef(neighbourRef, neighbour + 1u);
+            U4 installed = Build();
+            Assert.That(installed.Y,
+                Is.EqualTo(MerkabaGrid.ReadoutPublishedStatus));
+            Assert.That(installed.Z, Is.EqualTo(2u));
+            Assert.That(installed.W & 0x7fffffffu, Is.Zero);
             uint[] after = Index(_front);
-            Assert.That(Counter(MerkabaGrid.CounterRenderPendingTiles),
-                Is.EqualTo(1u));
-            for (int word = 0; word < RecordWords; word++)
-                Assert.That(after[record + word], Is.EqualTo(before[record + word]));
+            int record = Header + (int)target * RecordWords;
+            Assert.That(after[record], Is.EqualTo(64u * 6u),
+                "the target tile is rebuilt with its complete ring");
         }
 
         [Test]
@@ -338,8 +356,8 @@ namespace Genesis.RoomScan.Tests
             var command = new CommandBuffer { name = "readout-gpu-test" };
             try
             {
-                _renderer.RecordBuild(command, back, ++_revision, _published,
-                    true, cameraGridMeters);
+                _renderer.RecordBuild(command, back, ++_revision,
+                    cameraGridMeters);
                 Graphics.ExecuteCommandBuffer(command);
             }
             finally
@@ -347,14 +365,14 @@ namespace Genesis.RoomScan.Tests
                 command.Release();
             }
             var completion = new U4[3];
-            _grid.M8AttemptCompletion.GetData(completion);
+            _grid.M8AttemptCompletion.GetData(completion, 0, 0, 3);
             Assert.That(completion[1].X, Is.EqualTo(_revision));
             if (completion[1].Y != MerkabaGrid.ReadoutPublishedStatus)
                 Debug.Log($"readout-gpu-test revision={_revision} not published: " +
                     $"status={completion[1].Y} tiles={completion[1].Z} " +
                     $"flags={completion[1].W:X8} batch=({completion[2].Y}/" +
                     $"{completion[2].Z}) rebuild={Counter(100)} " +
-                    $"unresolved={Counter(50)} pending={Counter(108)} " +
+                    $"coldInCoverage={Counter(50)} ringInvariant={Counter(108)} " +
                     $"capacity={Counter(109)} overflow={Counter(23)} " +
                     $"viewOverflow={Counter(104)} invalid={Counter(105)} " +
                     $"planeValid={Counter(30)} emitted={Counter(31)}");
@@ -503,7 +521,7 @@ namespace Genesis.RoomScan.Tests
             $"alloc={Control(MerkabaGrid.RenderControlAllocCount)} " +
             $"reclaim={Control(MerkabaGrid.RenderControlReclaimCount)} " +
 
-            $"pending={Counter(MerkabaGrid.CounterRenderPendingTiles)}";
+            $"ringInvariant={Counter(MerkabaGrid.CounterReadoutRingInvariant)}";
 
         private uint Control(int index) => ControlOf(_front, index);
 

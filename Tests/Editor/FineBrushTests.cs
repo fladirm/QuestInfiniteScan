@@ -244,7 +244,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(erase, Does.Not.Contain("UpdateOccupancy"));
             Assert.That(erase, Does.Not.Contain("MERKABA_FREE_SCALE"));
             Assert.That(integrator, Does.Contain(
-                "_grid.ResidencyEpoch == _fineEraseResidencyEpoch"));
+                "_fineEraseWaitingForDependency && !DependenciesSatisfied()"));
+            Assert.That(integrator, Does.Not.Contain("ResidencyEpoch"));
             Assert.That(scanner, Does.Contain("UpdateFineErase();"));
             Assert.That(scanner, Does.Contain(
                 "FinishCurrentFineEraseAsync()"));

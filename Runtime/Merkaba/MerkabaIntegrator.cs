@@ -33,6 +33,8 @@ namespace Genesis.RoomScan
         private int _prepareIntegrateKernel;
         private int _integrateSurfaceKernel;
         private int _queryCarveKernel;
+        private int _prepareDependencyRingKernel;
+        private int _queryDependencyRingKernel;
         private int _prepareCarveKernel;
         private int _integrateCarveKernel;
         private int _finalizeKernel;
@@ -50,7 +52,6 @@ namespace Genesis.RoomScan
         private bool _waitingForDependency;
         private uint _attemptSequence;
         private uint _attemptToken;
-        private uint _attemptResidencyEpoch;
         private MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob
             _nativeAttemptJob;
         private bool _nativeAttemptIncludesPreprocess;
@@ -60,7 +61,19 @@ namespace Genesis.RoomScan
         private bool _fineEraseAttemptInFlight;
         private bool _fineEraseWaitingForDependency;
         private uint _fineEraseAttemptToken;
-        private uint _fineEraseResidencyEpoch;
+        // Stable identity of one prepared FINE erase across its retries.
+        private uint _fineEraseToken;
+        // Event-driven dependency wait of the open attempt (observation and
+        // FINE erase are mutually exclusive). An attempt that could not
+        // commit because tiles were not resident retries when those tiles
+        // are installed, or after any residency event once storage is idle.
+        // No epoch or counter comparison decides a retry.
+        private readonly HashSet<MerkabaTileAddress> _dependencies = new();
+        private readonly HashSet<MerkabaTileAddress> _installedSinceSubmit =
+            new();
+        private bool _dependencyUnaddressed;
+        private bool _residencyEventSinceSubmit;
+        private bool _dependencyLoadFailed;
         private FineBrushDescriptor _fineEraseDescriptor;
         private MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob
             _nativeFineEraseJob;
@@ -93,8 +106,8 @@ namespace Genesis.RoomScan
         private int _heldCameraSlot = -1;
         private bool _cameraObservationHeld;
         private FineBrushDescriptor _heldFineBrush;
-        private ulong _cameraCopySubmittedEpoch;
-        private ulong _cameraCopyRetiredEpoch;
+        private ulong _cameraCopySubmittedSequence;
+        private ulong _cameraCopyRetiredSequence;
         private int _lastCameraCopySlot = -1;
         private Task _cameraCopyRetirementTask = Task.CompletedTask;
         private bool _cameraFormatTelemetryLogged;
@@ -188,6 +201,10 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_M8AbortObservation");
         private static readonly int AttemptTokenId =
             Shader.PropertyToID("_M8AttemptToken");
+        private static readonly int AttemptPinId =
+            Shader.PropertyToID("_M8AttemptPin");
+        private static readonly int DependencyRingSourceId =
+            Shader.PropertyToID("_M8DependencyRingSource");
         private static readonly int FineRefineActiveId =
             Shader.PropertyToID("_M8FineRefineActive");
         private static readonly int FineCursorPositionId =
@@ -209,6 +226,96 @@ namespace Genesis.RoomScan
         {
             _grid = GetComponent<MerkabaGrid>();
             _depthCapture = GetComponent<DepthCapture>();
+        }
+
+        // Residency event subscription only; GPU ownership is never released
+        // from component lifetime callbacks.
+        private void OnEnable()
+        {
+            if (_grid == null) return;
+            _grid.TilesInstalled += OnTilesInstalled;
+            _grid.TileLoadsFailed += OnTileLoadsFailed;
+            _grid.TilesReleased += OnTilesReleased;
+        }
+
+        private void OnDisable()
+        {
+            if (_grid == null) return;
+            _grid.TilesInstalled -= OnTilesInstalled;
+            _grid.TileLoadsFailed -= OnTileLoadsFailed;
+            _grid.TilesReleased -= OnTilesReleased;
+        }
+
+        private bool AttemptOpen => _observationPrepared || _fineErasePrepared;
+
+        private void OnTilesInstalled(MerkabaTileAddress[] addresses)
+        {
+            if (!AttemptOpen) return;
+            _residencyEventSinceSubmit = true;
+            bool inFlight = _attemptInFlight || _fineEraseAttemptInFlight;
+            foreach (MerkabaTileAddress address in addresses)
+            {
+                _dependencies.Remove(address);
+                if (inFlight) _installedSinceSubmit.Add(address);
+            }
+        }
+
+        private void OnTileLoadsFailed(MerkabaTileAddress[] addresses)
+        {
+            if (!AttemptOpen) return;
+            _residencyEventSinceSubmit = true;
+            foreach (MerkabaTileAddress address in addresses)
+                if (_dependencies.Contains(address))
+                    _dependencyLoadFailed = true;
+        }
+
+        private void OnTilesReleased()
+        {
+            if (AttemptOpen) _residencyEventSinceSubmit = true;
+        }
+
+        /// <summary>Starts a new attempt's event window.</summary>
+        private void BeginDependencyWindow()
+        {
+            _installedSinceSubmit.Clear();
+            _residencyEventSinceSubmit = false;
+        }
+
+        /// <summary>Adopts the dependencies an unresolved attempt reported;
+        /// tiles installed while it was in flight are already satisfied.</summary>
+        private void AdoptCompletedDependencies()
+        {
+            _dependencies.Clear();
+            foreach (MerkabaTileAddress address in
+                     _grid.CompletedAttemptDependencies)
+                if (!_installedSinceSubmit.Contains(address))
+                    _dependencies.Add(address);
+            _dependencyUnaddressed = _grid.CompletedAttemptDependencyUnaddressed;
+            _installedSinceSubmit.Clear();
+        }
+
+        private bool DependenciesSatisfied()
+        {
+            if (_dependencies.Count == 0 && !_dependencyUnaddressed) return true;
+            return _residencyEventSinceSubmit &&
+                   !_grid.HasUnresolvedStorageRequests;
+        }
+
+        private void ClearDependencyWait()
+        {
+            _dependencies.Clear();
+            _installedSinceSubmit.Clear();
+            _dependencyUnaddressed = false;
+            _residencyEventSinceSubmit = false;
+            _dependencyLoadFailed = false;
+        }
+
+        private void PublishAttemptPins()
+        {
+            if (_grid == null) return;
+            _grid.SetOpenAttemptPins(
+                _observationPrepared ? _observationToken << 1 : 0u,
+                _fineErasePrepared ? (_fineEraseToken << 1) | 1u : 0u);
         }
 
         internal void ReleaseOwnedResourcesAfterGpuRetirement()
@@ -277,6 +384,10 @@ namespace Genesis.RoomScan
                 MerkabaGpuStage.SurfaceIntegration);
             _queryCarveKernel = compute.FindProfiledKernel(
                 "QueryCarveTiles", MerkabaGpuStage.CarveIntegration);
+            _prepareDependencyRingKernel = compute.FindProfiledKernel(
+                "PrepareDependencyRingArgs", MerkabaGpuStage.WorldQuery);
+            _queryDependencyRingKernel = compute.FindProfiledKernel(
+                "QueryDependencyRing", MerkabaGpuStage.WorldQuery);
             _prepareCarveKernel = compute.FindProfiledKernel(
                 "PrepareCarveArgs", MerkabaGpuStage.CarveIntegration);
             _integrateCarveKernel = compute.FindProfiledKernel(
@@ -301,7 +412,9 @@ namespace Genesis.RoomScan
                          _selectSurfaceWinnersKernel, _queueResolvedKernel,
                          _retryPendingTilesKernel, _prepareIntegrateKernel,
                          _integrateSurfaceKernel, _queryCarveKernel,
-                         _prepareCarveKernel, _integrateCarveKernel,
+                         _prepareDependencyRingKernel,
+                         _queryDependencyRingKernel, _prepareCarveKernel,
+                         _integrateCarveKernel,
                          _finalizeKernel, _resetFineEraseKernel,
                          _queryFineEraseKernel, _prepareFineEraseKernel,
                          _eraseFineTilesKernel, _finalizeFineEraseKernel
@@ -371,7 +484,7 @@ namespace Genesis.RoomScan
                 "Merkaba true-stereo PCA snapshot");
             bool submitted = false;
             uint timingRevision = unchecked(
-                (uint)(_cameraCopySubmittedEpoch + 1UL));
+                (uint)(_cameraCopySubmittedSequence + 1UL));
             if (timingRevision == 0u) timingRevision = 1u;
             bool timedSubmission = false;
             try
@@ -411,9 +524,9 @@ namespace Genesis.RoomScan
             _readyCameraSlot = slot;
             unchecked
             {
-                _cameraCopySubmittedEpoch++;
-                if (_cameraCopySubmittedEpoch == 0u)
-                    _cameraCopySubmittedEpoch = 1u;
+                _cameraCopySubmittedSequence++;
+                if (_cameraCopySubmittedSequence == 0u)
+                    _cameraCopySubmittedSequence = 1u;
             }
             _lastCameraCopySlot = CameraResourceIndex(slot, 1);
             return true;
@@ -458,6 +571,9 @@ namespace Genesis.RoomScan
                     _attemptInFlight = false;
                     ReleaseOwnedObservation();
                     _observationPrepared = false;
+                    _waitingForDependency = false;
+                    ClearDependencyWait();
+                    PublishAttemptPins();
                     return false;
                 }
                 if (_nativeAttemptIncludesPreprocess)
@@ -501,11 +617,12 @@ namespace Genesis.RoomScan
             }
 
             _waitingForDependency = true;
+            AdoptCompletedDependencies();
             Logger.Info("Merkaba observation attempt unresolved " +
                         $"observation={_observationToken} " +
                         $"attempt={_attemptToken} " +
-                        $"attemptResidencyEpoch={_attemptResidencyEpoch} " +
-                        $"currentResidencyEpoch={_grid.ResidencyEpoch}");
+                        $"dependencies={_dependencies.Count} " +
+                        $"unaddressed={_dependencyUnaddressed}");
             return false;
         }
 
@@ -521,7 +638,9 @@ namespace Genesis.RoomScan
             _fineErasePrepared = true;
             _fineEraseWaitingForDependency = false;
             _fineEraseAttemptToken = 0u;
-            _fineEraseResidencyEpoch = 0u;
+            _fineEraseToken = NextAttemptToken();
+            ClearDependencyWait();
+            PublishAttemptPins();
             return true;
         }
 
@@ -554,16 +673,13 @@ namespace Genesis.RoomScan
             {
                 _grid.SeedRenderMutationJournal(false, true);
                 RequestCycleReadout();
-                _fineErasePrepared = false;
-                _fineEraseWaitingForDependency = false;
-                _fineEraseAttemptToken = 0u;
-                _fineEraseResidencyEpoch = 0u;
-                _fineEraseDescriptor = default;
+                CloseFineErase();
                 FineErased?.Invoke();
                 return true;
             }
 
             _fineEraseWaitingForDependency = true;
+            AdoptCompletedDependencies();
             return false;
         }
 
@@ -572,7 +688,8 @@ namespace Genesis.RoomScan
             if (!_fineErasePrepared || _fineEraseAttemptInFlight ||
                 _observationPrepared || _attemptInFlight ||
                 _grid == null || _grid.GpuSubmissionSuspended ||
-                _grid.StorageControlReady || !Initialize()) return false;
+                _grid.StorageControlReady || ReadoutTransactionOpen() ||
+                !Initialize()) return false;
             if (_fineEraseAuthorityGeneration != CurrentAuthorityGeneration())
             {
                 // ERASE is idempotent canonical reset: work already applied
@@ -580,17 +697,22 @@ namespace Genesis.RoomScan
                 // a superseded room frame is dropped, never re-projected.
                 Logger.Warning("Merkaba FINE erase dropped after a room " +
                     "coordinate authority change.");
-                _fineErasePrepared = false;
-                _fineEraseWaitingForDependency = false;
-                _fineEraseAttemptToken = 0u;
-                _fineEraseDescriptor = default;
+                CloseFineErase();
                 return false;
             }
-            if (_fineEraseWaitingForDependency &&
-                _grid.ResidencyEpoch == _fineEraseResidencyEpoch)
+            if (_fineEraseWaitingForDependency && _dependencyLoadFailed)
+            {
+                // ERASE writes nothing before its dependencies are resident,
+                // so a failed load drops the descriptor without mutation.
+                Logger.Warning("Merkaba FINE erase dropped: a required tile " +
+                    "could not be loaded.");
+                CloseFineErase();
+                return false;
+            }
+            if (_fineEraseWaitingForDependency && !DependenciesSatisfied())
                 return false;
 
-            _fineEraseResidencyEpoch = _grid.ResidencyEpoch;
+            BeginDependencyWindow();
             _fineEraseAttemptToken = NextAttemptToken();
 #if !UNITY_EDITOR && UNITY_ANDROID
             return TrySubmitNativeFineEraseAttempt();
@@ -603,9 +725,13 @@ namespace Genesis.RoomScan
                 ConfigureFineErase(command, _fineEraseDescriptor);
                 command.SetComputeIntParam(compute, AttemptTokenId,
                     unchecked((int)_fineEraseAttemptToken));
+                command.SetComputeIntParam(compute, AttemptPinId,
+                    unchecked((int)((_fineEraseToken << 1) | 1u)));
+                command.SetComputeIntParam(compute, DependencyRingSourceId, 2);
                 command.DispatchComputeProfiled(compute,
                     _resetFineEraseKernel, 1, 1, 1);
                 DispatchFineEraseQuery(command, _fineEraseDescriptor);
+                DispatchDependencyRing(command);
                 command.DispatchComputeProfiled(compute,
                     _prepareFineEraseKernel, 1, 1, 1);
                 command.DispatchComputeProfiled(compute,
@@ -663,6 +789,8 @@ namespace Genesis.RoomScan
             uniforms.Int("_M8ScanBlockRadius", radius);
             uniforms.Int("_M8ScanBlockSide", side);
             uniforms.UInt("_M8AttemptToken", _fineEraseAttemptToken);
+            uniforms.UInt("_M8AttemptPin", (_fineEraseToken << 1) | 1u);
+            uniforms.UInt("_M8DependencyRingSource", 2u);
             if (!MerkabaNativeVulkanExecutor.TryCreateJob(
                     MerkabaNativeVulkanExecutor.JobKind.FineErase,
                     _fineEraseAttemptToken, resources, uniforms, 0, 0,
@@ -708,7 +836,7 @@ namespace Genesis.RoomScan
         internal bool TrySubmitObservationAttempt()
         {
             if (_grid == null || _grid.GpuSubmissionSuspended ||
-                _grid.StorageControlReady ||
+                _grid.StorageControlReady || ReadoutTransactionOpen() ||
                 !Initialize() || _attemptInFlight || _fineErasePrepared ||
                 _fineEraseAttemptInFlight)
                 return false;
@@ -722,8 +850,6 @@ namespace Genesis.RoomScan
             }
             else if (!CanRetryPreparedObservation())
                 return false;
-
-            _attemptResidencyEpoch = _grid.ResidencyEpoch;
 
 #if !UNITY_EDITOR && UNITY_ANDROID
             if (!MerkabaNativeVulkanExecutor.IsAvailable)
@@ -766,11 +892,17 @@ namespace Genesis.RoomScan
                     _observationDepthVersion =
                         _depthCapture.ProcessedRawFrameVersion;
                     _observationPrepared = true;
+                    ClearDependencyWait();
+                    PublishAttemptPins();
                 }
 
+                BeginDependencyWindow();
                 _attemptToken = NextAttemptToken();
                 command.SetComputeIntParam(compute, AttemptTokenId,
                     unchecked((int)_attemptToken));
+                command.SetComputeIntParam(compute, AttemptPinId,
+                    unchecked((int)(_observationToken << 1)));
+                command.SetComputeIntParam(compute, DependencyRingSourceId, 3);
                 if (newObservation)
                 {
                     ConfigureObservation();
@@ -810,6 +942,7 @@ namespace Genesis.RoomScan
                 // Q_SCAN must resolve the whole corrective working set before
                 // either SURFACE or FREE mutates this immutable observation.
                 DispatchCarveQuery(command);
+                DispatchDependencyRing(command);
                 command.DispatchComputeProfiled(compute,
                     _prepareIntegrateKernel, 1, 1, 1);
                 command.DispatchComputeProfiled(compute,
@@ -835,7 +968,6 @@ namespace Genesis.RoomScan
                             $"observation={_observationToken} " +
                             $"attempt={_attemptToken} " +
                             $"depthVersion={_observationDepthVersion} " +
-                            $"residencyEpoch={_attemptResidencyEpoch} " +
                             $"retry={!newObservation}");
                 return true;
             }
@@ -867,8 +999,11 @@ namespace Genesis.RoomScan
                 _observationDepthVersion =
                     _depthCapture.ProcessedRawFrameVersion;
                 _observationPrepared = true;
+                ClearDependencyWait();
+                PublishAttemptPins();
             }
 
+            BeginDependencyWindow();
             _attemptToken = NextAttemptToken();
             IntPtr[] resources = BuildNativeObservationResources(
                 newObservation);
@@ -889,6 +1024,7 @@ namespace Genesis.RoomScan
                 {
                     ReleaseOwnedObservation();
                     _observationPrepared = false;
+                    PublishAttemptPins();
                 }
                 return false;
             }
@@ -936,6 +1072,7 @@ namespace Genesis.RoomScan
                 {
                     ReleaseOwnedObservation();
                     _observationPrepared = false;
+                    PublishAttemptPins();
                 }
                 return false;
             }
@@ -985,6 +1122,8 @@ namespace Genesis.RoomScan
             values.Float("gsVoxSize", MerkabaConstants.SupportSize);
             values.UInt("_M8ObservationToken", _observationToken);
             values.UInt("_M8AttemptToken", _attemptToken);
+            values.UInt("_M8AttemptPin", _observationToken << 1);
+            values.UInt("_M8DependencyRingSource", 3u);
             values.Int("_M8AbortObservation",
                 ObservationMustAbort() ? 1 : 0);
 
@@ -1063,8 +1202,7 @@ namespace Genesis.RoomScan
         {
             if (!_observationPrepared || _attemptInFlight) return false;
             if (ObservationMustAbort()) return true;
-            return _waitingForDependency &&
-                   _grid.ResidencyEpoch != _attemptResidencyEpoch;
+            return _waitingForDependency && DependenciesSatisfied();
         }
 
         private void CaptureObservationFrame()
@@ -1079,7 +1217,10 @@ namespace Genesis.RoomScan
             return manager != null ? manager.CoordinateAuthorityGeneration : 0u;
         }
 
+        // A failed dependency load aborts through one GPU attempt, so the
+        // observation completes with failure and its claims are cleaned up.
         private bool ObservationMustAbort() => ObservationTimedOut() ||
+            (_observationPrepared && _dependencyLoadFailed) ||
             (_observationPrepared &&
              _observationAuthorityGeneration != CurrentAuthorityGeneration());
 
@@ -1098,6 +1239,13 @@ namespace Genesis.RoomScan
             return _attemptSequence;
         }
 
+        // A readout transaction reads one canonical state across its paced
+        // jobs; no canonical commit may land between two of them.
+        private static bool ReadoutTransactionOpen() =>
+            MerkabaGridRenderer.TryGetActiveProducer(
+                out MerkabaGridRenderer renderer) &&
+            renderer.HasReadoutBuildInFlight;
+
         private static void RequestCycleReadout()
         {
             if (MerkabaGridRenderer.TryGetActiveProducer(out
@@ -1114,7 +1262,8 @@ namespace Genesis.RoomScan
             _attemptInFlight = false;
             _attemptToken = 0u;
             _waitingForDependency = false;
-            _attemptResidencyEpoch = 0u;
+            ClearDependencyWait();
+            PublishAttemptPins();
             ReleaseOwnedObservation();
             if (failureReason != 0u)
             {
@@ -1279,6 +1428,25 @@ namespace Genesis.RoomScan
                 side * side * side, 1, 1);
         }
 
+        private void DispatchDependencyRing(CommandBuffer command)
+        {
+            command.DispatchComputeProfiled(compute,
+                _prepareDependencyRingKernel, 1, 1, 1);
+            command.DispatchComputeProfiled(compute, _queryDependencyRingKernel,
+                _grid.M8ObservationDispatchArgs);
+        }
+
+        private void CloseFineErase()
+        {
+            _fineErasePrepared = false;
+            _fineEraseWaitingForDependency = false;
+            _fineEraseAttemptToken = 0u;
+            _fineEraseToken = 0u;
+            _fineEraseDescriptor = default;
+            ClearDependencyWait();
+            PublishAttemptPins();
+        }
+
         private void ConfigureFineErase(CommandBuffer command,
             FineBrushDescriptor descriptor)
         {
@@ -1408,8 +1576,8 @@ namespace Genesis.RoomScan
 
         internal Task RetireSubmittedCameraCopiesAsync()
         {
-            ulong target = _cameraCopySubmittedEpoch;
-            if (_cameraCopyRetiredEpoch >= target || target == 0u)
+            ulong target = _cameraCopySubmittedSequence;
+            if (_cameraCopyRetiredSequence >= target || target == 0u)
                 return Task.CompletedTask;
             if (!_cameraCopyRetirementTask.IsCompleted)
                 return _cameraCopyRetirementTask;
@@ -1432,8 +1600,8 @@ namespace Genesis.RoomScan
                         "Owned PCA GPU-copy retirement readback failed."));
                     return;
                 }
-                _cameraCopyRetiredEpoch = Math.Max(
-                    _cameraCopyRetiredEpoch, target);
+                _cameraCopyRetiredSequence = Math.Max(
+                    _cameraCopyRetiredSequence, target);
                 completion.TrySetResult(true);
             });
             return _cameraCopyRetirementTask;
@@ -1449,13 +1617,8 @@ namespace Genesis.RoomScan
             _attemptInFlight = false;
             _attemptToken = 0u;
             _waitingForDependency = false;
-            _attemptResidencyEpoch = 0u;
-            _fineErasePrepared = false;
             _fineEraseAttemptInFlight = false;
-            _fineEraseWaitingForDependency = false;
-            _fineEraseAttemptToken = 0u;
-            _fineEraseResidencyEpoch = 0u;
-            _fineEraseDescriptor = default;
+            CloseFineErase();
             ReleaseOwnedObservation();
             if (_readyCameraSlot >= 0)
                 _cameraPairAvailable[_readyCameraSlot] = false;

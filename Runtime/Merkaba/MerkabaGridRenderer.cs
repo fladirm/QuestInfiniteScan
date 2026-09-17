@@ -23,7 +23,6 @@ namespace Genesis.RoomScan
         [SerializeField] private ComputeShader readoutCompute;
         [SerializeField] private Shader renderShader;
         [SerializeField, Range(2f, 24f)] private float renderDistance = 12f;
-        [SerializeField, Range(5f, 72f)] private float readoutBuildHz = 30f;
         [SerializeField, Range(0f, 4f)]
         private float readoutTranslationGuard = 1f;
         [SerializeField, Range(0f, 1f)] private float scanOpacity = 1f;
@@ -39,7 +38,10 @@ namespace Genesis.RoomScan
         /// Frustum, stereo visibility and occlusion are draw concerns.
         /// </summary>
         internal const float ReadoutCoverageRadius = 6.4f;
-        private const float ResidencyQueryTranslation = 1f;
+        // Head translation after which the coverage sphere is traversed again
+        // (new tiles enter the list, loads are requested). Existing records
+        // are reused by identity/version; nothing is rebuilt by motion alone.
+        private const float CoverageQueryTranslation = 1f;
         private const uint ReadoutBacklogBit = 0x80000000u;
 
         private MerkabaGrid _grid;
@@ -73,7 +75,6 @@ namespace Genesis.RoomScan
         private volatile bool _gpuSubmissionSuspended;
         private bool _statusReadbackPending;
         private float _nextStatusReadback;
-        private float _nextReadoutBuild;
         private bool _canonicalDirty = true;
         private bool _cycleReadoutPending;
         private bool _buildInFlight;
@@ -100,13 +101,16 @@ namespace Genesis.RoomScan
         private NativeReadoutPhase _nativePhase;
         private int _nativeQueryGroups;
         private int _nativeBatchesSubmitted;
-        private uint _builtResidencyEpoch;
-        private uint _pendingRetryEpoch;
-        private bool _retryPendingTiles;
-        private bool _waitingForResidencyEpoch;
-        private bool _residencyQueryRequested = true;
-        private Vector3 _lastResidencyQueryCamera;
-        private bool _coverageIncomplete = true;
+        // The next job of an open transaction is submitted in a later frame
+        // than the one that retired the previous job.
+        private MerkabaNativeVulkanExecutor.JobKind _nativeNextKind;
+        private bool _nativeNextPending;
+        private int _nativeEarliestSubmitFrame;
+        // Build triggers are events: a canonical commit (_canonicalDirty),
+        // installed tiles, a coverage move. No timer, epoch or retry loop.
+        private bool _tilesInstalled = true;
+        private bool _coverageQueryRequested = true;
+        private Vector3 _lastCoverageCamera;
         private FineBrushDescriptor _finePreviewDescriptor;
         private Color _finePreviewColor;
         private bool _dynamicOcclusionEnabled = true;
@@ -119,23 +123,18 @@ namespace Genesis.RoomScan
             internal readonly uint Revision;
             internal readonly uint LifecycleGeneration;
             internal readonly uint SourceGeneration;
-            internal readonly uint ResidencyEpoch;
             internal readonly uint RenderResetGeneration;
-            internal readonly bool ResidencyQuery;
             internal readonly Vector3 CameraGridMeters;
 
             internal ReadoutBuildTicket(int slot, uint revision,
                 uint lifecycleGeneration, uint sourceGeneration,
-                uint residencyEpoch, uint renderResetGeneration,
-                bool residencyQuery, Vector3 cameraGridMeters)
+                uint renderResetGeneration, Vector3 cameraGridMeters)
             {
                 Slot = slot;
                 Revision = revision;
                 LifecycleGeneration = lifecycleGeneration;
                 SourceGeneration = sourceGeneration;
-                ResidencyEpoch = residencyEpoch;
                 RenderResetGeneration = renderResetGeneration;
-                ResidencyQuery = residencyQuery;
                 CameraGridMeters = cameraGridMeters;
             }
         }
@@ -198,7 +197,7 @@ namespace Genesis.RoomScan
                 if (!value) return;
                 // Re-enabling republishes the latest canonical world; the scan
                 // kept mutating it while the producer was hard-off.
-                _residencyQueryRequested = true;
+                _coverageQueryRequested = true;
                 MarkCanonicalReadoutDirty();
             }
         }
@@ -257,10 +256,6 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_M8VisibleIndices");
         private static readonly int ReadoutRevisionId =
             Shader.PropertyToID("_M8ReadoutRevision");
-        private static readonly int AllowWarmLoadsId =
-            Shader.PropertyToID("_M8AllowWarmLoads");
-        private static readonly int ResidencyChangedId =
-            Shader.PropertyToID("_M8ResidencyChanged");
         private static readonly int RenderMutationQueueId =
             Shader.PropertyToID("_M8RenderMutationQueue");
         private static readonly int RenderPatchScratchId =
@@ -326,8 +321,15 @@ namespace Genesis.RoomScan
         {
             _grid = GetComponent<MerkabaGrid>();
             _integrator = GetComponent<MerkabaIntegrator>();
-            if (_grid != null) _grid.Cleared += MarkCanonicalReadoutDirty;
+            if (_grid != null)
+            {
+                _grid.Cleared += MarkCanonicalReadoutDirty;
+                _grid.TilesInstalled += OnTilesInstalled;
+            }
         }
+
+        private void OnTilesInstalled(MerkabaTileAddress[] addresses) =>
+            _tilesInstalled = true;
 
         private void OnEnable()
         {
@@ -342,7 +344,11 @@ namespace Genesis.RoomScan
         private void OnDestroy()
         {
             if (_active == this) _active = null;
-            if (_grid != null) _grid.Cleared -= MarkCanonicalReadoutDirty;
+            if (_grid != null)
+            {
+                _grid.Cleared -= MarkCanonicalReadoutDirty;
+                _grid.TilesInstalled -= OnTilesInstalled;
+            }
             InvalidatePublicationCallbacks();
         }
 
@@ -381,8 +387,7 @@ namespace Genesis.RoomScan
             _loadedCoverageReady = new TaskCompletionSource<bool>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
             MarkCanonicalReadoutDirty();
-            _residencyQueryRequested = true;
-            _coverageIncomplete = true;
+            _coverageQueryRequested = true;
             _loadedCoverageSourceGeneration = _sourceGeneration;
         }
 
@@ -421,6 +426,7 @@ namespace Genesis.RoomScan
             while (_buildInFlight || _nativeReadoutJob != null)
             {
                 PollNativeReadoutBuild();
+                PumpNativeReadoutTransaction();
                 await Task.Yield();
             }
         }
@@ -440,8 +446,10 @@ namespace Genesis.RoomScan
             _previousPublished = false;
             _submissionRevision = 0u;
             _pendingBuild = default;
-            _residencyQueryRequested = true;
-            _coverageIncomplete = true;
+            _nativeNextPending = false;
+            _nativePhase = NativeReadoutPhase.None;
+            _coverageQueryRequested = true;
+            _tilesInstalled = true;
         }
 
         private void InvalidatePublicationCallbacks()
@@ -647,6 +655,7 @@ namespace Genesis.RoomScan
                 return;
 
             PollNativeReadoutBuild();
+            PumpNativeReadoutTransaction();
             PollPendingPublication();
             if (_grid.RenderResetGeneration != _renderResetGeneration)
             {
@@ -654,7 +663,7 @@ namespace Genesis.RoomScan
                 _renderResetGeneration = _grid.RenderResetGeneration;
                 _previousPublished = false;
                 _frontTileCount = 0;
-                _residencyQueryRequested = true;
+                _coverageQueryRequested = true;
                 MarkCanonicalReadoutDirty();
             }
 
@@ -672,52 +681,33 @@ namespace Genesis.RoomScan
             bool queueBusy = _buildInFlight ||
                 MerkabaNativeVulkanExecutor.HasJobInFlight ||
                 _nativeReadoutJob != null || _grid.StorageControlReady;
-            bool residencyAdvanced =
-                _grid.ResidencyEpoch != _pendingRetryEpoch;
-            if (_waitingForResidencyEpoch && residencyAdvanced)
-            {
-                _waitingForResidencyEpoch = false;
-                _residencyQueryRequested = true;
-                _canonicalDirty = true;
-            }
-            // Head motion alone never rebuilds geometry. Entering new
-            // coverage only requests residency (loads), whose installation
-            // then marks the affected tiles dirty.
-            bool residencyQuery = _residencyQueryRequested ||
-                (!_waitingForResidencyEpoch && _coverageIncomplete) ||
-                Vector3.Distance(cameraGrid, _lastResidencyQueryCamera) >
-                    ResidencyQueryTranslation;
-            bool residencyChanged =
-                _grid.ResidencyEpoch != _builtResidencyEpoch;
-            bool buildRequested = !_waitingForResidencyEpoch &&
-                (_canonicalDirty || residencyChanged || residencyQuery);
-            // A readout that closes a scan transaction runs at once; a readout
-            // without a scan keeps the free-running cadence.
+            // Every build is caused by an event: a canonical commit, tiles
+            // that were installed (they may complete a ring), or a head move
+            // that changes which tiles the coverage sphere holds. Head motion
+            // never rebuilds an existing record by itself.
+            bool coverageMoved = _coverageQueryRequested ||
+                Vector3.Distance(cameraGrid, _lastCoverageCamera) >
+                    CoverageQueryTranslation;
+            bool buildRequested = _canonicalDirty || _tilesInstalled ||
+                coverageMoved;
             if (readoutProducerEnabled && !queueBusy && buildRequested &&
-                BackSlotReleased() &&
-                (_cycleReadoutPending ||
-                 Time.unscaledTime >= _nextReadoutBuild))
-                SubmitReadoutBuild(cameraGrid, residencyQuery);
+                BackSlotReleased())
+                SubmitReadoutBuild(cameraGrid);
 
             RequestStatusIfDue();
         }
 
-        private void SubmitReadoutBuild(Vector3 cameraGrid, bool residencyQuery)
+        private void SubmitReadoutBuild(Vector3 cameraGrid)
         {
             if (_buildInFlight) return;
             int backSlot = 1 - _frontReadout;
             uint revision = NextNonZero(ref _submissionRevision);
             var ticket = new ReadoutBuildTicket(backSlot, revision,
-                _lifecycleGeneration, _sourceGeneration, _grid.ResidencyEpoch,
-                _grid.RenderResetGeneration, residencyQuery, cameraGrid);
-            QueryShape query = ComputeQueryShape(cameraGrid);
+                _lifecycleGeneration, _sourceGeneration,
+                _grid.RenderResetGeneration, cameraGrid);
             // The warm pass builds the publication list from the coverage
-            // sphere on every build; residencyQuery only asks it to also
-            // request loads, so it always runs over the whole query.
-            int queryGroups = query.Groups;
-            // Tiles waiting for a COLD halo retry only after residency moved.
-            _retryPendingTiles = _grid.ResidencyEpoch != _pendingRetryEpoch;
-            _pendingRetryEpoch = _grid.ResidencyEpoch;
+            // sphere and requests loads on every build.
+            QueryShape query = ComputeQueryShape(cameraGrid);
 #if !UNITY_EDITOR && UNITY_ANDROID
             SubmitNativeReadoutBuild(ticket, query, query.Groups);
 #else
@@ -731,8 +721,7 @@ namespace Genesis.RoomScan
             {
                 timedSubmission = MerkabaGpuTimestamps.TryAcquire(
                     CaptureOwner.ReadoutBuild, revision, command);
-                RecordBuild(command, ticket.Slot, revision, _previousPublished,
-                    _retryPendingTiles, query, query.Groups, residencyQuery);
+                RecordBuild(command, ticket.Slot, revision, query, query.Groups);
                 MerkabaGpuTimestamps.End(CaptureOwner.ReadoutBuild, command,
                     timedSubmission);
                 Graphics.ExecuteCommandBuffer(command);
@@ -775,24 +764,20 @@ namespace Genesis.RoomScan
 
         /// <summary>Records one readout job on the graphics queue (editor).</summary>
         internal void RecordBuild(CommandBuffer command, int backSlot,
-            uint revision, bool previousPublished, bool retryPendingTiles,
-            Vector3 cameraGridMeters)
+            uint revision, Vector3 cameraGridMeters)
         {
             if (!Initialize())
                 throw new InvalidOperationException(
                     "Merkaba readout is not initialized.");
             QueryShape query = ComputeQueryShape(cameraGridMeters);
             // The warm pass always sweeps the whole coverage sphere.
-            RecordBuild(command, backSlot, revision, previousPublished,
-                retryPendingTiles, query, query.Groups, true);
+            RecordBuild(command, backSlot, revision, query, query.Groups);
         }
 
         private void RecordBuild(CommandBuffer command, int backSlot,
-            uint revision, bool previousPublished, bool retryPendingTiles,
-            QueryShape query, int queryGroups, bool allowWarmLoads)
+            uint revision, QueryShape query, int queryGroups)
         {
-            SetBuildParameters(command, revision, previousPublished,
-                retryPendingTiles, query, allowWarmLoads);
+            SetBuildParameters(command, revision, query);
             ComputeBuffer back = _grid.GetM8RenderIndex(backSlot);
             ComputeBuffer front = _grid.GetM8RenderIndex(1 - backSlot);
             foreach (int kernel in new[]
@@ -875,16 +860,13 @@ namespace Genesis.RoomScan
 
         private void OnBuildSubmitted(ReadoutBuildTicket ticket)
         {
+            // The events are consumed by the traversal of this build: it
+            // sees every tile installed and every commit journalled so far.
             if (_sourceGeneration == ticket.SourceGeneration)
                 _canonicalDirty = false;
-            _builtResidencyEpoch = ticket.ResidencyEpoch;
-            if (ticket.ResidencyQuery)
-            {
-                _residencyQueryRequested = false;
-                _lastResidencyQueryCamera = ticket.CameraGridMeters;
-            }
-            _nextReadoutBuild = Time.unscaledTime +
-                1f / Mathf.Max(1f, readoutBuildHz);
+            _tilesInstalled = false;
+            _coverageQueryRequested = false;
+            _lastCoverageCamera = ticket.CameraGridMeters;
         }
 
         private QueryShape ComputeQueryShape(Vector3 cameraGridMeters)
@@ -912,11 +894,8 @@ namespace Genesis.RoomScan
         }
 
         private void SetBuildParameters(CommandBuffer command, uint revision,
-            bool previousPublished, bool retryPendingTiles, QueryShape query,
-            bool allowWarmLoads)
+            QueryShape query)
         {
-            command.SetComputeIntParam(readoutCompute, AllowWarmLoadsId,
-                allowWarmLoads ? 1 : 0);
             command.SetComputeVectorParam(readoutCompute, CameraGridMetersId,
                 query.CameraGridMeters);
             command.SetComputeVectorParam(readoutCompute, GridMetricDiagonalId,
@@ -937,9 +916,6 @@ namespace Genesis.RoomScan
                 query.Side);
             command.SetComputeIntParam(readoutCompute, ReadoutRevisionId,
                 unchecked((int)revision));
-            command.SetComputeIntParam(readoutCompute, ResidencyChangedId,
-                retryPendingTiles ? 1 : 0);
-
         }
 
 #if !UNITY_EDITOR && UNITY_ANDROID
@@ -992,8 +968,6 @@ namespace Genesis.RoomScan
             values.Int("_M8QueryBlockRadius", query.Radius);
             values.Int("_M8QueryBlockSide", query.Side);
             values.UInt("_M8ReadoutRevision", ticket.Revision);
-            values.UInt("_M8ResidencyChanged", _retryPendingTiles ? 1u : 0u);
-            values.UInt("_M8AllowWarmLoads", ticket.ResidencyQuery ? 1u : 0u);
             var resources = new IntPtr[
                 MerkabaNativeVulkanExecutor.ResourceCount];
             _grid.FillNativeExecutorWorldResources(resources);
@@ -1089,47 +1063,25 @@ namespace Genesis.RoomScan
                         AbortNativeTransaction(ticket);
                         return;
                     }
-                    if (_gpuSubmissionSuspended ||
-                        _grid.GpuSubmissionSuspended)
-                    {
-                        // Retirement or a storage operation owns the GPU now:
-                        // no further job of this transaction, FRONT stays.
-                        AbortNativeTransaction(ticket);
-                        return;
-                    }
                     bool more = cursor < total;
-                    MerkabaNativeVulkanExecutor.JobKind next = more
+                    // Paced: the next job of the transaction is submitted by
+                    // PumpNativeReadoutTransaction in a later frame.
+                    _nativeNextKind = more
                         ? MerkabaNativeVulkanExecutor.JobKind.ReadoutBatch
                         : MerkabaNativeVulkanExecutor.JobKind.ReadoutFinalize;
-                    QueryShape query = ComputeQueryShape(
-                        ticket.CameraGridMeters);
-                    if (!TrySubmitNativeReadoutJob(next, ticket, query))
-                    {
-                        Logger.Warning("Merkaba readout transaction " +
-                            $"revision={ticket.Revision} could not submit " +
-                            $"{next}; BACK rejected, FRONT kept.");
-                        AbortNativeTransaction(ticket);
-                        return;
-                    }
-                    if (more)
-                    {
-                        _nativeBatchesSubmitted++;
-                        _nativePhase = NativeReadoutPhase.Batch;
-                    }
-                    else
-                    {
-                        _nativePhase = NativeReadoutPhase.Finalize;
+                    _nativeNextPending = true;
+                    _nativeEarliestSubmitFrame = Time.frameCount + 1;
+                    if (!more)
                         Logger.Info("Merkaba readout transaction " +
                             $"revision={ticket.Revision} tiles={total} " +
                             $"batches={_nativeBatchesSubmitted}");
-                    }
                     return;
                 }
                 case NativeReadoutPhase.Finalize:
                 {
                     _nativePhase = NativeReadoutPhase.None;
                     if (!DecidePublication(ticket, _completionRecord, 4))
-                        RejectPublication(ticket, _completionRecord[7]);
+                        RejectPublication(ticket);
                     return;
                 }
                 default:
@@ -1139,12 +1091,52 @@ namespace Genesis.RoomScan
         }
 
         /// <summary>
+        /// Submits the next job of an open native transaction, at most one
+        /// readout job per frame and never in the frame that retired the
+        /// previous one.
+        /// </summary>
+        private void PumpNativeReadoutTransaction()
+        {
+            if (!_nativeNextPending || _nativeReadoutJob != null) return;
+            ReadoutBuildTicket ticket = _pendingBuild;
+            if (_gpuSubmissionSuspended || _grid.GpuSubmissionSuspended)
+            {
+                // Retirement or a storage operation owns the GPU now: no
+                // further job of this transaction, FRONT stays.
+                AbortNativeTransaction(ticket);
+                return;
+            }
+            if (Time.frameCount < _nativeEarliestSubmitFrame ||
+                MerkabaNativeVulkanExecutor.HasJobInFlight)
+                return;
+            MerkabaNativeVulkanExecutor.JobKind next = _nativeNextKind;
+            _nativeNextPending = false;
+            QueryShape query = ComputeQueryShape(ticket.CameraGridMeters);
+            if (!TrySubmitNativeReadoutJob(next, ticket, query))
+            {
+                Logger.Warning("Merkaba readout transaction " +
+                    $"revision={ticket.Revision} could not submit " +
+                    $"{next}; BACK rejected, FRONT kept.");
+                AbortNativeTransaction(ticket);
+                return;
+            }
+            if (next == MerkabaNativeVulkanExecutor.JobKind.ReadoutBatch)
+            {
+                _nativeBatchesSubmitted++;
+                _nativePhase = NativeReadoutPhase.Batch;
+            }
+            else
+                _nativePhase = NativeReadoutPhase.Finalize;
+        }
+
+        /// <summary>
         /// Any failure inside the transaction rejects the whole BACK: FRONT,
         /// its tile count and the scan barrier stay exactly as they were.
         /// </summary>
         private void AbortNativeTransaction(ReadoutBuildTicket ticket)
         {
             _nativePhase = NativeReadoutPhase.None;
+            _nativeNextPending = false;
             RejectPublication(ticket);
         }
 
@@ -1170,56 +1162,35 @@ namespace Genesis.RoomScan
             _frontTileCount = (int)Math.Min(record[offset + 2],
                 (uint)MerkabaSpatial.PhysicalTileCapacity);
             _previousPublished = true;
-            _waitingForResidencyEpoch = false;
-            _coverageIncomplete = false;
             bool backlog = (record[offset + 3] & ReadoutBacklogBit) != 0u;
             if (backlog) _canonicalDirty = true;
-            if (ticket.ResidencyQuery) _residencyQueryRequested = false;
+            // Loaded-session readiness: a published transaction in which
+            // every coverage tile and its ring were resident.
+            uint coldInCoverage = record[offset + 3] & ~ReadoutBacklogBit;
+            if (coldInCoverage == 0u && _loadedCoverageReady != null)
+            {
+                TaskCompletionSource<bool> ready = _loadedCoverageReady;
+                _loadedCoverageReady = null;
+                _loadedCoverageSourceGeneration = 0u;
+                ready.TrySetResult(true);
+            }
             AdoptPublication();
             return true;
         }
 
         /// <summary>
-        /// A failed BACK never changes FRONT. Its pages are reclaimed by the
-        /// next build and the scan transaction stays open until a readout
-        /// publishes, so no further scan mutates the world in between.
+        /// A failed BACK (validation, capacity, submission) never changes
+        /// FRONT. Its pages are reclaimed by the next build, which runs in a
+        /// later frame; residency never rejects a build.
         /// </summary>
-        private void RejectPublication(ReadoutBuildTicket ticket,
-            uint completionFlags = 0u)
+        private void RejectPublication(ReadoutBuildTicket ticket)
         {
             // FRONT, its tile count and _previousPublished stay exactly as
             // they were: the draw keeps the last valid publication while the
             // rejected BACK is completed by its next build.
             _buildInFlight = false;
             _pendingBuild = default;
-            uint unresolved = completionFlags & ~ReadoutBacklogBit;
-            if (unresolved != 0u)
-            {
-                _coverageIncomplete = true;
-                if (!ticket.ResidencyQuery)
-                {
-                    // First unresolved result gets exactly one warm-load
-                    // retry. It may enqueue the missing cold halo.
-                    _waitingForResidencyEpoch = false;
-                    _residencyQueryRequested = true;
-                    _canonicalDirty = true;
-                    _nextReadoutBuild = 0f;
-                }
-                else
-                {
-                    // A warm-load retry already ran. Do not spin readout and
-                    // hold the scan barrier forever. Wait for installation to
-                    // advance ResidencyEpoch, then retry the same transaction.
-                    _waitingForResidencyEpoch = true;
-                    _pendingRetryEpoch = ticket.ResidencyEpoch;
-                    _residencyQueryRequested = false;
-                    _canonicalDirty = false;
-                }
-                return;
-            }
-            _waitingForResidencyEpoch = false;
             _canonicalDirty = true;
-            _nextReadoutBuild = 0f;
         }
 
         /// <summary>
@@ -1262,7 +1233,7 @@ namespace Genesis.RoomScan
                             0);
                     }
                     if (!valid)
-                        RejectPublication(ticket, _completionRecord[3]);
+                        RejectPublication(ticket);
                 });
         }
 
@@ -1523,15 +1494,6 @@ namespace Genesis.RoomScan
                 // count of a BACK that was later rejected.
                 VisibleTileCount = ToInt(counters[
                     MerkabaGrid.CounterRenderPublishedTiles]);
-                _coverageIncomplete = counters[
-                    MerkabaGrid.CounterReadoutUnresolved] != 0u;
-                if (_loadedCoverageReady != null && !_coverageIncomplete)
-                {
-                    TaskCompletionSource<bool> ready = _loadedCoverageReady;
-                    _loadedCoverageReady = null;
-                    _loadedCoverageSourceGeneration = 0u;
-                    ready.TrySetResult(true);
-                }
                 VisiblePrimitiveCount = ToInt(counters[
                     MerkabaGrid.CounterLogicalPrimitives]);
                 LateDrawColdMisses = ToInt(counters[

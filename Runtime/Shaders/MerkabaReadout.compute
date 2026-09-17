@@ -81,10 +81,6 @@ int _M8QueryBlockSide;
 float4x4 _MerkabaGridToWorld;
 float4x4 _MerkabaWorldToGrid;
 uint _M8ReadoutRevision;
-uint _M8ResidencyChanged;
-// 1: the coverage traversal may request cold loads (residency query);
-// 0: it only builds the BACK coverage list and the rebuild set.
-uint _M8AllowWarmLoads;
 
 // Published tile count and active list of the FRONT slot.
 uint M8FrontTileCount()
@@ -158,6 +154,10 @@ void M8RequestWarmLoad(uint tileRefIndex, uint chunkIndex, uint tileLocal,
     if (lateDraw) M8CounterIncrement(M8_COUNTER_LATE_DRAW_COLD_MISSES);
 }
 
+// Contract C9 amendment: a drawn tile is listed only when its 26-neighbour
+// tile ring is HOT or ABSENT. Defined with the membrane tile resolver below.
+bool M8ReadoutRingResident(uint physicalSlot);
+
 
 // A page retired by this slot is free again at this slot's next build: the
 // slot is BACK for the whole of that build and no frame draws BACK.
@@ -198,17 +198,16 @@ void BeginRenderBuild(uint id : SV_DispatchThreadID)
     _M8Counters[M8_COUNTER_OCCUPIED_CONSIDERED] = 0u;
     _M8Counters[M8_COUNTER_READOUT_PLANE_VALID] = 0u;
     _M8Counters[M8_COUNTER_READOUT_EMITTED_PATCHES] = 0u;
-    _M8Counters[M8_COUNTER_READOUT_UNRESOLVED] = 0u;
+    _M8Counters[M8_COUNTER_READOUT_COLD_IN_COVERAGE] = 0u;
     _M8Counters[M8_COUNTER_READOUT_EMITTED_TRIANGLES] = 0u;
     _M8Counters[M8_COUNTER_READOUT_PLANE_LEGACY_INVALID] = 0u;
     _M8Counters[M8_COUNTER_READOUT_EMITTED_VERTICES] = 0u;
     _M8Counters[M8_COUNTER_RENDER_REBUILD_TILES] = 0u;
     _M8Counters[M8_COUNTER_RENDER_VIEW_OVERFLOW] = 0u;
     _M8Counters[M8_COUNTER_RENDER_PUBLICATION_INVALID] = 0u;
-    _M8Counters[M8_COUNTER_RENDER_PENDING_TILES] = 0u;
+    _M8Counters[M8_COUNTER_READOUT_RING_INVARIANT] = 0u;
     _M8Counters[M8_COUNTER_RENDER_CAPACITY_FAILED] = 0u;
     _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] = MERKABA_READOUT_BUILDING;
-    _M8Counters[M8_COUNTER_FRAME_EPOCH] += 1u;
     // The list built now goes to the other region of this slot; the list
     // this slot published last time stays readable for CopyRenderIndex and
     // CollectRenderRebuildTiles.
@@ -365,18 +364,23 @@ void RequestWarmResidency(uint3 groupId : SV_GroupID, uint thread : SV_GroupInde
                 bool inDraw = drawPath1 && ((draw0 >> d0) & 1u) != 0u;
                 bool inDependency = dependencyPath1 &&
                     ((dependency0 >> d0) & 1u) != 0u;
+                // Every traversal may request loads; a LOADING tile ignores
+                // a repeated request. A tile that is not resident, or whose
+                // ring is not, is simply not drawn yet: no wait, no retry.
                 if (tileRef == MERKABA_REF_COLD_ON_SSD)
                 {
-                    if (_M8AllowWarmLoads != 0u)
-                        M8RequestWarmLoad(tileRefIndex, chunkIndex, tileLocal,
-                            inDraw);
+                    M8RequestWarmLoad(tileRefIndex, chunkIndex, tileLocal,
+                        inDraw);
                     if (inDraw)
-                        M8CounterIncrement(M8_COUNTER_READOUT_UNRESOLVED);
+                        M8CounterIncrement(
+                            M8_COUNTER_READOUT_COLD_IN_COVERAGE);
                     continue;
                 }
-                if (!M8IsHotRef(tileRef) && inDraw)
-                    M8CounterIncrement(M8_COUNTER_READOUT_UNRESOLVED);
-                if (M8IsHotRef(tileRef) && inDraw)
+                bool drawable = M8IsHotRef(tileRef) && inDraw &&
+                    M8ReadoutRingResident(M8PhysicalSlot(tileRef));
+                if (inDraw && !drawable)
+                    M8CounterIncrement(M8_COUNTER_READOUT_COLD_IN_COVERAGE);
+                if (drawable)
                 {
                     uint physicalSlot = M8PhysicalSlot(tileRef);
                     uint base = M8RecordBase(physicalSlot);
@@ -410,13 +414,9 @@ void RequestWarmResidency(uint3 groupId : SV_GroupID, uint thread : SV_GroupInde
                                 base + M8_RENDER_RECORD_VERSION] = 0u;
                         }
 
-                        uint bits = _M8TileRecords[
-                            M8TileRuntimeIndex(physicalSlot)].w;
                         bool needsBuild = backIdentity != currentIdentity ||
                             _M8RenderIndexBack[base + M8_RENDER_RECORD_VERSION]
-                                != _M8RenderVersionsRead[physicalSlot] ||
-                            (_M8ResidencyChanged != 0u &&
-                             (bits & M8_RENDER_PENDING) != 0u);
+                                != _M8RenderVersionsRead[physicalSlot];
                         if (needsBuild)
                         {
                             uint workIndex;
@@ -556,10 +556,11 @@ int3 M8MembraneTileOffset(uint index)
     return int3((int)x - 1, (int)y - 1, (int)z - 1);
 }
 
-uint M8ResolveMembraneTile(M8ReadoutTileContext context, int3 tileOffset)
+// Tile reference index of a halo tile, or M8_MEMBRANE_TILE_MISSING /
+// M8_MEMBRANE_TILE_UNRESOLVED when block or chunk already decide it. The tile
+// reference itself is read by the caller through the alias its kernel binds.
+uint M8MembraneTileRefIndex(M8ReadoutTileContext context, int3 tileOffset)
 {
-    if (!any(tileOffset != 0)) return context.physicalSlot;
-
     MerkabaM8Address address = MerkabaAddressOf(
         context.tileOrigin + tileOffset * 8);
     uint blockIndex = context.blockIndex;
@@ -579,14 +580,45 @@ uint M8ResolveMembraneTile(M8ReadoutTileContext context, int3 tileOffset)
             return M8_MEMBRANE_TILE_UNRESOLVED;
         chunkIndex = chunkRef - 1u;
     }
+    return chunkIndex * MERKABA_M8_TILES_PER_CHUNK + address.tileLocal;
+}
 
-    uint tileRef = _M8ChunkTileRefsRead[chunkIndex *
-        MERKABA_M8_TILES_PER_CHUNK + address.tileLocal];
-    if (tileRef == MERKABA_REF_EMPTY)
+uint M8MembraneSlotOfRef(uint tileRef)
+{
+    if (tileRef == MERKABA_REF_EMPTY ||
+        tileRef == MERKABA_REF_CLAIMED_NEW)
         return M8_MEMBRANE_TILE_MISSING;
     if (!M8IsHotRef(tileRef))
         return M8_MEMBRANE_TILE_UNRESOLVED;
     return M8PhysicalSlot(tileRef);
+}
+
+uint M8ResolveMembraneTile(M8ReadoutTileContext context, int3 tileOffset)
+{
+    if (!any(tileOffset != 0)) return context.physicalSlot;
+    uint refIndex = M8MembraneTileRefIndex(context, tileOffset);
+    if (refIndex >= M8_MEMBRANE_TILE_MISSING) return refIndex;
+    return M8MembraneSlotOfRef(_M8ChunkTileRefsRead[refIndex]);
+}
+
+// The traversal kernel writes tile references (load requests), so the ring
+// test reads the writable alias.
+bool M8ReadoutRingResident(uint physicalSlot)
+{
+    M8ReadoutTileContext context = M8TileContextOf(physicalSlot);
+    [loop]
+    for (uint tile = 0u; tile < M8_MEMBRANE_TILE_COUNT; tile++)
+    {
+        if (tile == M8_MEMBRANE_CENTER_TILE) continue;
+        uint refIndex = M8MembraneTileRefIndex(context,
+            M8MembraneTileOffset(tile));
+        if (refIndex == M8_MEMBRANE_TILE_MISSING) continue;
+        if (refIndex == M8_MEMBRANE_TILE_UNRESOLVED) return false;
+        if (M8MembraneSlotOfRef(_M8ChunkTileRefs[refIndex]) ==
+                M8_MEMBRANE_TILE_UNRESOLVED)
+            return false;
+    }
+    return true;
 }
 
 uint M8LoadKernelFlagsOnly(uint physicalSlot, uint kernelLocal)
@@ -1133,8 +1165,7 @@ void M8ClearDepartedRecord(uint work, uint physicalSlot)
         M8_RENDER_PAGE_INVALID;
     _M8RenderIndexBack[base + M8_RENDER_RECORD_VERSION] = 0u;
     InterlockedAnd(_M8TileRecords[M8TileRuntimeIndex(physicalSlot)].w,
-        ~(M8_RENDER_DIRTY | M8_RENDER_PENDING |
-          M8_RENDER_DEPENDENCY_MASK), ignored);
+        ~(M8_RENDER_DIRTY | M8_RENDER_DEPENDENCY_MASK), ignored);
     _M8VisibleTiles[work].y = 1u;
 }
 
@@ -2321,26 +2352,23 @@ void EmitRenderTileGeometry(uint3 groupId : SV_GroupID,
     InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_PLANE_LEGACY_INVALID],
         legacyCount, ignoredCount);
     uint base = M8RecordBase(physicalSlot);
-    if (gM8MembraneUnresolved != 0u || gM8MembraneFailed != 0u)
+    if (gM8MembraneUnresolved != 0u)
     {
-        // BACK keeps this tile's previous record. An unresolved halo waits
-        // for residency; a capacity failure retries on the next build.
+        // Ring invariant breach (the traversal listed only tiles with a
+        // resident ring): the tile fails closed, no record, no wait. Its
+        // cleared identity rebuilds it on the next transaction.
         M8DiscardTilePages();
-        if (gM8MembraneUnresolved != 0u)
-        {
-            InterlockedAnd(_M8TileRecords[
-                M8TileRuntimeIndex(physicalSlot)].w,
-                ~M8_RENDER_DIRTY, ignoredCount);
-            InterlockedOr(_M8TileRecords[
-                M8TileRuntimeIndex(physicalSlot)].w, M8_RENDER_PENDING,
-                ignoredCount);
-            M8CounterIncrement(M8_COUNTER_RENDER_PENDING_TILES);
-        }
-        else
-        {
-            M8RenderJournalQueueDirty(physicalSlot, 0u);
-            M8CounterIncrement(M8_COUNTER_RENDER_CAPACITY_FAILED);
-        }
+        M8ClearDepartedRecord(work, physicalSlot);
+        M8CounterIncrement(M8_COUNTER_READOUT_RING_INVARIANT);
+        return;
+    }
+    if (gM8MembraneFailed != 0u)
+    {
+        // BACK keeps this tile's previous record; a capacity failure is
+        // rebuilt by the next transaction.
+        M8DiscardTilePages();
+        M8RenderJournalQueueDirty(physicalSlot, 0u);
+        M8CounterIncrement(M8_COUNTER_RENDER_CAPACITY_FAILED);
         return;
     }
 
@@ -2363,8 +2391,7 @@ void EmitRenderTileGeometry(uint3 groupId : SV_GroupID,
     _M8RenderIndexBack[base + M8_RENDER_RECORD_VERSION] =
         _M8RenderVersionsRead[physicalSlot];
     InterlockedAnd(_M8TileRecords[M8TileRuntimeIndex(physicalSlot)].w,
-        ~(M8_RENDER_DIRTY | M8_RENDER_PENDING |
-          M8_RENDER_DEPENDENCY_MASK), ignoredCount);
+        ~(M8_RENDER_DIRTY | M8_RENDER_DEPENDENCY_MASK), ignoredCount);
     _M8VisibleTiles[work].y = 1u;
     InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_EMITTED_PATCHES],
         gM8MembranePatchTotal, ignoredCount);
@@ -2469,17 +2496,16 @@ void FinalizeReadout(uint id : SV_DispatchThreadID)
         _M8Counters[M8_COUNTER_RENDER_JOURNAL_OVERFLOW] != 0u ||
         _M8Counters[M8_COUNTER_RENDER_VIEW_OVERFLOW] != 0u
         ? 0x80000000u : 0u;
-    uint unresolved = min(0x7fffffffu,
-        _M8Counters[M8_COUNTER_READOUT_UNRESOLVED] +
-        _M8Counters[M8_COUNTER_RENDER_PENDING_TILES]);
-    // A build that could not place every selected tile, or whose halo is
-    // still unresolved, publishes nothing: FRONT stays, the scan transaction
-    // stays open and the readout retries once residency moved.
+    // Tiles of the coverage sphere not drawn yet (not resident, or ring not
+    // resident). Diagnostic and load-readiness only, never a failure.
+    uint coldInCoverage = min(0x7fffffffu,
+        _M8Counters[M8_COUNTER_READOUT_COLD_IN_COVERAGE]);
+    // A build that could not place every selected tile publishes nothing:
+    // FRONT stays and the next transaction rebuilds.
     bool failed = _M8Counters[M8_COUNTER_RENDER_CAPACITY_FAILED] != 0u ||
         _M8Counters[M8_COUNTER_RENDER_PRIMITIVE_OVERFLOW] != 0u ||
         _M8Counters[M8_COUNTER_RENDER_VIEW_OVERFLOW] != 0u ||
-        _M8Counters[M8_COUNTER_RENDER_PUBLICATION_INVALID] != 0u ||
-        unresolved != 0u;
+        _M8Counters[M8_COUNTER_RENDER_PUBLICATION_INVALID] != 0u;
     if (_M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] ==
             MERKABA_READOUT_BUILDING)
         _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS] = failed
@@ -2488,5 +2514,5 @@ void FinalizeReadout(uint id : SV_DispatchThreadID)
     // diagnostics that a later scanner job may reset.
     _M8AttemptCompletion[1] = uint4(_M8ReadoutRevision,
         _M8Counters[M8_COUNTER_READOUT_BUILD_STATUS], tiles,
-        backlog | unresolved);
+        backlog | coldInCoverage);
 }

@@ -49,7 +49,11 @@ uint _M8StreamBatchCount;
 // clean or written-back tiles outside the residency focus. The two are never
 // the same operation: SAVE/EXPORT must not change the live working set.
 uint _M8PersistDirty;
-uint _M8SafeEpoch;
+// Pins of the open observation and FINE erase attempts (0 = none). The
+// dependency preflight stamps runtime.z of every tile the attempt may dirty
+// and of its 26-neighbour ring; eviction never selects a pinned tile.
+uint _M8ObservationPin;
+uint _M8FineErasePin;
 float3 _M8ResidencyFocusGrid;
 float _M8ResidencyPinRadius;
 uint _M8ObservationToken;
@@ -317,8 +321,8 @@ void InitializeNewTiles(uint3 groupId : SV_GroupID,
         uint tileLocal = refIndex % MERKABA_M8_TILES_PER_CHUNK;
         _M8TileRecords[M8TileMetaIndex(physicalSlot)] =
             uint4(chunkIndex, tileLocal, 0u, 0u);
-        _M8TileRecords[M8TileRuntimeIndex(physicalSlot)] = uint4(0u, 1u,
-            _M8Counters[M8_COUNTER_FRAME_EPOCH], 0u);
+        _M8TileRecords[M8TileRuntimeIndex(physicalSlot)] =
+            uint4(0u, 1u, 0u, 0u);
     }
     DeviceMemoryBarrierWithGroupSync();
     if (thread == 0u)
@@ -327,7 +331,6 @@ void InitializeNewTiles(uint3 groupId : SV_GroupID,
         _M8ChunkTileRefs[refIndex] = physicalSlot + 1u;
         M8CounterIncrement(M8_COUNTER_HOT_TILE_COUNT);
         M8CounterIncrement(M8_COUNTER_SURFACE_TILES_ALLOCATED);
-        M8SignalResidencyChange();
     }
 }
 
@@ -536,7 +539,11 @@ void SelectEvictionVictims(uint id : SV_DispatchThreadID)
         return;
     }
 
-    if (_M8Counters[M8_COUNTER_FRAME_EPOCH] - runtime.z <= _M8SafeEpoch ||
+    // No age window: a tile is kept by an open attempt's pin, by the
+    // readout list that references it, or by the residency focus.
+    bool pinned = runtime.z != 0u &&
+        (runtime.z == _M8ObservationPin || runtime.z == _M8FineErasePin);
+    if (pinned || (runtime.w & M8_RENDER_VIEW_MARK) != 0u ||
         M8TileInsideResidencyFocus(physicalSlot))
         return;
 
@@ -644,11 +651,8 @@ void FailWritebackBatch(uint id : SV_DispatchThreadID)
             InterlockedCompareExchange(_M8ChunkTileRefs[queued.y],
                 MERKABA_REF_EVICTING, queued.x + 1u, prior);
             if (prior == MERKABA_REF_EVICTING)
-            {
                 _M8TileRecords[M8TileRuntimeIndex(queued.x)].y =
                     M8_RUNTIME_DIRTY;
-                M8SignalResidencyChange();
-            }
         }
     }
     if (id == 0u)
@@ -758,7 +762,7 @@ void PrepareLoadedTiles(uint id : SV_DispatchThreadID)
         _M8TileRecords[M8TileMetaIndex(physicalSlot)] =
             uint4(chunkIndex, tileLocal, 0u, 0u);
         _M8TileRecords[M8TileRuntimeIndex(physicalSlot)] =
-            uint4(0u, 0u, _M8Counters[M8_COUNTER_FRAME_EPOCH], 0u);
+            uint4(0u, 0u, 0u, 0u);
         encodedAddress |= (physicalSlot << M8_LOAD_SLOT_SHIFT) |
             M8_LOAD_INSTALL_BIT | M8_LOAD_READY_BIT;
     }
@@ -840,7 +844,6 @@ void InstallLoadedTiles(uint3 groupId : SV_GroupID,
             ignored);
         InterlockedAdd(_M8Counters[M8_COUNTER_HOT_TILE_COUNT], 1u, ignored);
         InterlockedAdd(_M8Counters[M8_COUNTER_LOADS_INSTALLED], 1u, ignored);
-        M8SignalResidencyChange();
     }
 }
 
@@ -861,10 +864,7 @@ void FailLoadedTiles(uint id : SV_DispatchThreadID)
     InterlockedCompareExchange(_M8ChunkTileRefs[refIndex],
         MERKABA_REF_LOADING, MERKABA_REF_COLD_ON_SSD, prior);
     if (prior == MERKABA_REF_LOADING)
-    {
         M8CounterIncrement(M8_COUNTER_FAILED_READS);
-        M8SignalResidencyChange();
-    }
 }
 
 [numthreads(64, 1, 1)]

@@ -11,6 +11,8 @@
 #pragma kernel PrepareIntegrateArgs
 #pragma kernel IntegrateSurfaceCandidates
 #pragma kernel QueryCarveTiles
+#pragma kernel PrepareDependencyRingArgs
+#pragma kernel QueryDependencyRing
 #pragma kernel PrepareCarveArgs
 #pragma kernel IntegrateCarveTiles
 #pragma kernel FinalizeObservation
@@ -97,6 +99,11 @@ float3 _MerkabaExclusionHeads[64];
 
 int _M8AbortObservation;
 uint _M8AttemptToken;
+// Pin of the open attempt (observation token << 1, FINE erase token << 1 | 1)
+// and which tile lists the dependency preflight covers: bit 0 the touched
+// surface tiles, bit 1 the carve/erase tiles.
+uint _M8AttemptPin;
+uint _M8DependencyRingSource;
 
 float3 _M8ScanCameraWorld;
 int3 _M8ScanCenterBlock;
@@ -896,6 +903,16 @@ void DiscoverSurfaceCandidates(uint3 id : SV_DispatchThreadID,
     }
 }
 
+// Dependencies, the ring counter and the unaddressed flag are attempt-local.
+void M8ResetAttemptDependencies()
+{
+    _M8Counters[M8_COUNTER_UNRESOLVED_RING_TILES] = 0u;
+    _M8Counters[M8_COUNTER_DEPENDENCY_UNADDRESSED] = 0u;
+    [loop]
+    for (uint slot = 0u; slot < M8_DEPENDENCY_SLOTS; slot++)
+        _M8Counters[M8_COUNTER_DEPENDENCY_BASE + slot] = 0u;
+}
+
 [numthreads(1, 1, 1)]
 void PrepareResolveArgs(uint id : SV_DispatchThreadID)
 {
@@ -903,6 +920,7 @@ void PrepareResolveArgs(uint id : SV_DispatchThreadID)
     // the immutable observation until one fully-resident attempt commits it.
     _M8Counters[M8_COUNTER_CARVE_TILE_COUNT] = 0u;
     _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] = 0u;
+    M8ResetAttemptDependencies();
     uint count = min(_M8Counters[M8_COUNTER_SURFACE_CANDIDATE_COUNT],
         MERKABA_M8_SURFACE_CANDIDATE_CAPACITY);
     uint completed = _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED];
@@ -915,29 +933,47 @@ void PrepareResolveArgs(uint id : SV_DispatchThreadID)
     _M8ObservationDispatchArgs[2] = 1u;
 }
 
+// A COLD tile the attempt needs: requested and recorded as a dependency even
+// when storage backpressure refuses the request now (the finalize kernel
+// re-issues it).
 bool RequestColdTile(uint tileRefIndex, uint chunkIndex, uint tileLocal,
     bool scanRequest)
 {
+    M8RecordDependency(tileRefIndex);
     bool queued = M8QueueColdTileLoad(tileRefIndex, chunkIndex, tileLocal);
     if (scanRequest && queued)
         M8CounterIncrement(M8_COUNTER_SCAN_COLD_MISSES);
     return queued;
 }
 
+// The owner tile of an unresolved surface target: COLD is requested, LOADING
+// is awaited; anything without a tile address is an unaddressed dependency.
 void RequestSurfaceOwnerLoad(int3 globalCoord)
 {
     MerkabaM8Address address = MerkabaAddressOf(globalCoord);
     uint blockIndex;
-    if (!M8FindBlock(address.blockCoord, blockIndex)) return;
+    if (!M8FindBlock(address.blockCoord, blockIndex))
+    {
+        M8RecordUnaddressedDependency();
+        return;
+    }
     uint chunkRef = _M8BlockChunkRefsRead[blockIndex *
         MERKABA_M8_BLOCK_CHUNK_COUNT + address.chunkLocal];
-    if (chunkRef == MERKABA_REF_EMPTY ||
-        chunkRef == MERKABA_REF_CLAIMED_NEW) return;
+    if (chunkRef == MERKABA_REF_EMPTY || chunkRef >= MERKABA_REF_EVICTING)
+    {
+        M8RecordUnaddressedDependency();
+        return;
+    }
     uint chunkIndex = chunkRef - 1u;
     uint tileRefIndex = chunkIndex * MERKABA_M8_TILES_PER_CHUNK +
         address.tileLocal;
-    if (_M8ChunkTileRefs[tileRefIndex] == MERKABA_REF_COLD_ON_SSD)
+    uint tileRef = _M8ChunkTileRefs[tileRefIndex];
+    if (tileRef == MERKABA_REF_COLD_ON_SSD)
         RequestColdTile(tileRefIndex, chunkIndex, address.tileLocal, true);
+    else if (tileRef == MERKABA_REF_LOADING)
+        M8RecordDependency(tileRefIndex);
+    else
+        M8RecordUnaddressedDependency();
 }
 
 bool CandidateAt(uint id, out MerkabaM8Address address)
@@ -1205,8 +1241,6 @@ bool M8TrySurfaceWinnerRank(int3 targetCoord, int packedMetadata,
 
 void M8TouchSurfaceTarget(uint physicalSlot)
 {
-    _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].z =
-        _M8Counters[M8_COUNTER_FRAME_EPOCH];
     uint touchedBefore;
     InterlockedCompareExchange(
         _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].x,
@@ -1294,6 +1328,9 @@ void QueueResolvedSurfaceCandidates(uint id : SV_DispatchThreadID)
     uint kernelLocal;
     if (!M8TrySurfaceTargetHot(candidate.xyz, physicalSlot, kernelLocal))
     {
+        // Every unresolved count has a recorded dependency, so a waiting
+        // attempt can never retry without a residency event.
+        M8RecordUnaddressedDependency();
         M8CounterIncrement(M8_COUNTER_UNRESOLVED_SURFACE_TILES);
         return;
     }
@@ -1368,6 +1405,7 @@ void PrepareIntegrateArgs(uint id : SV_DispatchThreadID)
     _M8ObservationDispatchArgs[0] =
         _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u &&
         _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u &&
+        _M8Counters[M8_COUNTER_UNRESOLVED_RING_TILES] == 0u &&
         completed == 0u && failure == 0u
         ? (count + 63u) / 64u : 0u;
     _M8ObservationDispatchArgs[1] = 1u;
@@ -1618,6 +1656,10 @@ void QueryCarveTiles(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
                 }
                 if (!M8IsHotRef(tileRef))
                 {
+                    if (tileRef == MERKABA_REF_LOADING)
+                        M8RecordDependency(tileRefIndex);
+                    else
+                        M8RecordUnaddressedDependency();
                     M8CounterIncrement(
                         M8_COUNTER_UNRESOLVED_CARVE_TILES);
                     continue;
@@ -1625,8 +1667,6 @@ void QueryCarveTiles(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
                 uint physicalSlot = M8PhysicalSlot(tileRef);
                 if (_M8TileRecords[M8TileMetaIndex(physicalSlot)].w == 0u)
                     continue;
-                _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].z =
-                    _M8Counters[M8_COUNTER_FRAME_EPOCH];
                 uint queueIndex;
                 InterlockedAdd(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
                     1u, queueIndex);
@@ -1638,41 +1678,37 @@ void QueryCarveTiles(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
     }
 }
 
-// Every COLD halo tile of one attempt is requested together (bounded to
-// eight distinct tiles) instead of one tile per residency round.
-void M8RecordCarveHaloRequest(uint tileRefIndex)
+// Finalize: every recorded dependency that is still COLD is requested (a
+// request refused by backpressure earlier is issued again), and the set is
+// published as logical tile addresses for the CPU install-event wait.
+// Returns the record count | 0x80000000 when an unaddressed dependency exists.
+uint M8PublishAttemptDependencies()
 {
-    [unroll]
-    for (uint request = 0u; request < M8_CARVE_HALO_REQUEST_SLOTS; request++)
+    uint recorded = 0u;
+    [loop]
+    for (uint slot = 0u; slot < M8_DEPENDENCY_SLOTS; slot++)
     {
-        uint prior;
-        InterlockedCompareExchange(
-            _M8Counters[M8CarveHaloRequestCounter(request)],
-            M8_CARVE_HALO_REQUEST_EMPTY, tileRefIndex, prior);
-        if (prior == M8_CARVE_HALO_REQUEST_EMPTY || prior == tileRefIndex)
-            return;
+        uint value = _M8Counters[M8_COUNTER_DEPENDENCY_BASE + slot];
+        uint4 record = 0u;
+        if (value != 0u)
+        {
+            uint tileRefIndex = value - 1u;
+            uint chunkIndex = tileRefIndex / MERKABA_M8_TILES_PER_CHUNK;
+            uint tileLocal = tileRefIndex % MERKABA_M8_TILES_PER_CHUNK;
+            if (_M8ChunkTileRefs[tileRefIndex] == MERKABA_REF_COLD_ON_SSD &&
+                M8QueueColdTileLoad(tileRefIndex, chunkIndex, tileLocal))
+                M8CounterIncrement(M8_COUNTER_SCAN_COLD_MISSES);
+            M8TileAddress address = M8LogicalAddress(chunkIndex, tileLocal);
+            // Bit 31 marks a record: block (0,0,0) tile 0 is a real address.
+            record = uint4(asuint(address.blockCoord),
+                address.localAddress | 0x80000000u);
+            recorded++;
+        }
+        _M8AttemptCompletion[M8_ATTEMPT_DEPENDENCY_RECORD + slot] = record;
     }
-    uint ignored;
-    InterlockedMax(_M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES], 1u,
-        ignored);
-}
-
-void M8IssueCarveHaloRequest(uint request)
-{
-    uint haloRequest = _M8Counters[M8CarveHaloRequestCounter(request)];
-    if (haloRequest == M8_CARVE_HALO_REQUEST_EMPTY) return;
-    uint chunkIndex = haloRequest / MERKABA_M8_TILES_PER_CHUNK;
-    uint tileLocal = haloRequest % MERKABA_M8_TILES_PER_CHUNK;
-    if (_M8ChunkTileRefs[haloRequest] == MERKABA_REF_COLD_ON_SSD &&
-        RequestColdTile(haloRequest, chunkIndex, tileLocal, true))
-        M8CounterIncrement(M8_COUNTER_COLD_CARVE_TILES_REQUESTED);
-    M8CounterIncrement(M8_COUNTER_UNRESOLVED_CARVE_TILES);
-}
-
-void M8ResetCarveHaloRequest(uint request)
-{
-    _M8Counters[M8CarveHaloRequestCounter(request)] =
-        M8_CARVE_HALO_REQUEST_EMPTY;
+    return recorded |
+        (_M8Counters[M8_COUNTER_DEPENDENCY_UNADDRESSED] != 0u
+            ? 0x80000000u : 0u);
 }
 
 [numthreads(1, 1, 1)]
@@ -1684,18 +1720,11 @@ void PrepareCarveArgs(uint id : SV_DispatchThreadID)
         _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] == 0u &&
         _M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u &&
         _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u &&
+        _M8Counters[M8_COUNTER_UNRESOLVED_RING_TILES] == 0u &&
         _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] == 0u
         ? count : 0u;
     _M8CarveDispatchArgs[1] = 1u;
     _M8CarveDispatchArgs[2] = 1u;
-    M8ResetCarveHaloRequest(0u);
-    M8ResetCarveHaloRequest(1u);
-    M8ResetCarveHaloRequest(2u);
-    M8ResetCarveHaloRequest(3u);
-    M8ResetCarveHaloRequest(4u);
-    M8ResetCarveHaloRequest(5u);
-    M8ResetCarveHaloRequest(6u);
-    M8ResetCarveHaloRequest(7u);
 }
 
 #define M8_CARVE_HALO_TILE_COUNT 27u
@@ -1787,6 +1816,77 @@ uint M8ResolveCarveHaloTile(M8CarveTileContext context, int3 tileOffset)
     return M8PhysicalSlot(tileRef);
 }
 
+// Dependency preflight (contract C9 amendment): before any canonical write,
+// every tile this attempt may dirty and its 26-neighbour tile ring must be
+// HOT or ABSENT. A COLD/LOADING/EVICTING ring tile blocks the commit and is
+// recorded as a dependency; resident tiles are pinned by the open attempt.
+[numthreads(1, 1, 1)]
+void PrepareDependencyRingArgs(uint id : SV_DispatchThreadID)
+{
+    bool observation = (_M8DependencyRingSource & 1u) != 0u;
+    bool closed = observation &&
+        (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] != 0u ||
+         _M8Counters[M8_COUNTER_OBSERVATION_FAILURE] != 0u);
+    uint touched = observation
+        ? min(_M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT],
+            MERKABA_M8_PHYSICAL_TILE_CAPACITY) : 0u;
+    uint carve = (_M8DependencyRingSource & 2u) != 0u
+        ? min(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
+            MERKABA_M8_PHYSICAL_TILE_CAPACITY) : 0u;
+    uint count = closed ? 0u : max(touched, carve);
+    _M8ObservationDispatchArgs[0] = (count + 63u) / 64u;
+    _M8ObservationDispatchArgs[1] = 1u;
+    _M8ObservationDispatchArgs[2] = 1u;
+}
+
+void M8QueryTileRing(uint physicalSlot)
+{
+    M8CarveTileContext context = M8CarveContext(physicalSlot);
+    _M8TileRecords[M8TileRuntimeIndex(physicalSlot)].z = _M8AttemptPin;
+    [loop]
+    for (uint index = 0u; index < M8_CARVE_HALO_TILE_COUNT; index++)
+    {
+        if (index == 13u) continue;
+        uint slot = M8ResolveCarveHaloTile(context,
+            M8CarveHaloTileOffset(index));
+        if (slot == M8_CARVE_TILE_MISSING) continue;
+        if (slot == M8_CARVE_TILE_UNRESOLVED_NO_REQUEST)
+        {
+            M8RecordUnaddressedDependency();
+            M8CounterIncrement(M8_COUNTER_UNRESOLVED_RING_TILES);
+            continue;
+        }
+        if ((slot & M8_CARVE_TILE_UNRESOLVED_BIT) != 0u)
+        {
+            uint tileRefIndex = slot & ~M8_CARVE_TILE_UNRESOLVED_BIT;
+            uint tileRef = _M8ChunkTileRefsRead[tileRefIndex];
+            // A tile claimed but not yet created holds no state: ABSENT.
+            if (tileRef == MERKABA_REF_CLAIMED_NEW) continue;
+            if (tileRef == MERKABA_REF_COLD_ON_SSD ||
+                tileRef == MERKABA_REF_LOADING)
+                M8RecordDependency(tileRefIndex);
+            else
+                M8RecordUnaddressedDependency();
+            M8CounterIncrement(M8_COUNTER_UNRESOLVED_RING_TILES);
+            continue;
+        }
+        _M8TileRecords[M8TileRuntimeIndex(slot)].z = _M8AttemptPin;
+    }
+}
+
+[numthreads(64, 1, 1)]
+void QueryDependencyRing(uint id : SV_DispatchThreadID)
+{
+    uint touched = (_M8DependencyRingSource & 1u) != 0u
+        ? min(_M8Counters[M8_COUNTER_TOUCHED_TILE_COUNT],
+            MERKABA_M8_PHYSICAL_TILE_CAPACITY) : 0u;
+    uint carve = (_M8DependencyRingSource & 2u) != 0u
+        ? min(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
+            MERKABA_M8_PHYSICAL_TILE_CAPACITY) : 0u;
+    if (id < touched) M8QueryTileRing(_M8TouchedTileQueue[id]);
+    if (id < carve) M8QueryTileRing(_M8CarveTilesRead[id]);
+}
+
 bool M8TryLoadCarveHaloState(int3 globalCoord, out KernelState state,
     out bool resolved)
 {
@@ -1797,18 +1897,24 @@ bool M8TryLoadCarveHaloState(int3 globalCoord, out KernelState state,
         relative.z < 0 ? -1 : relative.z >= 8 ? 1 : 0);
     uint tileIndex = M8CarveHaloTileIndex(tileOffset);
     uint slot = gCarveHaloSlots[tileIndex];
+    // The dependency preflight made the ring of every carve tile resident,
+    // so these branches are fail-closed guards, never a wait.
     if (slot == M8_CARVE_TILE_UNRESOLVED_NO_REQUEST)
     {
         uint ignored;
         InterlockedMax(_M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES],
             1u, ignored);
+        M8RecordUnaddressedDependency();
         resolved = false;
         return false;
     }
     if (slot != M8_CARVE_TILE_MISSING &&
         (slot & M8_CARVE_TILE_UNRESOLVED_BIT) != 0u)
     {
-        M8RecordCarveHaloRequest(slot & ~M8_CARVE_TILE_UNRESOLVED_BIT);
+        uint ignored;
+        InterlockedMax(_M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES],
+            1u, ignored);
+        M8RecordDependency(slot & ~M8_CARVE_TILE_UNRESOLVED_BIT);
         resolved = false;
         return false;
     }
@@ -2127,14 +2233,7 @@ void IntegrateCarveTiles(uint3 groupId : SV_GroupID,
 [numthreads(1, 1, 1)]
 void FinalizeObservation(uint id : SV_DispatchThreadID)
 {
-    M8IssueCarveHaloRequest(0u);
-    M8IssueCarveHaloRequest(1u);
-    M8IssueCarveHaloRequest(2u);
-    M8IssueCarveHaloRequest(3u);
-    M8IssueCarveHaloRequest(4u);
-    M8IssueCarveHaloRequest(5u);
-    M8IssueCarveHaloRequest(6u);
-    M8IssueCarveHaloRequest(7u);
+    uint dependencies = M8PublishAttemptDependencies();
     if (_M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] == 0u)
     {
         uint failure = M8ObservationFailureReason();
@@ -2145,7 +2244,8 @@ void FinalizeObservation(uint id : SV_DispatchThreadID)
             _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] = 1u;
         }
         else if (_M8Counters[M8_COUNTER_UNRESOLVED_SURFACE_TILES] == 0u &&
-            _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u)
+            _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u &&
+            _M8Counters[M8_COUNTER_UNRESOLVED_RING_TILES] == 0u)
             _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED] = 1u;
     }
     uint completed = _M8Counters[M8_COUNTER_OBSERVATION_COMPLETED];
@@ -2164,14 +2264,12 @@ void FinalizeObservation(uint id : SV_DispatchThreadID)
     _M8ObservationDispatchArgs[0] = max(touchedCount, pendingCount);
     _M8ObservationDispatchArgs[1] = 1u;
     _M8ObservationDispatchArgs[2] = 1u;
-    // One monotonic work epoch ages residency for scan and readout alike.
-    _M8Counters[M8_COUNTER_FRAME_EPOCH] += 1u;
     _M8AttemptCompletion[0] = uint4(_M8AttemptToken,
         completed != 0u ?
             _M8Counters[M8_COUNTER_OBSERVATION_TOKEN] : 0u,
         failure | (readoutChanged ?
             M8_ATTEMPT_COMPLETION_READOUT_CHANGED : 0u),
-        _M8Counters[M8_COUNTER_RESIDENCY_EPOCH]);
+        dependencies);
 }
 
 [numthreads(1, 1, 1)]
@@ -2179,6 +2277,7 @@ void ResetFineErase(uint id : SV_DispatchThreadID)
 {
     _M8Counters[M8_COUNTER_CARVE_TILE_COUNT] = 0u;
     _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] = 0u;
+    M8ResetAttemptDependencies();
     _M8CarveDispatchArgs[0] = 0u;
     _M8CarveDispatchArgs[1] = 1u;
     _M8CarveDispatchArgs[2] = 1u;
@@ -2271,6 +2370,7 @@ void QueryFineEraseTiles(uint3 groupId : SV_GroupID,
         if (chunkRef == MERKABA_REF_EMPTY) continue;
         if (chunkRef >= MERKABA_REF_EVICTING)
         {
+            M8RecordUnaddressedDependency();
             M8CounterIncrement(M8_COUNTER_UNRESOLVED_CARVE_TILES);
             continue;
         }
@@ -2305,6 +2405,10 @@ void QueryFineEraseTiles(uint3 groupId : SV_GroupID,
                 }
                 if (!M8IsHotRef(tileRef))
                 {
+                    if (tileRef == MERKABA_REF_LOADING)
+                        M8RecordDependency(tileRefIndex);
+                    else
+                        M8RecordUnaddressedDependency();
                     M8CounterIncrement(
                         M8_COUNTER_UNRESOLVED_CARVE_TILES);
                     continue;
@@ -2323,7 +2427,8 @@ void QueryFineEraseTiles(uint3 groupId : SV_GroupID,
 void PrepareFineEraseArgs(uint id : SV_DispatchThreadID)
 {
     _M8CarveDispatchArgs[0] =
-        _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u
+        _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u &&
+        _M8Counters[M8_COUNTER_UNRESOLVED_RING_TILES] == 0u
         ? min(_M8Counters[M8_COUNTER_CARVE_TILE_COUNT],
             MERKABA_M8_PHYSICAL_TILE_CAPACITY)
         : 0u;
@@ -2401,10 +2506,10 @@ void EraseFineTiles(uint3 groupId : SV_GroupID,
 [numthreads(1, 1, 1)]
 void FinalizeFineErase(uint id : SV_DispatchThreadID)
 {
+    uint dependencies = M8PublishAttemptDependencies();
     uint completed =
-        _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u ? 1u : 0u;
-    _M8Counters[M8_COUNTER_FRAME_EPOCH] += 1u;
+        _M8Counters[M8_COUNTER_UNRESOLVED_CARVE_TILES] == 0u &&
+        _M8Counters[M8_COUNTER_UNRESOLVED_RING_TILES] == 0u ? 1u : 0u;
     _M8AttemptCompletion[0] = uint4(_M8AttemptToken,
-        completed != 0u ? _M8AttemptToken : 0u, 0u,
-        _M8Counters[M8_COUNTER_RESIDENCY_EPOCH]);
+        completed != 0u ? _M8AttemptToken : 0u, 0u, dependencies);
 }

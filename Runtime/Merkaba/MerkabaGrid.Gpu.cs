@@ -21,7 +21,6 @@ namespace Genesis.RoomScan
         internal const int LoadRequestMask = LoadRequestCapacity - 1;
         internal const int StreamBatchCapacity = 32;
         internal const int WritebackBatchCapacity = 128;
-        internal const uint ResidencySafeEpochs = 3u;
         // Paged indexed publication (MerkabaWorld.hlsl M8_RENDER_*). One page
         // carries 64 shared vertices and 256 indices of the same tile.
         internal const int RenderPageVertices = 64;
@@ -58,7 +57,7 @@ namespace Genesis.RoomScan
         internal const int RenderMutationJournalEntryWords = 2;
         internal const int RenderMutationJournalCount =
             RenderMutationJournalCapacity * RenderMutationJournalEntryWords;
-        internal const int CounterCount = 120;
+        internal const int CounterCount = 128;
         // MerkabaReadout.compute M8_RENDER_SCRATCH_*: readout build scratch.
         // One transaction batch. BACK persists across submissions; scratch is
         // recycled only after the previous 64-tile batch fence has completed.
@@ -91,6 +90,7 @@ namespace Genesis.RoomScan
         internal const int CounterLogicalPrimitives = 22;
         internal const int CounterRenderPrimitiveOverflow = 23;
         internal const int CounterLateDrawColdMisses = 24;
+        internal const int CounterUnresolvedRingTiles = 25;
         internal const int CounterCandidateBlocks = 26;
         internal const int CounterHashHitBlocks = 27;
         internal const int CounterVisibleChunks = 28;
@@ -117,8 +117,8 @@ namespace Genesis.RoomScan
         internal const int CounterCarveBitsRetired = 61;
         internal const int CounterColdCarveTilesRequested = 62;
         internal const int CounterUnresolvedCarveTiles = 63;
-        internal const int CounterResidencyEpoch = 64;
-        internal const int CounterReadoutUnresolved = 50;
+        // Diagnostic: coverage tiles not drawn yet (tile or ring not resident).
+        internal const int CounterReadoutColdInCoverage = 50;
         internal const int CounterReadoutBuildStatus = 69;
         internal const uint ReadoutPublishedStatus = 3u;
         internal const int CounterCarveFreeRadialBase = 70;
@@ -142,7 +142,7 @@ namespace Genesis.RoomScan
         internal const int CounterCarveExactDilationReject = 95;
         internal const int CounterReadoutPlaneLegacyInvalid = 96;
         internal const int CounterReadoutEmittedVertices = 97;
-        internal const int CounterCarveHaloLoadRequest = 98;
+        internal const int CounterDependencyUnaddressed = 98;
         internal const int CounterRenderDirtyMarks = 99;
         internal const int CounterRenderRebuildTiles = 100;
         internal const int CounterRenderBuildOverflow = 101;
@@ -153,10 +153,18 @@ namespace Genesis.RoomScan
         internal const int RenderControlReclaimCount = 3;
         internal const int RenderControlRetireHead = 4;
         internal const int RenderControlRetireTail = 5;
-        internal const int CounterRenderPendingTiles = 108;
+        internal const int CounterReadoutRingInvariant = 108;
         internal const int CounterRenderCapacityFailed = 109;
         internal const int CounterRenderPublishedPatches = 110;
         internal const int CounterRenderPublishedTiles = 111;
+        // Dependencies of the open scan/erase attempt (MerkabaWorld.hlsl
+        // M8_COUNTER_DEPENDENCY_BASE), published as logical tile addresses in
+        // attempt-completion records [3, 19).
+        internal const int CounterDependencyBase = 112;
+        internal const int AttemptDependencySlots = 16;
+        internal const int AttemptDependencyRecord = 3;
+        internal const int AttemptCompletionRecords =
+            AttemptDependencyRecord + AttemptDependencySlots;
 
         internal bool GpuSubmissionAllowed =>
             _gpuReady && !_gpuSubmissionSuspended;
@@ -443,7 +451,12 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_M8StreamBatchCount");
         private static readonly int PersistDirtyId =
             Shader.PropertyToID("_M8PersistDirty");
-        private static readonly int SafeEpochId = Shader.PropertyToID("_M8SafeEpoch");
+        private static readonly int ObservationPinId =
+            Shader.PropertyToID("_M8ObservationPin");
+        private static readonly int FineErasePinId =
+            Shader.PropertyToID("_M8FineErasePin");
+        private uint _observationPin;
+        private uint _fineErasePin;
         private static readonly int ResidencyFocusGridId =
             Shader.PropertyToID("_M8ResidencyFocusGrid");
         private static readonly int ResidencyPinRadiusId =
@@ -497,10 +510,11 @@ namespace Genesis.RoomScan
                 _m8FreeTileStack = Allocate(MerkabaSpatial.PhysicalTileCapacity,
                     sizeof(uint));
                 _m8Counters = Allocate(CounterCount, sizeof(uint));
-                // [0] observation/erase attempt, [1] readout publication.
-                // Each job kind writes only its own record.
-                // 0 editor readback, 1 publication decision, 2 batch progress.
-                _m8AttemptCompletion = Allocate(3, sizeof(uint) * 4);
+                // [0] observation/erase attempt, [1] readout publication,
+                // [2] readout batch progress, [3, 19) attempt dependencies.
+                // Each job kind writes only its own records.
+                _m8AttemptCompletion = Allocate(AttemptCompletionRecords,
+                    sizeof(uint) * 4);
 
                 _m8ClaimQueue = Allocate(MerkabaSpatial.ClaimRecordCount,
                     sizeof(uint) * 2);
@@ -828,6 +842,17 @@ namespace Genesis.RoomScan
         }
 
         /// <summary>
+        /// Pins of the open observation and FINE erase attempts. The GPU
+        /// dependency preflight stamps them on every tile the attempt may
+        /// dirty and on its ring; eviction skips those tiles. 0 = none.
+        /// </summary>
+        internal void SetOpenAttemptPins(uint observationPin, uint fineErasePin)
+        {
+            _observationPin = observationPin;
+            _fineErasePin = fineErasePin;
+        }
+
+        /// <summary>
         /// Selects one writeback batch. <paramref name="persistOnly"/> writes
         /// dirty HOT tiles and keeps them HOT; otherwise clean tiles outside
         /// the residency focus are freed and dirty ones are written then freed.
@@ -836,7 +861,9 @@ namespace Genesis.RoomScan
         {
             if (!GpuSubmissionAllowed) return;
             worldCompute.SetInt(PersistDirtyId, persistOnly ? 1 : 0);
-            worldCompute.SetInt(SafeEpochId, (int)ResidencySafeEpochs);
+            worldCompute.SetInt(ObservationPinId,
+                unchecked((int)_observationPin));
+            worldCompute.SetInt(FineErasePinId, unchecked((int)_fineErasePin));
             worldCompute.SetVector(ResidencyFocusGridId, _residencyFocusGrid);
             worldCompute.SetFloat(ResidencyPinRadiusId,
                 float.IsFinite(_residencyPinRadius) ? _residencyPinRadius :

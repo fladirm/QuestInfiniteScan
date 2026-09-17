@@ -558,8 +558,8 @@ namespace Genesis.RoomScan.Tests
             string retry = Slice(integrator,
                 "private bool CanRetryPreparedObservation()",
                 "private bool ObservationTimedOut()");
-            Assert.That(retry, Does.Contain("ResidencyEpoch"));
-            Assert.That(retry, Does.Contain("_attemptResidencyEpoch"));
+            Assert.That(retry, Does.Contain("DependenciesSatisfied()"));
+            Assert.That(retry, Does.Not.Contain("Epoch"));
 
             string shader = RuntimeSource(
                 "Runtime/Shaders/MerkabaIntegration.compute");

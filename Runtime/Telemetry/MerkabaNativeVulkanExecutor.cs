@@ -13,18 +13,18 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        internal const int AbiVersion = 7;
+        internal const int AbiVersion = 8;
         internal const int ResourceCount = 52;
         // First pipeline of each job kind; must equal the plugin's
         // kReadoutPipelineBegin / kFineErasePipelineBegin and the
         // observation-retry start so stage timings keep their names.
         internal const int ObservationRetryPipelineBegin = 13;
-        internal const int ReadoutPipelineBegin = 33;
-        // One BACK transaction: Begin [33,43), Batch [43,47), Finalize [47,50).
-        internal const int ReadoutBatchPipelineBegin = 43;
-        internal const int ReadoutFinalizePipelineBegin = 47;
-        internal const int FineErasePipelineBegin = 50;
-        internal const int PipelineCount = 55;
+        internal const int ReadoutPipelineBegin = 35;
+        // One BACK transaction: Begin [35,45), Batch [45,49), Finalize [49,52).
+        internal const int ReadoutBatchPipelineBegin = 45;
+        internal const int ReadoutFinalizePipelineBegin = 49;
+        internal const int FineErasePipelineBegin = 52;
+        internal const int PipelineCount = 59;
         internal const int MaximumTimestampCount = PipelineCount * 2 + 2;
 
         internal enum JobKind : uint
@@ -152,6 +152,8 @@ namespace Genesis.RoomScan
             "SelectSurfaceWinners",
             "QueueResolvedSurfaceCandidates",
             "QueryCarveTiles",
+            "PrepareDependencyRingArgs",
+            "QueryDependencyRing",
             "PrepareIntegrateArgs",
             "IntegrateSurfaceCandidates",
             "PrepareCarveArgs",
@@ -177,6 +179,8 @@ namespace Genesis.RoomScan
             "FinalizeReadout",
             "ResetFineErase",
             "QueryFineEraseTiles",
+            "PrepareFineEraseDependencyRingArgs",
+            "QueryFineEraseDependencyRing",
             "PrepareFineEraseArgs",
             "EraseFineTiles",
             "FinalizeFineErase",

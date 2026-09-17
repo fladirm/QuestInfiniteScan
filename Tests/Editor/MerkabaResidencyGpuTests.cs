@@ -20,7 +20,6 @@ namespace Genesis.RoomScan.Tests
         private const uint RefEvicting = 0xfffffffcu;
         private const int CounterHot = 2;
         private const int CounterWritebackCount = 20;
-        private const int CounterFrameEpoch = 25;
         private const int CounterFreeTiles = 54;
 
         [StructLayout(LayoutKind.Sequential)]
@@ -80,8 +79,7 @@ namespace Genesis.RoomScan.Tests
         [Test]
         public void PersistWritesDirtyTileAndKeepsItHot()
         {
-            SetRuntime(dirty: 1u, epoch: 0u);
-            SetCounter(CounterFrameEpoch, 100u);
+            SetRuntime(dirty: 1u, pin: 0u);
             uint hotBefore = Counter(CounterHot);
             // A focus far away must not matter to Persist.
             _grid.SetResidencyFocus(new Vector3(1000f, 1000f, 1000f), 0f);
@@ -106,10 +104,10 @@ namespace Genesis.RoomScan.Tests
         [Test]
         public void MutationDuringPersistKeepsTileDirty()
         {
-            SetRuntime(dirty: 1u, epoch: 0u);
+            SetRuntime(dirty: 1u, pin: 0u);
             _grid.SelectWritebackBatch(true);
             Assert.That(Runtime().Y, Is.EqualTo(2u));
-            SetRuntime(dirty: 1u, epoch: 0u);
+            SetRuntime(dirty: 1u, pin: 0u);
             _grid.AcknowledgeWritebackBatch(1, true);
             Assert.That(Runtime().Y, Is.EqualTo(1u));
 
@@ -122,25 +120,46 @@ namespace Genesis.RoomScan.Tests
         [Test]
         public void EvictionNeverSelectsTilesInsideTheResidencyFocus()
         {
-            SetRuntime(dirty: 1u, epoch: 0u);
-            SetCounter(CounterFrameEpoch, 100u);
+            SetRuntime(dirty: 1u, pin: 0u);
             _grid.SetResidencyFocus(new Vector3(0.1f, 0.1f, 0.1f), 13f);
             _grid.SelectWritebackBatch(false);
             Assert.That(Counter(CounterWritebackCount), Is.Zero);
             Assert.That(TileRef(), Is.EqualTo(_slot + 1u));
+        }
 
-            // Recently touched by scan or readout work: still protected.
-            SetRuntime(dirty: 1u, epoch: 98u);
+        // Replaces the safe-epoch age window: only an open attempt's pin or
+        // the readout list keeps a tile outside the focus resident.
+        [Test]
+        public void EvictionSkipsPinnedAndListedTilesWithoutAnAgeTest()
+        {
             _grid.SetResidencyFocus(new Vector3(500f, 0f, 0f), 13f);
+
+            SetRuntime(dirty: 1u, pin: 6u);
+            _grid.SetOpenAttemptPins(6u, 0u);
             _grid.SelectWritebackBatch(false);
-            Assert.That(Counter(CounterWritebackCount), Is.Zero);
+            Assert.That(Counter(CounterWritebackCount), Is.Zero, "pinned");
+
+            SetRuntime(dirty: 1u, pin: 7u);
+            _grid.SetOpenAttemptPins(0u, 7u);
+            _grid.SelectWritebackBatch(false);
+            Assert.That(Counter(CounterWritebackCount), Is.Zero, "erase pin");
+
+            _grid.SetOpenAttemptPins(0u, 0u);
+            SetRuntime(dirty: 1u, pin: 7u, renderBits: 0x40000000u);
+            _grid.SelectWritebackBatch(false);
+            Assert.That(Counter(CounterWritebackCount), Is.Zero, "listed");
+
+            // A stale pin of a closed attempt protects nothing.
+            SetRuntime(dirty: 1u, pin: 7u, renderBits: 0u);
+            _grid.SelectWritebackBatch(false);
+            Assert.That(Counter(CounterWritebackCount), Is.EqualTo(1u));
+            Assert.That(TileRef(), Is.EqualTo(RefEvicting));
         }
 
         [Test]
         public void EvictionWritesBackThenFreesAndFailureReturnsHotDirty()
         {
-            SetRuntime(dirty: 1u, epoch: 0u);
-            SetCounter(CounterFrameEpoch, 100u);
+            SetRuntime(dirty: 1u, pin: 0u);
             _grid.SetResidencyFocus(new Vector3(500f, 0f, 0f), 13f);
 
             _grid.SelectWritebackBatch(false);
@@ -177,11 +196,12 @@ namespace Genesis.RoomScan.Tests
             return record[0];
         }
 
-        private void SetRuntime(uint dirty, uint epoch)
+        private void SetRuntime(uint dirty, uint pin, uint? renderBits = null)
         {
             U4 record = Runtime();
             record.Y = dirty;
-            record.Z = epoch;
+            record.Z = pin;
+            if (renderBits.HasValue) record.W = renderBits.Value;
             _grid.M8TileRecords.SetData(new[] { record }, 0,
                 (int)_slot * 2 + 1, 1);
         }
@@ -192,8 +212,5 @@ namespace Genesis.RoomScan.Tests
             _grid.M8Counters.GetData(value, 0, index, 1);
             return value[0];
         }
-
-        private void SetCounter(int index, uint value) =>
-            _grid.M8Counters.SetData(new[] { value }, 0, index, 1);
     }
 }

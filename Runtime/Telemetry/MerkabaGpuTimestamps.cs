@@ -137,7 +137,7 @@ namespace Genesis.RoomScan
             internal uint ReadoutEmittedTriangles;
             internal uint LateColdMisses;
             internal uint RenderPrimitiveOverflow;
-            internal uint ReadoutUnresolved;
+            internal uint ReadoutColdInCoverage;
             internal uint ReadoutBuildStatus;
             internal uint ReadoutPlaneLegacyInvalid;
             internal uint ObservationFailure;
@@ -736,8 +736,8 @@ namespace Genesis.RoomScan
                         MerkabaGrid.CounterCarveBitsRetired];
                     sample.ColdCarveTilesRequested = values[
                         MerkabaGrid.CounterColdCarveTilesRequested];
-                    sample.ReadoutUnresolved = values[
-                        MerkabaGrid.CounterReadoutUnresolved];
+                    sample.ReadoutColdInCoverage = values[
+                        MerkabaGrid.CounterReadoutColdInCoverage];
                     sample.ReadoutBuildStatus = values[
                         MerkabaGrid.CounterReadoutBuildStatus];
                     sample.ReadoutPlaneLegacyInvalid = values[
@@ -1149,7 +1149,7 @@ namespace Genesis.RoomScan
                         $"readoutEmittedTriangles={sample.ReadoutEmittedTriangles} " +
                         $"lateDrawColdMisses={sample.LateColdMisses} " +
                         $"renderPrimitiveOverflow={sample.RenderPrimitiveOverflow} " +
-                        $"readoutUnresolved={sample.ReadoutUnresolved} " +
+                        $"readoutColdInCoverage={sample.ReadoutColdInCoverage} " +
                         $"readoutPlaneLegacyInvalid=" +
                         $"{sample.ReadoutPlaneLegacyInvalid} " +
                         $"readoutBuildStatus={sample.ReadoutBuildStatus} " +
