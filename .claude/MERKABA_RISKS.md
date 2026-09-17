@@ -324,3 +324,33 @@ floating display root -> permanently stored "on world" strokes. Spray/eraser fal
 operate at controller+0.20 m; hidden (opacity 0) tiles still take model raycasts; brush
 radius/offset are world-sized. Design works only inside GLB View; live membrane has no
 raycastable representation.
+
+## RISK-17 — hybrid build beb903c on Quest: 30 fps, judder on movement, three UX/visual defects [OPEN, DEVICE EVIDENCE 2026-09-17 04:38-04:51]
+
+Evidence (logcat of the run on `beb903c`, `~/Stažené` hybrid patch 0430):
+- Readout job (17 dispatches): n=86, avg 57.7 ms, max 186 ms (045be20 run: 244 / 1538 ms).
+  Small jobs unchanged (5 dispatches 0.12 ms, 33 dispatches 4.6 ms). No per-kernel
+  `gpu-operation-session` lines were emitted in this run, so the slow stage among
+  Collect/Solve/Emit is not identified yet.
+- VrApi FPS avg 30.4, min 15, Stale ~47/s, Prd 60-68 ms (045be20 run: avg 63.8).
+  Judder on head movement matches rebuild bursts (dirty tiles from residency/halo) of
+  60-186 ms stealing the single Adreno GPU from the draw. The halved baseline FPS is
+  independent of rebuilds; prime suspect: the URP overlay camera for the UI layer
+  (second XR camera pass, intermediate target + resolve), second: alpha-blended scan
+  (ZWrite off) when scanOpacity < 1. Needs an A/B run with the overlay camera disabled.
+- Log otherwise clean: 0 "Kernel at index invalid", 0 MerkabaNative errors,
+  0 CAPACITY_FAILED, 0 PUBLICATION_INVALID, 55 native pipelines created.
+
+Defects confirmed in code (not yet fixed):
+1. GLB/3D Tiles viewer opacity still dithers: `MerkabaArtifactViewer.ApplyPreviewOpacity`
+   sets `_AlphaDither` below 0.999 and `MerkabaArtifactPreview.shader` clips against a
+   hashed threshold. Real alpha blend exists only for the scan draw (`MerkabaGrid.shader`).
+2. Coverage (checker) film is tiled: hue is seeded per 0.2 m cell hash plus 25 mm parity
+   base lift, so it reads as 20 cm squares. Required: a continuous, subtle field
+   (fresnel + smooth low-frequency function of position, no floor()).
+3. Refine ERASE capsule already starts at the controller along its axis (no depth gate),
+   but it is not displayed: the erase branch of `TryCreateFineDescriptor` returns
+   `cursorOnSurface = false` and `ControllerRayDriver.SetFineBrushPreview` hides the
+   cylinder unless the cursor is on a surface; the scan-side highlight shows only where
+   the membrane intersects the capsule. Required: show the tube from the controller
+   for its full length regardless of surface hit.
