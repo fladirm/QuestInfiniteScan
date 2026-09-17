@@ -31,8 +31,9 @@
 // The generated membrane oracle reads the tile-local halo cache and the
 // canonical colour of its contributors through these two accessors, which
 // are defined once the cache exists below. One HLSL authority, no copy.
-bool M8TryLoadMembraneState(int3 globalCoord, out KernelState state,
-    out bool resolved);
+bool M8MembraneCell(int3 globalCoord, out bool resolved, out bool measured,
+    out bool knownFree);
+float4 M8MembranePlaneOf(int3 globalCoord);
 void M8LoadMembraneColor(int3 globalCoord, out uint packedColor,
     out uint colorConfidence);
 #include "MerkabaOverlapShell.generated.hlsl"
@@ -460,9 +461,13 @@ groupshared uint gM8MembraneChunkIndex;
 groupshared uint gM8MembraneChunkLocal;
 groupshared uint gM8MembraneTileSlots[M8_MEMBRANE_TILE_COUNT];
 groupshared uint gM8MembraneOccupiedWords[M8_MEMBRANE_TILE_WORD_COUNT];
-// One packed word per halo cell: an occupied cell keeps its plane flags with
-// bit 1 cleared, a free cell stores bit 1 when its evidence is KNOWN-FREE.
-groupshared uint gM8MembraneState[M8_MEMBRANE_CACHE_COUNT];
+// The measured plane of every halo cell, decoded once per tile: xyz unit
+// normal, w = dot(C, N) + d. Two bits per cell classify it (bit 0 occupied
+// with a measured plane, bit 1 known FREE). The oracle reads these, never
+// the kernel states, so a corner candidate costs one groupshared read.
+#define M8_MEMBRANE_CELL_WORDS 108u
+groupshared float4 gM8MembranePlane[M8_MEMBRANE_CACHE_COUNT];
+groupshared uint gM8MembraneCellBits[M8_MEMBRANE_CELL_WORDS];
 groupshared uint gM8MembraneCanEmit;
 groupshared uint gM8MembraneMeasuredTotal;
 // First entry of this tile's page chain in the build's allocation list; the
@@ -608,10 +613,11 @@ uint M8MembraneCacheIndex(int3 globalCoord)
         (uint)local.z * M8_MEMBRANE_CACHE_PLANE;
 }
 
-bool M8TryLoadMembraneState(int3 globalCoord, out KernelState state,
-    out bool resolved)
+bool M8MembraneCell(int3 globalCoord, out bool resolved, out bool measured,
+    out bool knownFree)
 {
-    state = (KernelState)0;
+    measured = false;
+    knownFree = false;
     int3 local = globalCoord - gM8MembraneTileOrigin +
         M8_MEMBRANE_CACHE_HALO;
     if (any(local < 0) || any(local >= (int)M8_MEMBRANE_CACHE_SIDE))
@@ -619,7 +625,6 @@ bool M8TryLoadMembraneState(int3 globalCoord, out KernelState state,
         resolved = false;
         return false;
     }
-
     int3 relative = globalCoord - gM8MembraneTileOrigin;
     int3 tileOffset = int3(relative.x < 0 ? -1 : relative.x >= 8 ? 1 : 0,
         relative.y < 0 ? -1 : relative.y >= 8 ? 1 : 0,
@@ -632,13 +637,19 @@ bool M8TryLoadMembraneState(int3 globalCoord, out KernelState state,
     }
     resolved = true;
     if (slot == M8_MEMBRANE_TILE_MISSING) return false;
-
-    uint summary = gM8MembraneState[M8MembraneCacheIndex(globalCoord)];
-    state.flags = summary & ~2u;
-    state.evidence = (summary & 3u) == 2u ? MERKABA_EXPORT_KNOWN_FREE : 0;
+    uint cellIndex = (uint)local.x + (uint)local.y * M8_MEMBRANE_CACHE_SIDE +
+        (uint)local.z * M8_MEMBRANE_CACHE_PLANE;
+    uint bits = gM8MembraneCellBits[cellIndex >> 4u] >>
+        ((cellIndex & 15u) * 2u);
+    measured = (bits & 1u) != 0u;
+    knownFree = (bits & 2u) != 0u;
     return true;
 }
 
+float4 M8MembranePlaneOf(int3 globalCoord)
+{
+    return gM8MembranePlane[M8MembraneCacheIndex(globalCoord)];
+}
 
 [numthreads(1, 1, 1)]
 void PrepareRenderReclaim(uint id : SV_DispatchThreadID)
@@ -1064,6 +1075,7 @@ void BuildRenderTiles(uint3 groupId : SV_GroupID,
     if (thread < M8_MEMBRANE_TILE_COUNT)
         gM8MembraneTileSlots[thread] = M8ResolveMembraneTile(context,
             M8MembraneTileOffset(thread));
+    if (thread < M8_MEMBRANE_CELL_WORDS) gM8MembraneCellBits[thread] = 0u;
     GroupMemoryBarrierWithGroupSync();
 
     for (uint wordIndex = thread;
@@ -1079,6 +1091,7 @@ void BuildRenderTiles(uint3 groupId : SV_GroupID,
     }
     GroupMemoryBarrierWithGroupSync();
 
+    // Every halo cell is classified and its plane decoded exactly once.
     for (uint cacheIndex = thread; cacheIndex < M8_MEMBRANE_CACHE_COUNT;
         cacheIndex += M8_SHELL_GROUP_THREADS)
     {
@@ -1087,18 +1100,38 @@ void BuildRenderTiles(uint3 groupId : SV_GroupID,
         uint kernelLocal;
         M8MembraneCacheAddress(cacheIndex, relative, tileIndex, kernelLocal);
         uint slot = gM8MembraneTileSlots[tileIndex];
-        uint summary = 0u;
+        float4 plane = 0.0;
+        uint bits = 0u;
         if (slot < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
         {
             uint occupancy = gM8MembraneOccupiedWords[tileIndex *
                 MERKABA_M8_TILE_WORDS + (kernelLocal >> 5u)];
             if ((occupancy & (1u << (kernelLocal & 31u))) != 0u)
-                summary = M8LoadKernelFlagsOnly(slot, kernelLocal) & ~2u;
+            {
+                uint flags = M8LoadKernelFlagsOnly(slot, kernelLocal);
+                if ((flags & MERKABA_OCCUPIED_FLAG) != 0u &&
+                    M8HasSurfacePlane(flags))
+                {
+                    float3 normal;
+                    float signedOffset;
+                    M8DecodeSurfacePlane(flags, normal, signedOffset);
+                    int3 globalCoord = gM8MembraneTileOrigin + relative;
+                    plane = float4(normal, dot((float3)globalCoord *
+                        MERKABA_LATTICE_STEP, normal) + signedOffset);
+                    bits = 1u;
+                }
+            }
             else if (M8LoadKernelEvidenceOnly(slot, kernelLocal) <=
                      MERKABA_EXPORT_KNOWN_FREE)
-                summary = 2u;
+                bits = 2u;
         }
-        gM8MembraneState[cacheIndex] = summary;
+        gM8MembranePlane[cacheIndex] = plane;
+        if (bits != 0u)
+        {
+            uint ignored;
+            InterlockedOr(gM8MembraneCellBits[cacheIndex >> 4u],
+                bits << ((cacheIndex & 15u) * 2u), ignored);
+        }
     }
     GroupMemoryBarrierWithGroupSync();
 

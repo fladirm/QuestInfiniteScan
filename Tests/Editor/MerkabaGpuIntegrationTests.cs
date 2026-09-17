@@ -232,7 +232,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(frame, Does.Contain(
                 "groupshared uint gM8MembraneTileSlots[M8_MEMBRANE_TILE_COUNT]"));
             Assert.That(frame, Does.Contain(
-                "groupshared uint gM8MembraneState[M8_MEMBRANE_CACHE_COUNT]"));
+                "groupshared float4 gM8MembranePlane[M8_MEMBRANE_CACHE_COUNT]"));
             Assert.That(build, Does.Contain(
                 "gM8MembraneTileSlots[thread] = M8ResolveMembraneTile"));
             Assert.That(build, Does.Contain(
