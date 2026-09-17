@@ -62,7 +62,8 @@ namespace Genesis.RoomScan
         private int _collectKernel;
         private int _prepareKernel;
         private int _collectPatchKernel;
-        private int _solveKnotsKernel;
+        private int _solveLinesKernel;
+        private int _resolvePatchesKernel;
         private int _emitGeometryKernel;
         private int _publishKernel;
         private int _advanceBatchKernel;
@@ -260,18 +261,18 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_M8RenderMutationQueue");
         private static readonly int RenderPatchScratchId =
             Shader.PropertyToID("_M8RenderPatchScratch");
-        private static readonly int RenderKnotScratchId =
-            Shader.PropertyToID("_M8RenderKnotScratch");
-        private static readonly int RenderKnotOwnerId =
-            Shader.PropertyToID("_M8RenderKnotOwner");
+        private static readonly int RenderLineUseScratchId =
+            Shader.PropertyToID("_M8RenderLineUseScratch");
+        private static readonly int RenderNodeScratchId =
+            Shader.PropertyToID("_M8RenderNodeScratch");
         private static readonly int RenderScratchHeaderId =
             Shader.PropertyToID("_M8RenderScratchHeader");
         private static readonly int RenderPatchScratchReadId =
             Shader.PropertyToID("_M8RenderPatchScratchRead");
-        private static readonly int RenderKnotScratchReadId =
-            Shader.PropertyToID("_M8RenderKnotScratchRead");
-        private static readonly int RenderKnotOwnerReadId =
-            Shader.PropertyToID("_M8RenderKnotOwnerRead");
+        private static readonly int RenderLineUseScratchReadId =
+            Shader.PropertyToID("_M8RenderLineUseScratchRead");
+        private static readonly int RenderNodeScratchReadId =
+            Shader.PropertyToID("_M8RenderNodeScratchRead");
         private static readonly int RenderScratchHeaderReadId =
             Shader.PropertyToID("_M8RenderScratchHeaderRead");
         private static readonly int RenderVersionsId =
@@ -546,7 +547,8 @@ namespace Genesis.RoomScan
             foreach (string name in new[]
                      {
                          "AdvanceRenderBuildBatch", "CollectRenderPatchInputs",
-                         "SolveSharedKnots", "EmitRenderTileGeometry"
+                         "SolveSharedKnotLines", "ResolveRenderPatches",
+                         "EmitRenderTileGeometry"
                      })
                 if (!readoutCompute.HasKernel(name))
                     throw new InvalidOperationException(
@@ -561,8 +563,10 @@ namespace Genesis.RoomScan
                         $"MerkabaVisibility.compute lost kernel {name}.");
             _collectPatchKernel = readoutCompute.FindProfiledKernel(
                 "CollectRenderPatchInputs", MerkabaGpuStage.ReadoutBuild);
-            _solveKnotsKernel = readoutCompute.FindProfiledKernel(
-                "SolveSharedKnots", MerkabaGpuStage.ReadoutBuild);
+            _solveLinesKernel = readoutCompute.FindProfiledKernel(
+                "SolveSharedKnotLines", MerkabaGpuStage.ReadoutBuild);
+            _resolvePatchesKernel = readoutCompute.FindProfiledKernel(
+                "ResolveRenderPatches", MerkabaGpuStage.ReadoutBuild);
             _advanceBatchKernel = readoutCompute.FindProfiledKernel(
                 "AdvanceRenderBuildBatch", MerkabaGpuStage.ReadoutBuild);
             _emitGeometryKernel = readoutCompute.FindProfiledKernel(
@@ -586,7 +590,8 @@ namespace Genesis.RoomScan
                          _applyReclaimKernel, _copyKernel, _markKernel,
                          _applyMutationKernel, _collectKernel,
                          _prepareKernel, _advanceBatchKernel,
-                         _collectPatchKernel, _solveKnotsKernel,
+                         _collectPatchKernel, _solveLinesKernel,
+                         _resolvePatchesKernel,
                          _emitGeometryKernel, _publishKernel,
                          _validateKernel, _finalizeKernel
                      })
@@ -609,28 +614,35 @@ namespace Genesis.RoomScan
                      { _markKernel, _applyMutationKernel, _emitGeometryKernel })
                 readoutCompute.SetBuffer(kernel, RenderMutationQueueId,
                     _grid.M8RenderMutationQueue);
-            // Scratch views: the collect kernel writes descriptors and the
-            // header, the solve kernel reads descriptors and writes knots,
-            // the emit kernel only reads. Every kernel stays within the
-            // eight writable bindings of the Quest gate.
+            // Scratch views: collect writes descriptors and the header, solve
+            // writes descriptors, line uses and node records, resolve reads
+            // the line uses and writes descriptors, node and transition
+            // records, emit only reads. Every kernel stays within the eight
+            // writable bindings of the Quest gate.
             readoutCompute.SetBuffer(_collectPatchKernel, RenderPatchScratchId,
                 _grid.M8RenderPatchScratch);
             readoutCompute.SetBuffer(_collectPatchKernel, RenderScratchHeaderId,
                 _grid.M8RenderScratchHeader);
-            readoutCompute.SetBuffer(_solveKnotsKernel, RenderPatchScratchId,
+            readoutCompute.SetBuffer(_solveLinesKernel, RenderPatchScratchId,
                 _grid.M8RenderPatchScratch);
-            readoutCompute.SetBuffer(_solveKnotsKernel, RenderKnotScratchId,
-                _grid.M8RenderKnotScratch);
-            readoutCompute.SetBuffer(_solveKnotsKernel, RenderKnotOwnerId,
-                _grid.M8RenderKnotOwner);
-            readoutCompute.SetBuffer(_solveKnotsKernel, RenderScratchHeaderId,
+            readoutCompute.SetBuffer(_solveLinesKernel, RenderLineUseScratchId,
+                _grid.M8RenderLineUseScratch);
+            readoutCompute.SetBuffer(_solveLinesKernel, RenderNodeScratchId,
+                _grid.M8RenderNodeScratch);
+            readoutCompute.SetBuffer(_solveLinesKernel, RenderScratchHeaderId,
                 _grid.M8RenderScratchHeader);
+            readoutCompute.SetBuffer(_resolvePatchesKernel,
+                RenderPatchScratchId, _grid.M8RenderPatchScratch);
+            readoutCompute.SetBuffer(_resolvePatchesKernel,
+                RenderLineUseScratchReadId, _grid.M8RenderLineUseScratch);
+            readoutCompute.SetBuffer(_resolvePatchesKernel,
+                RenderNodeScratchId, _grid.M8RenderNodeScratch);
+            readoutCompute.SetBuffer(_resolvePatchesKernel,
+                RenderScratchHeaderId, _grid.M8RenderScratchHeader);
             readoutCompute.SetBuffer(_emitGeometryKernel, RenderPatchScratchReadId,
                 _grid.M8RenderPatchScratch);
-            readoutCompute.SetBuffer(_emitGeometryKernel, RenderKnotScratchReadId,
-                _grid.M8RenderKnotScratch);
-            readoutCompute.SetBuffer(_emitGeometryKernel, RenderKnotOwnerReadId,
-                _grid.M8RenderKnotOwner);
+            readoutCompute.SetBuffer(_emitGeometryKernel, RenderNodeScratchReadId,
+                _grid.M8RenderNodeScratch);
             readoutCompute.SetBuffer(_emitGeometryKernel, RenderScratchHeaderReadId,
                 _grid.M8RenderScratchHeader);
             _material = new Material(renderShader)
@@ -846,7 +858,9 @@ namespace Genesis.RoomScan
                 command.DispatchComputeProfiled(readoutCompute,
                     _collectPatchKernel, _grid.M8FrameDispatchArgs);
                 command.DispatchComputeProfiled(readoutCompute,
-                    _solveKnotsKernel, _grid.M8FrameDispatchArgs);
+                    _solveLinesKernel, _grid.M8FrameDispatchArgs);
+                command.DispatchComputeProfiled(readoutCompute,
+                    _resolvePatchesKernel, _grid.M8FrameDispatchArgs);
                 command.DispatchComputeProfiled(readoutCompute,
                     _emitGeometryKernel, _grid.M8FrameDispatchArgs);
             }

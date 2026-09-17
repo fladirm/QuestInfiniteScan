@@ -66,7 +66,8 @@ namespace Genesis.RoomScan.Tests
                          "CopyRenderIndex",
                          "MarkRenderRebuildTiles", "CollectRenderRebuildTiles",
                          "PrepareRenderBuild", "CollectRenderPatchInputs",
-                         "SolveSharedKnots", "EmitRenderTileGeometry",
+                         "SolveSharedKnotLines", "ResolveRenderPatches",
+                         "EmitRenderTileGeometry",
                          "AdvanceRenderBuildBatch",
                          "PublishRenderTileList", "FinalizeReadout"
                      })
@@ -147,9 +148,9 @@ namespace Genesis.RoomScan.Tests
                 (long)MerkabaGrid.RenderScratchTiles *
                     MerkabaGrid.RenderScratchPatchStride * 16,
                 (long)MerkabaGrid.RenderScratchTiles *
-                    MerkabaGrid.RenderScratchCorners * 16,
+                    MerkabaGrid.RenderScratchLineSlots * 16,
                 (long)MerkabaGrid.RenderScratchTiles *
-                    MerkabaGrid.RenderScratchCorners * 4,
+                    MerkabaGrid.RenderScratchNodeRecords * 16,
                 (long)MerkabaGrid.RenderScratchTiles * 16,
                 (long)MerkabaGrid.RenderPageCapacity * 16, 16, 20,
                 12, 12,
@@ -162,7 +163,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(allBuffers.Max(), Is.EqualTo(64L * 1024 * 1024));
             Assert.That(allBuffers.Max(), Is.LessThanOrEqualTo(
                 128L * 1024 * 1024));
-            Assert.That(allBuffers.Sum(), Is.EqualTo(909219324L));
+            Assert.That(allBuffers.Sum(), Is.EqualTo(926717440L));
 
             Assert.That(MerkabaSpatial.OwnerRecordCount,
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
@@ -237,8 +238,11 @@ namespace Genesis.RoomScan.Tests
                 Assert.That(world + gpu, Does.Not.Contain(removed), removed);
         }
 
+        // Rewritten for the line-node halo (plan .claude/MERKABA_LINE_PLAN.md
+        // sections 3 and 4): tile +-5 cell cube, tile +-4 chart table, one
+        // C5.2 solve per touched line task.
         [Test]
-        public void ReadoutMembrane_CachesOneImmediateHaloPerTileGroup()
+        public void ReadoutMembrane_CachesOneLineNodeHaloPerTileGroup()
         {
             string frame = Source("Runtime/Shaders/MerkabaReadout.compute");
             string generated = Source(
@@ -247,31 +251,33 @@ namespace Genesis.RoomScan.Tests
                 "void PublishRenderTileList");
 
             Assert.That(frame, Does.Contain("#define M8_MEMBRANE_TILE_COUNT 27u"));
-            Assert.That(frame, Does.Contain("#define M8_MEMBRANE_CACHE_HALO 2"));
+            Assert.That(frame, Does.Contain("#define M8_MEMBRANE_CACHE_HALO 5"));
+            Assert.That(frame, Does.Contain("#define M8_MEMBRANE_CACHE_SIDE 18u"));
+            Assert.That(frame, Does.Contain("#define M8_MEMBRANE_CHART_HALO 4"));
             Assert.That(frame, Does.Contain(
                 "groupshared uint gM8MembraneTileSlots[M8_MEMBRANE_TILE_COUNT]"));
             Assert.That(frame, Does.Contain(
-                "groupshared float4 gM8MembranePlane[M8_MEMBRANE_CACHE_COUNT]"));
+                "groupshared uint gM8MembraneFlags[M8_MEMBRANE_CACHE_COUNT]"));
+            Assert.That(frame, Does.Not.Contain("gM8MembranePlane["));
             Assert.That(build, Does.Contain(
-                "gM8MembraneTileSlots[thread] = M8ResolveMembraneTile"));
-            Assert.That(build, Does.Contain(
-                "wordIndex < M8_MEMBRANE_TILE_WORD_COUNT"));
+                "gM8MembraneTileSlots[tile] = M8ResolveMembraneTile("));
             Assert.That(build, Does.Contain(
                 "cacheIndex < M8_MEMBRANE_CACHE_COUNT"));
             Assert.That(build, Does.Contain(
-                "M8MembraneSolveKnot(globalCoord, normal, chart,"));
+                "chartIndex < M8_MEMBRANE_CHART_COUNT"));
+            Assert.That(build, Does.Contain("M8SolveLineTask(local, task)"));
             Assert.That(build, Does.Contain("[loop]"));
             Assert.That(build, Does.Contain(
-                "for (uint batch = 0u; batch < 4u; batch++)"));
+                "for (uint taskPass = 0u; taskPass < 4u; taskPass++)"));
             Assert.That(build, Does.Not.Contain("M8FindBlock("));
-            Assert.That(generated, Does.Contain(
-                "bool M8TryBuildMembranePatch"));
-            // Register contract: the corner solve keeps its twelve candidates
-            // in three float4 registers plus bit masks, never in private arrays.
-            Assert.That(generated, Does.Contain("float4 heights0 = 0.0"));
-            Assert.That(generated, Does.Contain("uint validMask = 0u"));
-            Assert.That(generated, Does.Contain("M8MembraneSolveKnot"));
-            Assert.That(generated, Does.Contain("M8MembraneCanonicalChart"));
+            Assert.That(build, Does.Not.Contain("measuredCount * 4u"));
+            // Register contract: the up to twelve candidates of a window live
+            // in three float4 registers plus bit masks, never private arrays.
+            Assert.That(build, Does.Contain("float4 heights0 = 0.0"));
+            Assert.That(generated, Does.Contain("int M8MembraneCanonicalChart"));
+            Assert.That(generated, Does.Contain("bool M8MembraneRelated"));
+            Assert.That(generated, Does.Contain("bool M8MembraneCandidateHeight"));
+            Assert.That(generated, Does.Contain("bool M8MembraneWinnerBefore"));
             Assert.That(generated, Does.Not.Contain("slot / 3u"));
             foreach (string spilled in new[]
                      {
@@ -786,14 +792,16 @@ namespace Genesis.RoomScan.Tests
             string generated = Source(
                 "Runtime/Shaders/MerkabaOverlapShell.generated.hlsl");
             string shader = Source("Runtime/Shaders/MerkabaGrid.shader");
+            // Line-node winding (contract C5.3/C5.4): the patch swaps corners
+            // 10 and 01 against the MAIN normal in ResolveRenderPatches, the
+            // transition quad flips from N_m + N_n (plan section 13).
             Assert.That(generated, Does.Contain(
-                "int M8MembraneDominantAxis(float3 normal)"));
+                "int M8MembraneDominantAxis(float3 value)"));
             Assert.That(generated, Does.Contain(
                 "void M8MembraneTangentAxes"));
-            Assert.That(generated, Does.Contain(
-                "M8OverlapTriangleCorner(uint vertex)"));
-            Assert.That(generated, Does.Contain(
-                "dot(cross(patch.corner10 - patch.corner00"));
+            Assert.That(frame, Does.Contain(
+                "if (dot(cross(p10 - p00, p11 - p00), mainPlane.xyz) < 0.0)"));
+            Assert.That(generated, Does.Contain("flip = orientation < 0.0;"));
             Assert.That(frame + generated,
                 Does.Not.Contain("_M8GridWindingSign"));
             Assert.That(frame + generated,
@@ -828,13 +836,17 @@ namespace Genesis.RoomScan.Tests
                 "M8_COUNTER_READOUT_PLANE_LEGACY_INVALID"));
             Assert.That(occupiedPrefilter, Is.GreaterThanOrEqualTo(0));
             Assert.That(fullStateLoad, Is.GreaterThan(occupiedPrefilter));
+            // Line-node build (plan section 4): Collect 3, SolveSharedKnotLines
+            // 3 group + 2 all-memory, ResolveRenderPatches 1 group + 2
+            // all-memory, Emit 2 group barriers; one vertex per node record.
             Assert.That(Regex.Matches(build,
                 "GroupMemoryBarrierWithGroupSync\\(\\)"),
-                Has.Count.EqualTo(7));
+                Has.Count.EqualTo(9));
             Assert.That(build, Does.Not.Contain(
                 "M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES"));
             Assert.That(build, Does.Contain(
-                "M8StoreRenderVertex(M8MembraneVertexSlot(ordinal), position,"));
+                "M8StoreRenderVertex(M8MembraneVertexSlot(ordinal),\n" +
+                "                M8NodeRecordPosition(record, tileOrigin), record.y);"));
             Assert.That(generated, Does.Contain(
                 "M8_MEMBRANE_PATCH_PITCH 0.025"));
             Assert.That(generated, Does.Contain(
@@ -898,8 +910,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(frame, Does.Not.Contain("M8ReadoutPin"));
             // One measured MAIN is one 25 mm quad of the frozen oracle; the
             // 50 mm support never enumerates facets.
-            Assert.That(build, Does.Contain(
-                "M8MembraneSolveKnot(globalCoord, normal, chart,"));
+            Assert.That(build, Does.Contain("M8SolveLineTask(local, task)"));
             Assert.That(build, Does.Contain("void EmitRenderTileGeometry"));
             Assert.That(frame, Does.Contain("M8_MEMBRANE_INDICES_PER_PATCH"));
             Assert.That(frame, Does.Not.Contain("M8_SKIN_"));
@@ -1560,8 +1571,9 @@ namespace Genesis.RoomScan.Tests
             string all = world + scan + frame + visibility;
             Assert.That(Regex.Matches(all, @"^#pragma kernel ",
                 // 68 + PrepareDependencyRingArgs and QueryDependencyRing
-                // (contract C9 amendment dependency preflight).
-                RegexOptions.Multiline), Has.Count.EqualTo(70));
+                // (contract C9 amendment dependency preflight) +
+                // ResolveRenderPatches (C5.3/C5.4, plan section 4).
+                RegexOptions.Multiline), Has.Count.EqualTo(71));
             Assert.That(frame, Does.Not.Contain(
                 "#pragma kernel CullRenderTiles"));
             Assert.That(visibility, Does.Contain(
@@ -1702,7 +1714,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(audit, Does.Contain("NonWritable"));
             Assert.That(audit, Does.Contain("writable > 8"));
             Assert.That(audit, Does.Contain("RW/read alias pair"));
-            Assert.That(audit, Does.Contain("kernel_count != 76"));
+            Assert.That(audit, Does.Contain("kernel_count != 77"));
             Assert.That(audit, Does.Contain("DepthNormals.compute"));
             Assert.That(audit, Does.Contain("DepthDilation.compute"));
             Assert.That(audit, Does.Contain("StereoRgbdRefine.compute"));

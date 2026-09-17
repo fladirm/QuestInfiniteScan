@@ -20,7 +20,7 @@ namespace Genesis.RoomScan.Tests
         {
             KernelState state = Surface(new int3(0), new float3(1, 0, 0), 0f);
 
-            Assert.That(MerkabaOverlapShell.TryBuildPatch(new int3(0), state,
+            Assert.That(MerkabaOverlapShell.TryResolvePatch(new int3(0), state,
                 out MerkabaOverlapShell.Patch patch), Is.True);
 
             Assert.That(MerkabaOverlapShell.TrianglesPerPatch, Is.EqualTo(2));
@@ -37,7 +37,7 @@ namespace Genesis.RoomScan.Tests
         {
             KernelState state = default;
             state.SetOccupiedForFixture(true, MainColor);
-            Assert.That(MerkabaOverlapShell.TryBuildPatch(new int3(0), state,
+            Assert.That(MerkabaOverlapShell.TryResolvePatch(new int3(0), state,
                 out _), Is.False);
         }
 
@@ -53,7 +53,7 @@ namespace Genesis.RoomScan.Tests
             int3 main = new(0);
             var context = PlaneNeighbourhood(main, requested, 0.004f);
 
-            Assert.That(MerkabaOverlapShell.TryBuildPatch(main, context,
+            Assert.That(MerkabaOverlapShell.TryResolvePatch(main, context,
                 out MerkabaOverlapShell.Patch patch), Is.True);
 
             KernelState.DecodeSurfacePlane(context[main].Flags,
@@ -87,9 +87,9 @@ namespace Genesis.RoomScan.Tests
                 context.Add(new int3(0, y, z),
                     Surface(new int3(0, y, z), new float3(1, 0, 0), 0.003f));
 
-            Assert.That(MerkabaOverlapShell.TryBuildPatch(new int3(0, 0, 0),
+            Assert.That(MerkabaOverlapShell.TryResolvePatch(new int3(0, 0, 0),
                 context, out MerkabaOverlapShell.Patch first), Is.True);
-            Assert.That(MerkabaOverlapShell.TryBuildPatch(new int3(0, 1, 0),
+            Assert.That(MerkabaOverlapShell.TryResolvePatch(new int3(0, 1, 0),
                 context, out MerkabaOverlapShell.Patch second), Is.True);
 
             float sharedY = MerkabaConstants.LatticeStep * 0.5f;
@@ -118,7 +118,7 @@ namespace Genesis.RoomScan.Tests
                     new float3(1, 0, 0), 0f)
             };
 
-            Assert.That(MerkabaOverlapShell.TryBuildPatch(main, context,
+            Assert.That(MerkabaOverlapShell.TryResolvePatch(main, context,
                 out MerkabaOverlapShell.Patch patch), Is.True);
 
             foreach (float3 corner in Corners(patch))
@@ -134,7 +134,7 @@ namespace Genesis.RoomScan.Tests
                 [main] = Surface(main, new float3(0, 0, 1), 0.006f)
             };
 
-            Assert.That(MerkabaOverlapShell.TryBuildPatch(main, context,
+            Assert.That(MerkabaOverlapShell.TryResolvePatch(main, context,
                 out MerkabaOverlapShell.Patch patch), Is.True);
 
             KernelState.DecodeSurfacePlane(context[main].Flags,
@@ -145,6 +145,10 @@ namespace Genesis.RoomScan.Tests
                 Is.True);
         }
 
+        // Rewritten for C5.2 (plan section 8, "two parallel sheets beyond g"):
+        // the former fixture put the sheets exactly g = 15 mm apart, which
+        // the line-node relation R now joins into one branch by contract.
+        // The sheets are 17 mm apart here and keep one node each per line.
         [Test]
         public void TwoCloseParallelSheets_RemainDistinct()
         {
@@ -156,15 +160,15 @@ namespace Genesis.RoomScan.Tests
                 int3 secondOwner = new(1, y, z);
                 context.Add(firstOwner, Surface(firstOwner,
                     new float3(1, 0, 0),
-                    0.005f));
+                    0.004f));
                 context.Add(secondOwner, Surface(secondOwner,
                     new float3(1, 0, 0),
-                    -0.005f));
+                    -0.004f));
             }
 
-            Assert.That(MerkabaOverlapShell.TryBuildPatch(new int3(0), context,
+            Assert.That(MerkabaOverlapShell.TryResolvePatch(new int3(0), context,
                 out MerkabaOverlapShell.Patch firstPatch), Is.True);
-            Assert.That(MerkabaOverlapShell.TryBuildPatch(new int3(1, 0, 0),
+            Assert.That(MerkabaOverlapShell.TryResolvePatch(new int3(1, 0, 0),
                 context, out MerkabaOverlapShell.Patch secondPatch), Is.True);
 
             float first = Corners(firstPatch).Average(value => value.x);
@@ -177,6 +181,16 @@ namespace Genesis.RoomScan.Tests
                 secondOffset - firstOffset;
             Assert.That(second - first,
                 Is.EqualTo(expectedSeparation).Within(Tolerance));
+            Assert.That(expectedSeparation, Is.GreaterThan(
+                MerkabaOverlapShell.BranchHeightGap));
+            for (int corner = 0; corner < 4; corner++)
+            {
+                Assert.That(firstPatch.GetCorner(corner).LineAddress, Is.EqualTo(
+                    secondPatch.GetCorner(corner).LineAddress));
+                Assert.That(firstPatch.GetCorner(corner).Key.Equals(
+                    secondPatch.GetCorner(corner).Key), Is.False,
+                    "one node per sheet on every shared line");
+            }
         }
 
         [TestCase(0, 0, 0, TestName = "ConvexCorner")]
@@ -194,7 +208,7 @@ namespace Genesis.RoomScan.Tests
                 [other] = Surface(other, new float3(0, 1, 0), 0f)
             };
 
-            Assert.That(MerkabaOverlapShell.TryBuildPatch(main, context,
+            Assert.That(MerkabaOverlapShell.TryResolvePatch(main, context,
                 out MerkabaOverlapShell.Patch patch), Is.True);
             Assert.That(Corners(patch).All(value =>
                 math.abs(value.x) <= Tolerance), Is.True);
@@ -218,9 +232,9 @@ namespace Genesis.RoomScan.Tests
             Dictionary<int3, KernelState> movedContext = Translate(
                 originContext, translation);
 
-            Assert.That(MerkabaOverlapShell.TryBuildPatch(new int3(0),
+            Assert.That(MerkabaOverlapShell.TryResolvePatch(new int3(0),
                 originContext, out MerkabaOverlapShell.Patch origin), Is.True);
-            Assert.That(MerkabaOverlapShell.TryBuildPatch(translation,
+            Assert.That(MerkabaOverlapShell.TryResolvePatch(translation,
                 movedContext, out MerkabaOverlapShell.Patch moved), Is.True);
 
             float3 metricTranslation = (float3)translation *
@@ -244,7 +258,7 @@ namespace Genesis.RoomScan.Tests
                 "MerkabaOverlapShell.generated.hlsl"));
             Assert.That(generated,
                 Is.EqualTo(MerkabaOverlapShell.BuildGeneratedHlsl()));
-            Assert.That(generated, Does.Contain("M8TryBuildMembranePatch"));
+            Assert.That(generated, Does.Contain("M8MembraneCanonicalChart"));
             Assert.That(generated, Does.Contain("M8_MEMBRANE_HALF_PITCH"));
             Assert.That(generated, Does.Not.Contain("M8EmitReadoutGlyph"));
             Assert.That(generated, Does.Not.Contain("Camera"));
@@ -288,7 +302,7 @@ namespace Genesis.RoomScan.Tests
             foreach (int3 coord in context.Keys.OrderBy(value => value.x)
                          .ThenBy(value => value.y).ThenBy(value => value.z))
             {
-                if (!MerkabaOverlapShell.TryBuildPatch(coord, context,
+                if (!MerkabaOverlapShell.TryResolvePatch(coord, context,
                         out MerkabaOverlapShell.Patch patch)) continue;
                 patches++;
                 for (int index = 0; index < 4; index++)
@@ -367,9 +381,9 @@ namespace Genesis.RoomScan.Tests
                 [new int3(0, 0, 0)] = Surface(new int3(0, 0, 0), left, 0f),
                 [new int3(1, 0, 0)] = Surface(new int3(1, 0, 0), right, 0f)
             };
-            Assert.That(MerkabaOverlapShell.TryBuildPatch(new int3(0, 0, 0),
+            Assert.That(MerkabaOverlapShell.TryResolvePatch(new int3(0, 0, 0),
                 context, out MerkabaOverlapShell.Patch first), Is.True);
-            Assert.That(MerkabaOverlapShell.TryBuildPatch(new int3(1, 0, 0),
+            Assert.That(MerkabaOverlapShell.TryResolvePatch(new int3(1, 0, 0),
                 context, out MerkabaOverlapShell.Patch second), Is.True);
             // The knot between them is solved from both planes, so it lies
             // within half a pitch of each plane instead of tearing.
@@ -440,7 +454,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(knots.Values.Count(list => list.Count == 4),
                 Is.GreaterThan(0), "interior knots belong to four patches");
             foreach (var pair in knots)
-                Assert.That(pair.Value.Select(c => c.Identity).Distinct().Count(),
+                Assert.That(pair.Value.Select(c => c.Key).Distinct().Count(),
                     Is.EqualTo(1), $"knot {pair.Key} has one identity");
         }
 
@@ -456,7 +470,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(patches, Is.EqualTo(27));
             foreach (var pair in knots)
             {
-                var identities = pair.Value.Select(c => c.Identity).Distinct()
+                var identities = pair.Value.Select(c => c.Key).Distinct()
                     .ToArray();
                 Assert.That(identities.Length, Is.EqualTo(3),
                     $"line {pair.Key} carries one knot per sheet");
@@ -490,10 +504,10 @@ namespace Genesis.RoomScan.Tests
             Assert.That(patches, Is.EqualTo(18));
             foreach (var pair in knots)
             {
-                Assert.That(pair.Value.Select(c => c.Identity.Side).Distinct()
+                Assert.That(pair.Value.Select(c => c.Key.Side).Distinct()
                     .Count(), Is.EqualTo(2), $"line {pair.Key} has two sides");
                 foreach (MerkabaOverlapShell.Corner corner in pair.Value)
-                    Assert.That(corner.Identity.Side == 2
+                    Assert.That(corner.Key.Side == 2
                         ? corner.GridPosition.z
                         : corner.GridPosition.z + MerkabaConstants.LatticeStep,
                         Is.EqualTo(0f).Within(QuantizationTolerance),
@@ -539,6 +553,391 @@ namespace Genesis.RoomScan.Tests
                     context[coord], context));
             Assert.That(charts.Count, Is.EqualTo(1),
                 "one canonical chart for one sheet");
+        }
+
+        // ---- line-node membrane (contract C5.1-C5.4, plan section 8) ----
+
+        [Test]
+        public void ComponentSpanningThreeLayersHasNoNodeAndItsPatchesAreAbsent()
+        {
+            // Line through the +X+Y corner of the origin, chart Z: four uses
+            // in layers 0..3, consecutive heights 12 mm apart (<= g).
+            var line = new MerkabaOverlapShell.LineKey(new int3(1, 1, 0), 2);
+            var context = new Dictionary<int3, KernelState>();
+            MerkabaMembraneFixtures.AddSpanChain(context, new int3(0), 1);
+            Assert.That(context.Count, Is.EqualTo(4));
+            Assert.That(MerkabaOverlapShell.TrySolveNode(line, 0, 0, context,
+                null, out _), Is.False);
+            foreach (int3 main in context.Keys)
+                Assert.That(MerkabaOverlapShell.TryResolvePatch(main, context,
+                    out _), Is.False, $"MAIN {main} uses the invalid branch");
+
+            // Positive control: without the fourth use the span is two, the
+            // common window is layer 1 and its use is the only contributor.
+            var control = new Dictionary<int3, KernelState>();
+            MerkabaMembraneFixtures.AddSpanChain(control, new int3(0), 1,
+                withoutLastUse: true);
+            Assert.That(control.Count, Is.EqualTo(3));
+            Assert.That(MerkabaOverlapShell.TrySolveNode(line, 0, 0, control,
+                null, out MerkabaOverlapShell.Node node), Is.True);
+            Assert.That(node.GridPosition.z, Is.EqualTo(LineHeight(control,
+                new int3(0, 1, 1), 2, line.LineAddress)).Within(1e-6f));
+            var keys = new HashSet<MerkabaOverlapShell.NodeKey>();
+            foreach (int3 main in control.Keys)
+            {
+                Assert.That(MerkabaOverlapShell.TryResolvePatch(main, control,
+                    out MerkabaOverlapShell.Patch patch), Is.True, $"{main}");
+                for (int corner = 0; corner < 4; corner++)
+                    if (math.all(patch.GetCorner(corner).LineAddress ==
+                            line.LineAddress))
+                        keys.Add(patch.GetCorner(corner).Key);
+            }
+            Assert.That(keys.Count, Is.EqualTo(1), "one shared node");
+        }
+
+        [Test]
+        public void FreeSeparatorBlocksMembershipBetweenColumns()
+        {
+            // Uses of one line in columns 0 (layer 0) and 2 (layer 2), 10 mm
+            // apart. Joined, their window is layer 1 and holds no
+            // contributor; KNOWN FREE in column 0 at layer 2 separates them.
+            var line = new MerkabaOverlapShell.LineKey(new int3(1, 1, 0), 2);
+            var context = new Dictionary<int3, KernelState>();
+            MerkabaMembraneFixtures.Put(context, new int3(0, 0, 0),
+                new float3(0f, 0f, 1f), 0.020f);
+            MerkabaMembraneFixtures.Put(context, new int3(1, 0, 2),
+                new float3(0f, 0f, 1f), 0.030f);
+            Assert.That(MerkabaOverlapShell.TrySolveNode(line, 0, 0, context,
+                null, out _), Is.False, "joined branch has no contributor");
+
+            context[new int3(0, 0, 2)] = MerkabaMembraneFixtures.KnownFree();
+            Assert.That(MerkabaOverlapShell.TrySolveNode(line, 0, 0, context,
+                null, out MerkabaOverlapShell.Node lower), Is.True);
+            Assert.That(MerkabaOverlapShell.TrySolveNode(line, 2, 2, context,
+                null, out MerkabaOverlapShell.Node upper), Is.True);
+            Assert.That(lower.Key.Equals(upper.Key), Is.False);
+            // One offset quantization step (0.2 mm) of the stored planes.
+            float step = MerkabaConstants.SurfacePlaneOffsetRange / 127f;
+            Assert.That(lower.GridPosition.z, Is.EqualTo(0.020f).Within(step));
+            Assert.That(upper.GridPosition.z, Is.EqualTo(0.030f).Within(step));
+            Assert.That(MerkabaOverlapShell.TryResolvePatch(new int3(0, 0, 0),
+                context, out _), Is.True);
+            Assert.That(MerkabaOverlapShell.TryResolvePatch(new int3(1, 0, 2),
+                context, out _), Is.True);
+        }
+
+        [Test]
+        public void ShrubLeavesStayOnTheirPlanesAndShareNodes()
+        {
+            Dictionary<int3, KernelState> context =
+                MerkabaMembraneFixtures.Shrub();
+            var cache = new MerkabaOverlapShell.SolveCache();
+            var nodes = new Dictionary<MerkabaOverlapShell.NodeKey, float3>();
+            var uses = new Dictionary<MerkabaOverlapShell.NodeKey, int>();
+            int patches = 0;
+            foreach (int3 main in context.Keys.OrderBy(value => value.x)
+                         .ThenBy(value => value.y).ThenBy(value => value.z))
+            {
+                if (!MerkabaOverlapShell.TryResolvePatch(main, context, cache,
+                        out MerkabaOverlapShell.Patch patch))
+                    continue;
+                patches++;
+                KernelState.DecodeSurfacePlane(context[main].Flags,
+                    out float3 normal, out float offset);
+                float constant = math.dot((float3)main *
+                    MerkabaConstants.LatticeStep, normal) + offset;
+                for (int corner = 0; corner < 4; corner++)
+                {
+                    MerkabaOverlapShell.Corner value = patch.GetCorner(corner);
+                    float3 next = patch.GetCorner((corner + 1) & 3).GridPosition;
+                    Assert.That(math.abs(math.dot(value.GridPosition, normal) -
+                        constant), Is.LessThanOrEqualTo(
+                        MerkabaOverlapShell.BranchHeightGap), $"{main}");
+                    Assert.That(math.distance(value.GridPosition, next),
+                        Is.LessThanOrEqualTo(MerkabaOverlapShell.MembraneMaxEdge),
+                        $"{main}");
+                    if (nodes.TryGetValue(value.Key, out float3 known))
+                        Assert.That(math.all(math.asint(known) ==
+                            math.asint(value.GridPosition)), Is.True,
+                            "a node key is one position");
+                    nodes[value.Key] = value.GridPosition;
+                    uses[value.Key] = uses.TryGetValue(value.Key,
+                        out int count) ? count + 1 : 1;
+                }
+            }
+            Assert.That(context.Count, Is.GreaterThan(100));
+            Assert.That(patches, Is.GreaterThanOrEqualTo(context.Count * 9 / 10),
+                "coverage of the measured leaves");
+            Assert.That(uses.Values.Count(count => count > 1),
+                Is.GreaterThan(nodes.Count / 2), "leaves are shared skins");
+        }
+
+        // Checkerboard noise keeps the 3x3 sheet mean near 48.6 degrees while
+        // single cells fall on both sides of the 45 degree chart boundary.
+        // Interior cells only: a fixture border has no sheet to average.
+        [TestCase(4, 15f)]
+        [TestCase(16, 12f)]
+        public void NoisyDiagonalAroundFortyEightDegreesHasOneCanonicalChart(
+            int halfSize, float amplitude)
+        {
+            var context = new Dictionary<int3, KernelState>();
+            MerkabaMembraneFixtures.AddNoisyDiagonal(context, new int3(0),
+                halfSize, 48.6f, amplitude);
+            var raw = new HashSet<int>();
+            var canonical = new HashSet<int>();
+            foreach (KeyValuePair<int3, KernelState> pair in context)
+            {
+                KernelState.DecodeSurfacePlane(pair.Value.Flags,
+                    out float3 normal, out _);
+                raw.Add(MerkabaOverlapShell.DominantAxis(normal));
+                if (math.abs(pair.Key.x) < halfSize &&
+                    math.abs(pair.Key.y) < halfSize)
+                    canonical.Add(MerkabaOverlapShell.CanonicalChart(pair.Key,
+                        pair.Value, context));
+            }
+            Assert.That(raw.Count, Is.EqualTo(2),
+                "the fixture really straddles the chart boundary");
+            Assert.That(canonical, Is.EquivalentTo(new[] { 2 }));
+        }
+
+        [Test]
+        public void ChartFallsBackToTheRawAxisWhenTheSheetAxisIsUnusable()
+        {
+            int3 main = new(0);
+            var context = new Dictionary<int3, KernelState>
+            {
+                [main] = Surface(main, new float3(0.45f, 0f, 0.893f), 0f),
+                [new int3(0, 1, 0)] = Surface(new int3(0, 1, 0),
+                    new float3(0.9f, 0f, 0.436f), 0f),
+                [new int3(0, -1, 0)] = Surface(new int3(0, -1, 0),
+                    new float3(0.9f, 0f, 0.436f), 0f)
+            };
+            float3 sum = float3.zero;
+            foreach (KernelState state in context.Values)
+            {
+                KernelState.DecodeSurfacePlane(state.Flags, out float3 normal,
+                    out _);
+                sum += normal;
+            }
+            Assert.That(MerkabaOverlapShell.DominantAxis(sum), Is.EqualTo(0),
+                "the sheet sum points along X, where |N_m.x| < 0.5");
+            Assert.That(MerkabaOverlapShell.CanonicalChart(main, context[main],
+                context), Is.EqualTo(2));
+            Assert.That(MerkabaOverlapShell.TryResolvePatch(main, context,
+                out _), Is.True);
+        }
+
+        [TestCase(3, TestName = "ChartFoldInsideOneTile")]
+        [TestCase(7, TestName = "ChartFoldAcrossTileEdge")]
+        public void ChartFoldClosesWithOneNonSelfIntersectingTransition(int y0)
+        {
+            var context = new Dictionary<int3, KernelState>();
+            MerkabaMembraneFixtures.AddFold(context, 0, y0, 0);
+            int3 lower = new(0, y0, 0);
+            int3 upper = new(0, y0 + 1, 0);
+            Assert.That(MerkabaOverlapShell.CanonicalChart(lower, context[lower],
+                context), Is.EqualTo(0));
+            Assert.That(MerkabaOverlapShell.CanonicalChart(upper, context[upper],
+                context), Is.EqualTo(2));
+
+            var cache = new MerkabaOverlapShell.SolveCache();
+            var patchKeys = new HashSet<MerkabaOverlapShell.NodeKey>();
+            foreach (int3 main in new[] { lower, upper })
+            {
+                Assert.That(MerkabaOverlapShell.TryResolvePatch(main, context,
+                    cache, out MerkabaOverlapShell.Patch patch), Is.True);
+                for (int corner = 0; corner < 4; corner++)
+                    patchKeys.Add(patch.GetCorner(corner).Key);
+            }
+
+            int transitions = 0;
+            MerkabaOverlapShell.Patch transition = default;
+            foreach (int3 main in context.Keys)
+            for (int axis = 0; axis < 3; axis++)
+            {
+                if (!MerkabaOverlapShell.TryBuildTransition(main, axis, context,
+                        cache, out MerkabaOverlapShell.Patch built))
+                    continue;
+                transitions++;
+                transition = built;
+                Assert.That(main, Is.EqualTo(lower));
+                Assert.That(axis, Is.EqualTo(1));
+            }
+            Assert.That(transitions, Is.EqualTo(1));
+
+            // Closed seam: the quad joins the facing edge nodes of both
+            // patches and adds no node of its own.
+            var corners = new float3[4];
+            for (int corner = 0; corner < 4; corner++)
+            {
+                Assert.That(patchKeys.Contains(transition.GetCorner(corner).Key),
+                    Is.True);
+                corners[corner] = transition.GetCorner(corner).GridPosition;
+                Assert.That(math.distance(corners[corner],
+                    transition.GetCorner((corner + 1) & 3).GridPosition),
+                    Is.LessThanOrEqualTo(MerkabaOverlapShell.MembraneMaxEdge));
+            }
+            float3 first = math.cross(corners[1] - corners[0],
+                corners[2] - corners[0]);
+            float3 second = math.cross(corners[2] - corners[0],
+                corners[3] - corners[0]);
+            Assert.That(math.dot(first, second), Is.GreaterThan(0f),
+                "both triangles face the same way");
+            // All four nodes lie in the plane y = y0 + 1/2.
+            float2 Planar(float3 value) => value.xz;
+            Assert.That(SegmentsCross(Planar(corners[0]), Planar(corners[1]),
+                Planar(corners[2]), Planar(corners[3])), Is.False);
+            Assert.That(SegmentsCross(Planar(corners[1]), Planar(corners[2]),
+                Planar(corners[3]), Planar(corners[0])), Is.False);
+        }
+
+        [Test]
+        public void ReadoutHaloWindowGivesTheGlobalMembraneOfTheTile()
+        {
+            // The GPU solves tile [0, 8)^3 from the cells of -5..12 (plan
+            // section 3). Every patch and transition it owns must equal the
+            // one solved from the unbounded context.
+            Dictionary<int3, KernelState> global =
+                MerkabaMembraneFixtures.TileCorpus();
+            Dictionary<int3, KernelState> window = global.Where(pair =>
+                    math.all(pair.Key >= -5) && math.all(pair.Key <= 12))
+                .ToDictionary(pair => pair.Key, pair => pair.Value);
+            var globalCache = new MerkabaOverlapShell.SolveCache();
+            var windowCache = new MerkabaOverlapShell.SolveCache();
+            int patches = 0;
+            int absent = 0;
+            int transitions = 0;
+            foreach (int3 main in global.Keys.OrderBy(value => value.x)
+                         .ThenBy(value => value.y).ThenBy(value => value.z))
+            {
+                if (!math.all(main >= 0) || !math.all(main < 8) ||
+                    !global[main].IsOccupied ||
+                    !global[main].HasMeasuredSurfacePlane)
+                    continue;
+                bool solved = MerkabaOverlapShell.TryResolvePatch(main, global,
+                    globalCache, out MerkabaOverlapShell.Patch expected);
+                Assert.That(MerkabaOverlapShell.TryResolvePatch(main, window,
+                        windowCache, out MerkabaOverlapShell.Patch actual),
+                    Is.EqualTo(solved), $"patch {main}");
+                if (solved)
+                {
+                    Assert.That(actual.Equals(expected), Is.True, $"{main}");
+                    patches++;
+                }
+                else absent++;
+                for (int axis = 0; axis < 3; axis++)
+                {
+                    bool built = MerkabaOverlapShell.TryBuildTransition(main,
+                        axis, global, globalCache,
+                        out MerkabaOverlapShell.Patch expectedTransition);
+                    Assert.That(MerkabaOverlapShell.TryBuildTransition(main,
+                            axis, window, windowCache,
+                            out MerkabaOverlapShell.Patch actualTransition),
+                        Is.EqualTo(built), $"transition {main} {axis}");
+                    if (!built) continue;
+                    Assert.That(actualTransition.Equals(expectedTransition),
+                        Is.True, $"transition {main} {axis}");
+                    transitions++;
+                }
+            }
+            Assert.That(patches, Is.GreaterThan(100));
+            Assert.That(absent, Is.GreaterThan(0), "the corpus holds invalid spans");
+            Assert.That(transitions, Is.GreaterThanOrEqualTo(1));
+        }
+
+        // 045be20 regression: where every column of a node line holds exactly
+        // one measured use of MAIN's sheet in MAIN's layer and nothing else
+        // within two layers, the 045be20 corner was the column-order mean of
+        // the four line heights. The line node is the same number.
+        [TestCase(false, TestName = "LineNodesEqual045be20OnAFlatWall")]
+        [TestCase(true, TestName = "LineNodesEqual045be20InARoomCorner")]
+        public void LineNodesEqualThe045be20CornersWhereAllMainsAgree(
+            bool roomCorner)
+        {
+            var context = new Dictionary<int3, KernelState>();
+            var sheet = new Dictionary<int3, int>();
+            void AddWall(int id, int3 normalAxis, IEnumerable<int3> cells)
+            {
+                foreach (int3 cell in cells)
+                    if (MerkabaMembraneFixtures.Put(context, cell,
+                            (float3)normalAxis, 0.003f))
+                        sheet[cell] = id;
+            }
+            IEnumerable<int> Range(int from, int to) =>
+                Enumerable.Range(from, to - from + 1);
+            AddWall(0, new int3(1, 0, 0), Range(0, 7).SelectMany(y =>
+                Range(0, 7).Select(z => new int3(0, y, z))));
+            if (roomCorner)
+            {
+                AddWall(1, new int3(0, 1, 0), Range(1, 7).SelectMany(x =>
+                    Range(0, 7).Select(z => new int3(x, 0, z))));
+                AddWall(2, new int3(0, 0, 1), Range(1, 7).SelectMany(x =>
+                    Range(1, 7).Select(y => new int3(x, y, 0))));
+            }
+
+            int compared = 0;
+            foreach (int3 main in context.Keys)
+            {
+                Assert.That(MerkabaOverlapShell.TryResolvePatch(main, context,
+                    out MerkabaOverlapShell.Patch patch), Is.True, $"{main}");
+                int chart = MerkabaOverlapShell.CanonicalChart(main,
+                    context[main], context);
+                MerkabaOverlapShell.TangentAxes(chart, out int tangent0,
+                    out int tangent1);
+                for (int corner = 0; corner < 4; corner++)
+                {
+                    MerkabaOverlapShell.Corner value = patch.GetCorner(corner);
+                    int3 line = value.LineAddress;
+                    float sum = 0f;
+                    bool agreed = true;
+                    for (int column = 0; column < 4 && agreed; column++)
+                    for (int layer = main[chart] - 2; layer <= main[chart] + 2;
+                         layer++)
+                    {
+                        int3 cell = default;
+                        cell[tangent0] = MerkabaConstants.FloorDiv(line[tangent0],
+                            2) + (column >> 1);
+                        cell[tangent1] = MerkabaConstants.FloorDiv(line[tangent1],
+                            2) + (column & 1);
+                        cell[chart] = layer;
+                        bool present = sheet.TryGetValue(cell, out int id);
+                        if (layer == main[chart])
+                        {
+                            agreed &= present && id == sheet[main];
+                            if (agreed) sum += LineHeight(context, cell, chart,
+                                line);
+                        }
+                        else agreed &= !present;
+                    }
+                    if (!agreed) continue;
+                    compared++;
+                    Assert.That(value.GridPosition[chart],
+                        Is.EqualTo(sum / 4f).Within(1e-6f), $"{main} {line}");
+                }
+            }
+            Assert.That(compared, Is.GreaterThan(100));
+        }
+
+        private static float LineHeight(
+            IReadOnlyDictionary<int3, KernelState> context, int3 cell,
+            int chart, int3 lineAddress)
+        {
+            KernelState.DecodeSurfacePlane(context[cell].Flags,
+                out float3 normal, out float offset);
+            float constant = math.dot((float3)cell *
+                MerkabaConstants.LatticeStep, normal) + offset;
+            float3 point = (float3)lineAddress *
+                MerkabaOverlapShell.MembraneHalfPitch;
+            point[chart] = 0f;
+            return (constant - math.dot(point, normal)) / normal[chart];
+        }
+
+        private static bool SegmentsCross(float2 p, float2 q, float2 r,
+            float2 s)
+        {
+            static float Cross(float2 u, float2 v) => u.x * v.y - u.y * v.x;
+            return Cross(q - p, r - p) * Cross(q - p, s - p) < 0f &&
+                Cross(s - r, p - r) * Cross(s - r, q - r) < 0f;
         }
 
         private static Dictionary<int3, KernelState> PlaneNeighbourhood(

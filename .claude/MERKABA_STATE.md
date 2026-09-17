@@ -88,7 +88,7 @@ offline: MerkabaExportShell -> MerkabaExportMembrane -> MerkabaGlbWriter
 (`MerkabaChunk.cs`, `MerkabaTopology.compute`). They are historical. `contr.md` and the
 source are authoritative.
 
-## 2026-09-17 knot-line membrane and batched readout transaction (this session)
+## 2026-09-17 knot-line membrane and batched readout transaction [SUPERSEDED by the line-node section below]
 
 - Membrane: `MerkabaOverlapShell.TrySolveKnot` (CPU) and `M8MembraneSolveKnot` (HLSL twin)
   solve one knot per (line, chart, side, layer) from the line's own uses; identity =
@@ -102,3 +102,22 @@ source are authoritative.
   translucent scan = depth-only pass + ZTest Equal colour pass; viewer opacity is real
   alpha; coverage film continuous; erase tube shown from the controller.
 - Plan and deviations: `.claude/MERKABA_KNOT_PLAN.md`. DEVICE ACCEPTANCE PENDING.
+
+## 2026-09-17 line-node membrane C5.1-C5.4 (C2+C3 of `.claude/MERKABA_LINE_PLAN.md`)
+
+- Membrane authority: `MerkabaOverlapShell` from the 045be20 rules. C5.1 `CanonicalChart`
+  (26-neighbour sheet sum, raw-axis fallback); C5.2 `TrySolveNode` (components of line
+  uses under R, span <= 2 layers else no node, common window, admission, per-column
+  winner, column-order mean; `NodeKey` = line, chart, side, min layer, min column);
+  C5.3 `TryResolvePatch` (four nodes, 45 mm edge and g plane guards); C5.4
+  `TryBuildTransition` (existing nodes only, across tile edges). `TrySolveKnot`,
+  `KnotIdentity`, `TryBuildStitch` are deleted; the HLSL twin is regenerated.
+- Readout batch: Advance -> Collect -> `SolveSharedKnotLines` (18^3 flags cube, 16^3
+  chart table, one C5.2 solve per touched line task, invalid branches counter 128) ->
+  `ResolveRenderPatches` (patches, transitions, vertex ordinals) -> Emit (one vertex per
+  referenced node). Scratch `RenderLineUseScratch` 15.9 MB, `RenderNodeScratch` 3.9 MB.
+  Native ABI 9, 60 pipelines.
+- Tests: span 3, FREE separator, shrub, noisy diagonal, chart fallback, fold in and across
+  a tile, window -5..12 equals global, 045be20 corners on wall and room corner, GLB
+  vertices = node keys, GPU numeric parity on the corpus. Deviations and the C5.1/C5.4
+  fixture findings: plan section 13. DEVICE ACCEPTANCE PENDING.

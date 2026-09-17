@@ -118,9 +118,9 @@ namespace Genesis.RoomScan.Tests
                 new Color32(90, 150, 210, 255));
             int3 firstCoord = new(0, 0, 0);
             int3 secondCoord = new(0, 1, 0);
-            Assert.That(MerkabaOverlapShell.TryBuildPatch(firstCoord, state,
+            Assert.That(MerkabaOverlapShell.TryResolvePatch(firstCoord, state,
                 out MerkabaOverlapShell.Patch first), Is.True);
-            Assert.That(MerkabaOverlapShell.TryBuildPatch(secondCoord, state,
+            Assert.That(MerkabaOverlapShell.TryResolvePatch(secondCoord, state,
                 out MerkabaOverlapShell.Patch second), Is.True);
             var patches = new List<MerkabaExportMembranePatch>
             {
@@ -136,6 +136,36 @@ namespace Genesis.RoomScan.Tests
             Assert.That(result.VertexCount, Is.EqualTo(6));
             Assert.That(result.VertexCount,
                 Is.LessThan(membrane.Patches.Count * 4));
+        }
+
+        [Test]
+        public void EightByEightWallExportsOneVertexPerLineNode()
+        {
+            // Across the tile edges y = 8 and z = 8: 64 patches on 81 nodes.
+            var evidence = new Dictionary<int3, KernelState>();
+            for (int y = 4; y < 12; y++)
+            for (int z = 4; z < 12; z++)
+                evidence[new int3(0, y, z)] = Measured(new float3(1, 0, 0),
+                    0.004f, new Color32(90, 150, 210, 255));
+            var keys = new HashSet<MerkabaOverlapShell.NodeKey>();
+            foreach (int3 main in evidence.Keys)
+            {
+                Assert.That(MerkabaOverlapShell.TryResolvePatch(main, evidence,
+                    out MerkabaOverlapShell.Patch patch), Is.True);
+                for (int corner = 0; corner < 4; corner++)
+                    keys.Add(patch.GetCorner(corner).Key);
+            }
+            Assert.That(keys.Count, Is.EqualTo(81));
+
+            MerkabaExportMembraneResult membrane = MerkabaExportMembrane.BuildSkin(
+                MerkabaExportShell.Build(evidence));
+            Assert.That(membrane.Patches.Count, Is.EqualTo(64));
+            Write(membrane, out MerkabaGlbResult result);
+            Assert.That(result.VertexCount, Is.EqualTo(keys.Count),
+                "GLB vertices are the distinct node keys");
+            Assert.That(result.PrimitiveCount, Is.EqualTo(128));
+            Assert.That((double)result.PrimitiveCount / result.VertexCount,
+                Is.EqualTo(128.0 / 81.0).Within(1e-9), "t/v ratio");
         }
 
         [Test]

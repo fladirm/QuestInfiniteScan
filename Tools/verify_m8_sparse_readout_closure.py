@@ -81,8 +81,8 @@ checks = {
         "slotGroups" not in renderer,
     "native readout executes on the scanner queue":
         "if (kind == JobKind.Readout) return false;" not in native and
-        "AbiVersion = 8" in native and
-        "kExecutorAbiVersion = 8;" in text(
+        "AbiVersion = 9" in native and
+        "kExecutorAbiVersion = 9;" in text(
             "Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp") and
         "SubmitNativeReadoutBuild" in renderer,
     "device publication is confirmed by the native fence copy":
@@ -186,24 +186,32 @@ checks["draw kernels are isolated from the native publication ABI"] = \
     visibility.count("#pragma kernel ") == 3 and \
     "_visibilityCompute.FindProfiledKernel" in renderer and \
     'Resources.Load<ComputeShader>(' in renderer
-checks["corner solve is register resident (no 12-entry private arrays)"] = all(
-    token not in text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl")
+checks["line-node candidates are register resident (no private arrays)"] = all(
+    token not in text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl") + readout
     for token in ("bool valid[12]", "float heights[12]", "uint signatures[12]",
                   "int3 coords[12]", "uint near[12]", "uint below[12]")) and \
-    "float4 heights0 = 0.0" in text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl")
+    "float4 heights0 = 0.0" in readout
 checks["patch descriptors have fixed kernelLocal slots and a compact measured list"] = \
     "gM8PatchOfKernel" not in readout and \
     "_M8RenderPatchScratch[patchBase + kernelLocal] = descriptor" in readout and \
     "M8ScratchCompactKernel(" in readout
 checks["invalid membrane patches emit no degenerate triangles"] = \
     "M8_SCRATCH_PATCH_VALID" in readout and "b = a; c = a; d = a;" not in readout
-checks["vertex ordinals are assigned only after ownership is final"] = \
-    "0x80000000u | ordinal" in readout and \
-    readout.index("0x80000000u | ordinal") > readout.index("Phase C:") and \
+checks["vertex ordinals are assigned only after patches and transitions reference nodes"] = \
+    "One vertex ordinal per referenced node." in readout and \
+    readout.index("One vertex ordinal per referenced node.") > \
+        readout.index("C5.4: the +t edge of MAIN") and \
     "no lane walks the tile serially" in readout
-checks["the knot is a function of its line, chart, side and layer (CPU twin)"] = \
-    "TrySolveKnot(" in membrane and "CanonicalChart(" in membrane and \
-    "KnotIdentity" in membrane and "TryResolveCorner" not in membrane
+checks["a node is a function of its line branch, never of the MAIN that asks (C5.2)"] = \
+    "internal static bool TrySolveNode(" in membrane and \
+    "internal readonly struct NodeKey" in membrane and \
+    "if (maxLayer - minLayer > MaxLayerSpan) return false;" in membrane and \
+    "int windowLow = maxLayer - 1;" in membrane and \
+    all(token not in membrane + readout for token in (
+        "KnotIdentity", "TrySolveKnot", "TryResolveCorner", "TryBuildStitch",
+        "M8KnotTaskOwner", "M8WinnerKeysSameBranch", "M8KnotRootTask",
+        "M8KnotTaskPosition", "measuredCount * 4u", "_M8RenderKnotOwner",
+        "M8MembraneSolveKnot", "M8TryBuildMembranePatch"))
 checks["BACK is one transaction in batches: no batch publishes, no carry-over FRONT"] = \
     "M8_RENDER_BATCH_TILES 64u" in readout and \
     "void AdvanceRenderBuildBatch" in readout and \
@@ -223,46 +231,59 @@ checks["coverage traversal requests loads and lists only tiles with a resident r
     "M8ReadoutRingResident(M8PhysicalSlot(tileRef))" in readout
 checks["live readout consumes the generated membrane oracle"] = \
     '#include "MerkabaOverlapShell.generated.hlsl"' in readout and \
-    "M8MembraneSolveKnot(globalCoord, normal, chart," in readout and \
+    "M8MembraneRelated(halfAddress, chart," in readout and \
+    "M8MembraneCandidateHeight(halfAddress, chart," in readout and \
+    "M8MembraneWinnerBefore(distance, memberDistance, layer," in readout and \
+    "M8MembranePatchGuards(p00, p10, p11, p01, mainPlane)" in readout and \
     "void CollectRenderPatchInputs" in readout and \
-    "void SolveSharedKnots" in readout and \
+    "void SolveSharedKnotLines" in readout and \
+    "void ResolveRenderPatches" in readout and \
     "void EmitRenderTileGeometry" in readout and \
     "void BuildRenderTiles" not in readout and \
     "M8_MEMBRANE_INDICES_PER_PATCH" in readout
 checks["no support clamp and no invented fallback geometry"] = \
     "M8_MEMBRANE_KNOT_SUPPORT_LIMIT" not in readout and \
     "MembraneKnotSupportLimit" not in membrane and \
-    "M8_MEMBRANE_MAX_EDGE" in readout and "MembraneMaxEdge" in membrane
-checks["CPU export uses the same membrane oracle with knot colours"] = \
-    "MerkabaOverlapShell.TryBuildPatch(kernel.Coord, context" in exporter and \
+    "M8_MEMBRANE_MAX_EDGE" in text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl") and \
+    "MembraneMaxEdge" in membrane
+checks["CPU export uses the same membrane oracle with node colours and normals"] = \
+    "MerkabaOverlapShell.TryResolvePatch(kernel.Coord, context" in exporter and \
+    "MerkabaOverlapShell.TryBuildTransition(main, tangent0" in exporter and \
     "MerkabaSkin" not in exporter and \
-    "patch.Corner01.Normal, patch.Corner01.PackedColor" in exporter
+    "patch.Corner01.Normal, patch.Corner01.PackedColor" in exporter and \
+    "patch.Corner00.Normal);" in exporter and \
+    "AddVertex(patch.Corner00, patch.Normal00," in glb
 checks["membrane compatibility is residual-based, not quantized"] = \
     "MembraneCompatibleAxisCosine = 0.5f" in membrane and \
     "CanonicalSheet" not in membrane and \
     "M8_MEMBRANE_COMPATIBLE_AXIS_COSINE" in text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl")
-checks["knots carry global identity and canonical colour"] = \
+checks["nodes carry global identity and canonical colour"] = \
     "internal readonly int3 LineAddress;" in membrane and \
-    "M8LoadMembraneColor(bestCoord, ownerColor, ownerConfidence)" in text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl")
+    "internal readonly NodeKey Key;" in membrane and \
+    "M8LoadMembraneColor(M8MembraneColumnCell(halfAddress, chart," in readout
 checks["readout solve and emission are separate dispatches"] = \
-    "M8MembraneSolveKnot(" not in readout[readout.index("void EmitRenderTileGeometry"):] and \
-    "M8StoreRenderVertex(" not in readout[readout.index("void SolveSharedKnots"):readout.index("void EmitRenderTileGeometry")]
-checks["one physical knot is owner-solved before any merge (no post-solve neighbour weld)"] = \
-    "M8KnotTaskOwner(" in readout and \
-    "only the lexicographic owner solves" in readout and \
-    "twelve-neighbour post-solve weld" in readout and \
+    "M8SolveLineTask(" not in readout[readout.index("void EmitRenderTileGeometry"):] and \
+    "M8StoreRenderVertex(" not in readout[readout.index("void M8SolveLineTask"):readout.index("void EmitRenderTileGeometry")]
+checks["one node per valid branch of every touched line, no weld"] = \
+    "void M8SolveLineTask(uint local, uint task)" in readout and \
+    "M8_RENDER_LINE_TASKS 243u" in readout and \
+    "if (maxOffset - minOffset > (uint)M8_MEMBRANE_MAX_LAYER_SPAN)" in readout and \
+    "M8_COUNTER_MEMBRANE_INVALID_BRANCH" in readout and \
     "M8_MEMBRANE_WELD_EPSILON" not in readout
-checks["adjacent normal layers merge only inside one connected winner branch"] = \
-    "M8WinnerKeysSameBranch" in readout and \
-    "M8_MEMBRANE_BRANCH_GAP" in readout and \
-    "twelve-neighbour post-solve weld" in readout
-checks["binding-plan canonical chart is six-face geometry weighted"] = \
-    "SIX face neighbours only" in membrane and \
-    "float3 sum = normal;" in membrane and \
-    "for (int dx = -1; dx <= 1; dx++)" not in \
-        membrane[membrane.index("private static int CanonicalChart"): \
-                 membrane.index("private static bool TryBuildPatch", \
-                                membrane.index("private static int CanonicalChart"))]
+checks["a shared branch needs a common legal window (span <= 2 layers)"] = \
+    "#define M8_MEMBRANE_MAX_LAYER_SPAN 2" in text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl") and \
+    "int windowLow = maxLayer - 1;" in readout and \
+    "int windowHigh = minLayer + 1;" in readout
+chart_cpu = membrane[membrane.index("private static int ChartOf("):
+                     membrane.index("// ---- C5.2 line node ----")]
+chart_gpu = text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl")
+chart_gpu = chart_gpu[chart_gpu.index("int M8MembraneCanonicalChart"):
+                      chart_gpu.index("// ---- C5.2 line node ----")]
+checks["canonical chart is the 26-neighbour sheet-compatible sum (C5.1)"] = \
+    all("for (int dz = -1; dz <= 1; dz++)" in chart for chart in (chart_cpu, chart_gpu)) and \
+    "ColorConfidence" not in chart_cpu and \
+    "if (math.abs(normal[chart]) < MembraneCompatibleAxisCosine)" in chart_cpu and \
+    "if (abs(normal[chart]) < M8_MEMBRANE_COMPATIBLE_AXIS_COSINE)" in chart_gpu
 checks["no epoch, age window or timer schedules scan, erase, readout or eviction"] = \
     all("Epoch" not in source for source in (renderer, integrator, grid, storage)) and \
     all(token not in world + world_compute + readout + integration for token in
@@ -282,20 +303,20 @@ checks["readout transaction jobs are paced one per frame"] = \
     "_nativeEarliestSubmitFrame = Time.frameCount + 1" in renderer and \
     "void PumpNativeReadoutTransaction" in renderer and \
     "ReadoutTransactionOpen()" in integrator
-checks["published patches are guarded against coherent off-plane drift"] = \
-    "Every corner must remain on the" in readout and \
-    "mainConstant" in readout and "M8_MEMBRANE_BRANCH_GAP" in readout
+checks["published patches are guarded against off-plane drift (C5.3)"] = \
+    "private static bool PatchGuards(" in membrane and \
+    "bool M8MembranePatchGuards(" in text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl")
 checks["readout scratch is exactly one 64-tile batch"] = \
     "RenderScratchTiles = 64" in grid and \
     "M8_RENDER_SCRATCH_TILES 64u" in readout
-checks["same-tile chart transitions use existing knots only"] = \
-    "Phase C2: same-tile chart-transition stitch" in readout and \
-    "TryBuildStitch(" in membrane and \
-    "TryBuildStitch(main, tangent0" in exporter
-checks["no support clamp and no invented fallback geometry, edge guard on both twins"] = \
-    "M8_MEMBRANE_KNOT_SUPPORT_LIMIT" not in readout and \
-    "MembraneKnotSupportLimit" not in membrane and \
-    "M8_MEMBRANE_MAX_EDGE" in readout and "MembraneMaxEdge" in membrane
+checks["chart transitions use existing nodes only, across tile edges (C5.4)"] = \
+    "internal static bool TryBuildTransition(" in membrane and \
+    "M8MembraneTransitionQuad(a, b, low, high," in readout and \
+    "float4 M8HaloPlane(int3 coord)" in readout and \
+    "cross-tile live stitch is a documented limit" not in readout
+checks["edge guard on both twins and on the transition quad"] = \
+    "M8_MEMBRANE_MAX_EDGE * M8_MEMBRANE_MAX_EDGE" in text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl") and \
+    membrane.count("MembraneMaxEdge * MembraneMaxEdge") == 2
 checks["draw opacity is real alpha blending selected on the CPU"] = \
     "Blend [_SrcBlend] [_DstBlend]" in shader and "M8_ALPHA_BLEND" in shader and \
     "_material.EnableKeyword(\"M8_ALPHA_BLEND\")" in renderer and \
@@ -331,6 +352,29 @@ checks["BACK is validated before it can become FRONT"] = \
 checks["BACK compares its own records by canonical version"] = \
     "_M8RenderVersionsRead[physicalSlot]" in readout and \
     "M8_RENDER_RECORD_VERSION" in world
+
+def groupshared_bytes(source: str) -> int:
+    sizes = {"uint": 4, "int": 4, "float": 4, "int3": 12, "float3": 12,
+             "float4": 16, "uint4": 16}
+    defines = dict(_re.findall(r"^#define (\w+) (\d+)u?$", source, _re.M))
+    total = 0
+    for kind, name, count in _re.findall(
+            r"^groupshared (\w+) (\w+)(?:\[([\w ]+)\])?;", source, _re.M):
+        elements = 1
+        if count:
+            count = count.strip()
+            if count.isdigit():
+                elements = int(count)
+            elif count == "M8_MEMBRANE_CACHE_COUNT":
+                elements = 18 * 18 * 18
+            else:
+                elements = int(defines.get(count, "0"))
+        total += sizes[kind] * elements
+    return total
+
+import re as _re
+checks["readout groupshared memory stays within 32 KB"] = \
+    0 < groupshared_bytes(readout) <= 32 * 1024
 
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():

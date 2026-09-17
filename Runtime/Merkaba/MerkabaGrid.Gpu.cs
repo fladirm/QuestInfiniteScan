@@ -57,7 +57,7 @@ namespace Genesis.RoomScan
         internal const int RenderMutationJournalEntryWords = 2;
         internal const int RenderMutationJournalCount =
             RenderMutationJournalCapacity * RenderMutationJournalEntryWords;
-        internal const int CounterCount = 128;
+        internal const int CounterCount = 129;
         // MerkabaReadout.compute M8_RENDER_SCRATCH_*: readout build scratch.
         // One transaction batch. BACK persists across submissions; scratch is
         // recycled only after the previous 64-tile batch fence has completed.
@@ -66,7 +66,9 @@ namespace Genesis.RoomScan
         internal const int RenderScratchPatches = 512;
         // 512 descriptors + 128 uint4 of compact measured indices per tile.
         internal const int RenderScratchPatchStride = 640;
-        internal const int RenderScratchCorners = 2048;
+        // Line uses: 243 line tasks x 64 slots; nodes 3072 + transitions 1024.
+        internal const int RenderScratchLineSlots = 243 * 64;
+        internal const int RenderScratchNodeRecords = 4096;
 
         internal const int CounterBlockCount = 0;
         internal const int CounterChunkCount = 1;
@@ -161,6 +163,7 @@ namespace Genesis.RoomScan
         // M8_COUNTER_DEPENDENCY_BASE), published as logical tile addresses in
         // attempt-completion records [3, 19).
         internal const int CounterDependencyBase = 112;
+        internal const int CounterMembraneInvalidBranch = 128;
         internal const int AttemptDependencySlots = 16;
         internal const int AttemptDependencyRecord = 3;
         internal const int AttemptCompletionRecords =
@@ -248,8 +251,8 @@ namespace Genesis.RoomScan
         private ComputeBuffer _m8RenderVersions;
         // Readout build scratch, one region per rebuild tile (work index).
         private ComputeBuffer _m8RenderPatchScratch;
-        private ComputeBuffer _m8RenderKnotScratch;
-        private ComputeBuffer _m8RenderKnotOwner;
+        private ComputeBuffer _m8RenderLineUseScratch;
+        private ComputeBuffer _m8RenderNodeScratch;
         private ComputeBuffer _m8RenderScratchHeader;
         private ComputeBuffer _m8RenderMutationQueue;
         private ComputeBuffer _m8VisiblePages;
@@ -316,8 +319,8 @@ namespace Genesis.RoomScan
             _m8PublishedIndices[ValidateReadoutSlot(slot)];
         internal ComputeBuffer M8RenderVersions => _m8RenderVersions;
         internal ComputeBuffer M8RenderPatchScratch => _m8RenderPatchScratch;
-        internal ComputeBuffer M8RenderKnotScratch => _m8RenderKnotScratch;
-        internal ComputeBuffer M8RenderKnotOwner => _m8RenderKnotOwner;
+        internal ComputeBuffer M8RenderLineUseScratch => _m8RenderLineUseScratch;
+        internal ComputeBuffer M8RenderNodeScratch => _m8RenderNodeScratch;
         internal ComputeBuffer M8RenderScratchHeader => _m8RenderScratchHeader;
         // Slot 0 views for fixtures and diagnostics.
         internal Mesh M8RenderMesh => _m8RenderMesh[0];
@@ -426,10 +429,10 @@ namespace Genesis.RoomScan
                 _m8RenderVersions);
             Set(MerkabaNativeVulkanExecutor.Resource.RenderPatchScratch,
                 _m8RenderPatchScratch);
-            Set(MerkabaNativeVulkanExecutor.Resource.RenderKnotScratch,
-                _m8RenderKnotScratch);
-            Set(MerkabaNativeVulkanExecutor.Resource.RenderKnotOwner,
-                _m8RenderKnotOwner);
+            Set(MerkabaNativeVulkanExecutor.Resource.RenderLineUseScratch,
+                _m8RenderLineUseScratch);
+            Set(MerkabaNativeVulkanExecutor.Resource.RenderNodeScratch,
+                _m8RenderNodeScratch);
             Set(MerkabaNativeVulkanExecutor.Resource.RenderScratchHeader,
                 _m8RenderScratchHeader);
         }
@@ -555,10 +558,12 @@ namespace Genesis.RoomScan
                 _m8RenderPatchScratch = Allocate(
                     RenderScratchTiles * RenderScratchPatchStride,
                     sizeof(uint) * 4);
-                _m8RenderKnotScratch = Allocate(
-                    RenderScratchTiles * RenderScratchCorners, sizeof(uint) * 4);
-                _m8RenderKnotOwner = Allocate(
-                    RenderScratchTiles * RenderScratchCorners, sizeof(uint));
+                _m8RenderLineUseScratch = Allocate(
+                    RenderScratchTiles * RenderScratchLineSlots,
+                    sizeof(uint) * 4);
+                _m8RenderNodeScratch = Allocate(
+                    RenderScratchTiles * RenderScratchNodeRecords,
+                    sizeof(uint) * 4);
                 _m8RenderScratchHeader = Allocate(RenderScratchTiles,
                     sizeof(uint) * 4);
                 // Visible page record: page, live indices, stream position.
@@ -1236,8 +1241,8 @@ namespace Genesis.RoomScan
             }
             _m8RenderVersions = null;
             _m8RenderPatchScratch = null;
-            _m8RenderKnotScratch = null;
-            _m8RenderKnotOwner = null;
+            _m8RenderLineUseScratch = null;
+            _m8RenderNodeScratch = null;
             _m8RenderScratchHeader = null;
             _m8HashEntries = null;
             _m8OwnerRecords = null;

@@ -7,8 +7,9 @@ using Unity.Mathematics;
 namespace Genesis.RoomScan
 {
     /// <summary>
-    /// CPU/codegen authority for the disposable measured M8 membrane.
-    /// KernelState remains the only persistent world state.
+    /// CPU/codegen authority for the disposable measured M8 membrane
+    /// (contract C5 with the C5.1-C5.4 amendment). KernelState remains the
+    /// only persistent world state.
     /// </summary>
     internal static class MerkabaOverlapShell
     {
@@ -21,96 +22,124 @@ namespace Genesis.RoomScan
             MerkabaConstants.LatticeStep * 0.5f;
 
         private const float NumericalEpsilon = 1e-6f;
-        // A contributor plane must be well conditioned against the knot line
-        // of its chart; the connected height branch and the free side decide
-        // sheet membership (MERKABA_GEOMETRY_REVIEW FINDING B).
+        // A plane is usable on a line of chart c only while |N[c]| >= this.
         internal const float MembraneCompatibleAxisCosine = 0.5f;
-        // Two heights on one knot line belong to one branch when closer than
-        // this; a face neighbour belongs to one local sheet when the planes
-        // agree within it (both directions).
+        // g: two heights on one line belong to one branch when closer than
+        // this; two cells belong to one local sheet when their planes agree
+        // both ways within it.
         internal const float BranchHeightGap = MembranePatchPitch * 0.6f;
-        // Face neighbours whose normals agree at least this much (no abs: the
-        // two sides of a thin leaf never mix) shape the canonical chart.
+        // Neighbours whose normals agree at least this much (no abs: the two
+        // sides of a thin leaf never mix) shape the canonical chart.
         internal const float ChartCompatibleCosine = 0.5f;
-        // No patch edge may exceed this; a longer patch is not emitted.
+        // No patch or transition edge may exceed this.
         internal const float MembraneMaxEdge = 0.045f;
-        internal const int CornerCandidateCapacity = 12;
+        // A shared branch spans at most this many normal layers: the
+        // intersection of all [L - 1, L + 1] of its uses is non-empty.
+        internal const int MaxLayerSpan = 2;
+        // Facing edges of a chart transition must be co-directed this much.
+        internal const float TransitionEdgeCosine = 0.5f;
 
         private static readonly byte[] TriangleOrder = { 0, 1, 2, 0, 2, 3 };
 
+        /// <summary>One absolute half-grid line of one chart.</summary>
+        internal readonly struct LineKey : IEquatable<LineKey>
+        {
+            // Half-lattice address with the chart component set to zero.
+            internal readonly int3 LineAddress;
+            internal readonly int Chart;
+
+            internal LineKey(int3 halfAddress, int chart)
+            {
+                halfAddress[chart] = 0;
+                LineAddress = halfAddress;
+                Chart = chart;
+            }
+
+            public bool Equals(LineKey other) =>
+                math.all(LineAddress == other.LineAddress) &&
+                Chart == other.Chart;
+
+            public override bool Equals(object obj) =>
+                obj is LineKey other && Equals(other);
+
+            public override int GetHashCode() => HashCode.Combine(
+                LineAddress.x, LineAddress.y, LineAddress.z, Chart);
+        }
+
         /// <summary>
-        /// Global identity of a shared knot: its line, chart, free side and the
-        /// contributor cells that won its four columns. Two knot solves with the
-        /// same identity computed the same numbers from the same inputs in the
-        /// same order, on any tile of any consumer; this is the exact weld.
+        /// Global identity of one line node (C5.2): line, chart, free side and
+        /// the smallest member of its component. Never the winner set.
         /// </summary>
-        internal readonly struct KnotIdentity : IEquatable<KnotIdentity>
+        internal readonly struct NodeKey : IEquatable<NodeKey>
         {
             internal readonly int3 LineAddress;
             internal readonly int Chart;
             internal readonly int Side;
-            internal readonly int WinnerMask;
-            internal readonly int3 Winner0;
-            internal readonly int3 Winner1;
-            internal readonly int3 Winner2;
-            internal readonly int3 Winner3;
+            internal readonly int MinLayer;
+            internal readonly int MinColumn;
 
-            internal KnotIdentity(int3 lineAddress, int chart, int side,
-                int winnerMask, int3 winner0, int3 winner1, int3 winner2,
-                int3 winner3)
+            internal NodeKey(int3 lineAddress, int chart, int side,
+                int minLayer, int minColumn)
             {
                 LineAddress = lineAddress;
                 Chart = chart;
                 Side = side;
-                WinnerMask = winnerMask;
-                Winner0 = winner0;
-                Winner1 = winner1;
-                Winner2 = winner2;
-                Winner3 = winner3;
+                MinLayer = minLayer;
+                MinColumn = minColumn;
             }
 
-            public bool Equals(KnotIdentity other) =>
+            public bool Equals(NodeKey other) =>
                 math.all(LineAddress == other.LineAddress) &&
                 Chart == other.Chart && Side == other.Side &&
-                WinnerMask == other.WinnerMask &&
-                math.all(Winner0 == other.Winner0) &&
-                math.all(Winner1 == other.Winner1) &&
-                math.all(Winner2 == other.Winner2) &&
-                math.all(Winner3 == other.Winner3);
+                MinLayer == other.MinLayer && MinColumn == other.MinColumn;
 
             public override bool Equals(object obj) =>
-                obj is KnotIdentity other && Equals(other);
+                obj is NodeKey other && Equals(other);
 
             public override int GetHashCode() => HashCode.Combine(
                 LineAddress.x, LineAddress.y, LineAddress.z, Chart, Side,
-                WinnerMask, Winner0.x ^ Winner1.y ^ Winner2.z,
-                Winner3.x ^ Winner0.z ^ Winner1.x);
+                MinLayer, MinColumn);
+        }
+
+        /// <summary>One solved line node.</summary>
+        internal readonly struct Node
+        {
+            internal readonly NodeKey Key;
+            internal readonly float3 GridPosition;
+            internal readonly uint PackedColor;
+            internal readonly float3 Normal;
+
+            internal Node(NodeKey key, float3 gridPosition, uint packedColor,
+                float3 normal)
+            {
+                Key = key;
+                GridPosition = gridPosition;
+                PackedColor = packedColor;
+                Normal = normal;
+            }
         }
 
         internal readonly struct Corner : IEquatable<Corner>
         {
             internal readonly float3 GridPosition;
             internal readonly uint PackedColor;
-            // The half-lattice address of the knot line (chart component zero)
-            // and the chart axis. Live GPU vertices are shared inside a tile by
-            // Identity; across tiles duplicates are bit-identical.
+            // The half-lattice address of the node line (chart component
+            // zero) and the chart axis.
             internal readonly int3 LineAddress;
             internal readonly int Chart;
             // Export attribute only (the live vertex ABI carries no normal):
-            // the confidence-weighted unit normal of the same contributors.
+            // the mean unit normal of the node's winners.
             internal readonly float3 Normal;
-            internal readonly KnotIdentity Identity;
+            internal readonly NodeKey Key;
 
-            internal Corner(float3 gridPosition, uint packedColor,
-                int3 lineAddress, int chart, float3 normal,
-                KnotIdentity identity)
+            internal Corner(Node node)
             {
-                GridPosition = gridPosition;
-                PackedColor = packedColor;
-                LineAddress = lineAddress;
-                Chart = chart;
-                Normal = normal;
-                Identity = identity;
+                GridPosition = node.GridPosition;
+                PackedColor = node.PackedColor;
+                LineAddress = node.Key.LineAddress;
+                Chart = node.Key.Chart;
+                Normal = node.Normal;
+                Key = node.Key;
             }
 
             public bool Equals(Corner other) =>
@@ -119,7 +148,7 @@ namespace Genesis.RoomScan
                 math.all(LineAddress == other.LineAddress) &&
                 Chart == other.Chart &&
                 math.all(Normal == other.Normal) &&
-                Identity.Equals(other.Identity);
+                Key.Equals(other.Key);
 
             public override bool Equals(object obj) =>
                 obj is Corner other && Equals(other);
@@ -190,13 +219,33 @@ namespace Genesis.RoomScan
                 Main.x, Main.y, Main.z, Normal.x, Normal.y, Normal.z);
         }
 
-        internal static int DominantAxis(float3 normal)
+        /// <summary>
+        /// Caller-owned memo for one export: charts, decoded planes and solved
+        /// nodes are pure functions of the context.
+        /// </summary>
+        internal sealed class SolveCache
         {
-            float lengthSquared = math.lengthsq(normal);
+            internal readonly Dictionary<int3, int> Charts = new();
+            internal readonly Dictionary<int3, (float3 Normal, float Constant)>
+                Planes = new();
+            // Node of the component that holds the use (line, layer, column);
+            // null when that component is invalid or has no contributor.
+            internal readonly Dictionary<(LineKey Line, int Layer, int Column),
+                Node?> Nodes = new();
+        }
+
+        /// <summary>Tie order X before Y before Z, on the raw vector.</summary>
+        internal static int DominantAxis(float3 vector)
+        {
+            float lengthSquared = math.lengthsq(vector);
             if (!(lengthSquared > 0f) || !math.isfinite(lengthSquared))
-                throw new ArgumentOutOfRangeException(nameof(normal));
-            normal *= math.rsqrt(lengthSquared);
-            float3 absolute = math.abs(normal);
+                throw new ArgumentOutOfRangeException(nameof(vector));
+            return DominantAxisOf(vector);
+        }
+
+        private static int DominantAxisOf(float3 vector)
+        {
+            float3 absolute = math.abs(vector);
             return absolute.x >= absolute.y && absolute.x >= absolute.z
                 ? 0 : absolute.y >= absolute.z ? 1 : 2;
         }
@@ -223,67 +272,23 @@ namespace Genesis.RoomScan
             }
         }
 
-        internal static bool TryBuildPatch(int3 main,
-            IReadOnlyDictionary<int3, KernelState> context, out Patch patch) =>
-            TryBuildPatch(main, context, null, out patch);
+        // ---- cells ----
 
-        /// <summary>
-        /// Caller-owned memo for one export: the canonical chart and the
-        /// decoded plane of a cell are pure functions of the context, so one
-        /// export computes them once instead of once per corner that reads them.
-        /// </summary>
-        internal sealed class SolveCache
-        {
-            internal readonly Dictionary<int3, int> Charts = new();
-            internal readonly Dictionary<int3, (float3 Normal, float Constant)>
-                Planes = new();
-        }
-
-        /// <summary>
-        /// Same oracle with a caller-owned memo of canonical charts per cell
-        /// (the chart of a cell is a pure function of the context, so one
-        /// export computes it once instead of once per corner that reads it).
-        /// </summary>
-        internal static bool TryBuildPatch(int3 main,
+        private static bool TryMeasured(int3 coord,
             IReadOnlyDictionary<int3, KernelState> context,
-            SolveCache chartCache, out Patch patch)
-        {
-            if (context == null) throw new ArgumentNullException(nameof(context));
-            if (!context.TryGetValue(main, out KernelState state))
-            {
-                patch = default;
-                return false;
-            }
-            return TryBuildPatch(main, state, context, chartCache, out patch);
-        }
+            out KernelState state) =>
+            context.TryGetValue(coord, out state) && state.IsOccupied &&
+            state.HasMeasuredSurfacePlane;
 
-        /// <summary>
-        /// Isolated-context convenience used by fixtures. It executes the same
-        /// membrane oracle; every coordinate other than MAIN is UNKNOWN.
-        /// </summary>
-        internal static bool TryBuildPatch(int3 main, KernelState state,
-            out Patch patch) => TryBuildPatch(main, state, null, null, out patch);
+        private static bool IsKnownFree(in KernelState state) =>
+            !state.IsOccupied && state.OccupancyEvidence <=
+            MerkabaConstants.ExportKnownFreeThreshold;
 
-        private static int ChartOf(int3 coord, KernelState state,
-            IReadOnlyDictionary<int3, KernelState> context,
-            SolveCache chartCache)
-        {
-            if (chartCache == null) return CanonicalChart(coord, state, context, null);
-            if (chartCache.Charts.TryGetValue(coord, out int chart)) return chart;
-            chart = CanonicalChart(coord, state, context, chartCache);
-            chartCache.Charts[coord] = chart;
-            return chart;
-        }
+        private static bool FreeAt(int3 coord,
+            IReadOnlyDictionary<int3, KernelState> context) =>
+            context.TryGetValue(coord, out KernelState state) &&
+            IsKnownFree(state);
 
-        /// <summary>
-        /// Canonical chart of a measured cell: the dominant axis of the sum of
-        /// its plane normal and the normals of its 26 neighbours that belong
-        /// to the same local sheet (measured, no KNOWN FREE on the axis steps
-        /// between, normals agreeing by at least
-        /// <see cref="ChartCompatibleCosine"/>, planes agreeing both ways
-        /// within <see cref="BranchHeightGap"/>). Radius one, fixed order,
-        /// tie X before Y before Z. Derived readout preprocessing, no state.
-        /// </summary>
         /// <summary>Unit normal and plane constant dot(C, N) + d of a cell.</summary>
         private static void DecodePlane(int3 coord, KernelState state,
             SolveCache cache, out float3 normal, out float planeConstant)
@@ -302,519 +307,621 @@ namespace Genesis.RoomScan
             if (cache != null) cache.Planes[coord] = (normal, planeConstant);
         }
 
-        private static bool TryPlaneLineHeight(float3 normal,
-            float planeConstant, int dominantAxis, float3 line,
-            out float height)
+        /// <summary>Free-side signature along the chart axis: bit 0 KNOWN FREE
+        /// at -c, bit 1 KNOWN FREE at +c.</summary>
+        private static int Signature(int3 coord, int chart,
+            IReadOnlyDictionary<int3, KernelState> context)
         {
-            float denominator = normal[dominantAxis];
-            if (math.abs(denominator) <= NumericalEpsilon)
+            int3 axis = AxisInt3(chart);
+            return (FreeAt(coord - axis, context) ? 1 : 0) |
+                (FreeAt(coord + axis, context) ? 2 : 0);
+        }
+
+        // ---- C5.1 canonical chart ----
+
+        internal static int CanonicalChart(int3 coord, KernelState state,
+            IReadOnlyDictionary<int3, KernelState> context) =>
+            ChartOf(coord, state, context, null);
+
+        private static int ChartOf(int3 coord, KernelState state,
+            IReadOnlyDictionary<int3, KernelState> context, SolveCache cache)
+        {
+            if (cache != null && cache.Charts.TryGetValue(coord, out int known))
+                return known;
+            DecodePlane(coord, state, cache, out float3 normal,
+                out float planeConstant);
+            float3 centre = (float3)coord * MerkabaConstants.LatticeStep;
+            float3 sum = normal;
+            // 26 neighbours, fixed order dx, dy, dz from -1 to +1.
+            for (int dx = -1; dx <= 1; dx++)
+            for (int dy = -1; dy <= 1; dy++)
+            for (int dz = -1; dz <= 1; dz++)
+            {
+                if (dx == 0 && dy == 0 && dz == 0) continue;
+                int3 neighbour = coord + new int3(dx, dy, dz);
+                if (!TryMeasured(neighbour, context, out KernelState other))
+                    continue;
+                DecodePlane(neighbour, other, cache, out float3 otherNormal,
+                    out float otherConstant);
+                if (math.dot(normal, otherNormal) < ChartCompatibleCosine)
+                    continue;
+                if (math.abs(math.dot((float3)neighbour *
+                        MerkabaConstants.LatticeStep, normal) - planeConstant) >
+                    BranchHeightGap ||
+                    math.abs(math.dot(centre, otherNormal) - otherConstant) >
+                    BranchHeightGap)
+                    continue;
+                int nonZero = (dx != 0 ? 1 : 0) + (dy != 0 ? 1 : 0) +
+                    (dz != 0 ? 1 : 0);
+                if (nonZero >= 2 &&
+                    ((dx != 0 && FreeAt(coord + new int3(dx, 0, 0), context)) ||
+                     (dy != 0 && FreeAt(coord + new int3(0, dy, 0), context)) ||
+                     (dz != 0 && FreeAt(coord + new int3(0, 0, dz), context))))
+                    continue;
+                sum += otherNormal;
+            }
+            int chart = DominantAxisOf(sum);
+            if (math.abs(normal[chart]) < MembraneCompatibleAxisCosine)
+                chart = DominantAxisOf(normal);
+            if (cache != null) cache.Charts[coord] = chart;
+            return chart;
+        }
+
+        // ---- C5.2 line node ----
+
+        private static int3 ColumnCell(int3 halfAddress, int chart,
+            int tangentAxis0, int tangentAxis1, int column, int layer)
+        {
+            int3 cell = default;
+            cell[tangentAxis0] = MerkabaConstants.FloorDiv(
+                halfAddress[tangentAxis0], 2) + (column >> 1);
+            cell[tangentAxis1] = MerkabaConstants.FloorDiv(
+                halfAddress[tangentAxis1], 2) + (column & 1);
+            cell[chart] = layer;
+            return cell;
+        }
+
+        private static int ColumnOf(int3 cell, int3 halfAddress,
+            int tangentAxis0, int tangentAxis1) =>
+            (cell[tangentAxis0] - MerkabaConstants.FloorDiv(
+                halfAddress[tangentAxis0], 2)) * 2 +
+            (cell[tangentAxis1] - MerkabaConstants.FloorDiv(
+                halfAddress[tangentAxis1], 2));
+
+        private static bool TryLineHeight(float3 normal, float planeConstant,
+            int chart, int3 halfAddress, out float height)
+        {
+            float denominator = normal[chart];
+            if (math.abs(denominator) < MembraneCompatibleAxisCosine)
             {
                 height = 0f;
                 return false;
             }
-            float3 basePoint = line;
-            basePoint[dominantAxis] = 0f;
-            height = (planeConstant - math.dot(basePoint, normal)) /
-                denominator;
+            float3 point = (float3)halfAddress * MembraneHalfPitch;
+            point[chart] = 0f;
+            height = (planeConstant - math.dot(point, normal)) / denominator;
             return math.isfinite(height);
         }
 
-        internal static int CanonicalChart(int3 coord, KernelState state,
-            IReadOnlyDictionary<int3, KernelState> context) =>
-            CanonicalChart(coord, state, context, null);
-
-        private static int CanonicalChart(int3 coord, KernelState state,
-            IReadOnlyDictionary<int3, KernelState> context, SolveCache cache)
+        /// <summary>A use of the line: a measured cell of this chart and
+        /// side whose plane is usable on the line.</summary>
+        private static bool TryUseHeight(int3 cell, int chart, int side,
+            int3 halfAddress, IReadOnlyDictionary<int3, KernelState> context,
+            SolveCache cache, out float height)
         {
-            DecodePlane(coord, state, cache, out float3 normal,
+            height = 0f;
+            if (!TryMeasured(cell, context, out KernelState state) ||
+                ChartOf(cell, state, context, cache) != chart ||
+                Signature(cell, chart, context) != side)
+                return false;
+            DecodePlane(cell, state, cache, out float3 normal,
                 out float planeConstant);
-            // Geometry charting must not depend on RGB confidence. Six face
-            // neighbours only, fixed order, equal geometric weight.
-            float3 sum = normal;
-            for (int axis = 0; axis < 3; axis++)
-            for (int direction = -1; direction <= 1; direction += 2)
-            {
-                int3 neighbour = coord + AxisInt3(axis) * direction;
-                if (!TryGetState(neighbour, coord, state, context,
-                        out KernelState neighbourState) ||
-                    !neighbourState.IsOccupied ||
-                    !neighbourState.HasMeasuredSurfacePlane)
-                    continue;
-                DecodePlane(neighbour, neighbourState, cache,
-                    out float3 neighbourNormal, out float neighbourConstant);
-                if (math.dot(normal, neighbourNormal) < ChartCompatibleCosine)
-                    continue;
-                float3 neighbourCentre = (float3)neighbour *
-                    MerkabaConstants.LatticeStep;
-                float residualHere = math.abs(math.dot(neighbourCentre, normal) -
-                    planeConstant);
-                float residualThere = math.abs(math.dot((float3)coord *
-                    MerkabaConstants.LatticeStep, neighbourNormal) -
-                    neighbourConstant);
-                if (residualHere > BranchHeightGap ||
-                    residualThere > BranchHeightGap)
-                    continue;
-                sum += neighbourNormal;
-            }
-            return DominantAxis(sum);
+            return TryLineHeight(normal, planeConstant, chart, halfAddress,
+                out height);
         }
 
-        private static bool TryBuildPatch(int3 main, KernelState state,
-            IReadOnlyDictionary<int3, KernelState> context,
-            SolveCache chartCache, out Patch patch)
+        private static bool FreeInColumn(int3 halfAddress, int chart,
+            int tangentAxis0, int tangentAxis1, int column, int layerA,
+            int layerB, IReadOnlyDictionary<int3, KernelState> context)
         {
-            if (!state.IsOccupied || !state.HasMeasuredSurfacePlane)
-            {
-                patch = default;
-                return false;
-            }
-
-            KernelState.DecodeSurfacePlane(state.Flags, out float3 normal,
-                out float signedOffset);
-            int chart = ChartOf(main, state, context, chartCache);
-            TangentAxes(chart, out int tangentAxis0, out int tangentAxis1);
-            float3 tangent0 = AxisVector(tangentAxis0);
-            float3 tangent1 = AxisVector(tangentAxis1);
-
-            int side = FreeSideSignature(main, chart, context, main, state);
-            if (!TrySolveKnot(main, state, normal, chart, tangentAxis0,
-                    tangentAxis1, -1, -1, side, context, chartCache,
-                    out Corner corner00) ||
-                !TrySolveKnot(main, state, normal, chart, tangentAxis0,
-                    tangentAxis1, 1, -1, side, context, chartCache,
-                    out Corner corner10) ||
-                !TrySolveKnot(main, state, normal, chart, tangentAxis0,
-                    tangentAxis1, 1, 1, side, context, chartCache,
-                    out Corner corner11) ||
-                !TrySolveKnot(main, state, normal, chart, tangentAxis0,
-                    tangentAxis1, -1, 1, side, context, chartCache,
-                    out Corner corner01))
-            {
-                patch = default;
-                return false;
-            }
-
-            // Edge guard: a patch whose knots drifted apart is not a 25 mm
-            // membrane cell and is not emitted. No fallback geometry.
-            if (math.distance(corner00.GridPosition, corner10.GridPosition) >
-                MembraneMaxEdge ||
-                math.distance(corner10.GridPosition, corner11.GridPosition) >
-                MembraneMaxEdge ||
-                math.distance(corner11.GridPosition, corner01.GridPosition) >
-                MembraneMaxEdge ||
-                math.distance(corner01.GridPosition, corner00.GridPosition) >
-                MembraneMaxEdge)
-            {
-                patch = default;
-                return false;
-            }
-
-            // Knot addresses are canonical. Only index orientation changes.
-            if (math.dot(math.cross(corner10.GridPosition - corner00.GridPosition,
-                    corner11.GridPosition - corner00.GridPosition), normal) < 0f)
-            {
-                (corner10, corner01) = (corner01, corner10);
-                (tangent0, tangent1) = (tangent1, tangent0);
-            }
-            patch = new Patch(main, normal, tangent0, tangent1,
-                corner00, corner10, corner11, corner01);
-            return true;
-        }
-
-        /// <summary>
-        /// Same-chart patches are already joined by shared knots. A genuine
-        /// chart transition uses the binding plan's one extra primitive: the
-        /// two facing knot edges only, no new position and no cross-sheet
-        /// search. Cross-tile ownership is deliberately left to export/live
-        /// duplicate equality; live only emits the same-tile case.
-        /// </summary>
-        internal static bool TryBuildStitch(int3 main, int tangentAxis,
-            IReadOnlyDictionary<int3, KernelState> context,
-            SolveCache solveCache, out Patch stitch)
-        {
-            stitch = default;
-            if (context == null ||
-                !context.TryGetValue(main, out KernelState firstState) ||
-                !firstState.IsOccupied || !firstState.HasMeasuredSurfacePlane ||
-                !TryBuildPatch(main, context, solveCache, out Patch first))
-                return false;
-
-            int firstChart = first.Corner00.Chart;
-            TangentAxes(firstChart, out int firstT0, out int firstT1);
-            if (tangentAxis != firstT0 && tangentAxis != firstT1)
-                return false;
-
-            int3 neighbour = main + AxisInt3(tangentAxis);
-            if (!context.TryGetValue(neighbour, out KernelState secondState) ||
-                !secondState.IsOccupied ||
-                !secondState.HasMeasuredSurfacePlane ||
-                !TryBuildPatch(neighbour, context, solveCache, out Patch second))
-                return false;
-
-            int secondChart = second.Corner00.Chart;
-            if (secondChart == firstChart || secondChart == tangentAxis)
-                return false;
-
-            DecodePlane(main, firstState, solveCache, out float3 firstNormal,
-                out float firstConstant);
-            DecodePlane(neighbour, secondState, solveCache,
-                out float3 secondNormal, out float secondConstant);
-            if (math.dot(firstNormal, secondNormal) < ChartCompatibleCosine)
-                return false;
-            float3 firstCentre = (float3)main * MerkabaConstants.LatticeStep;
-            float3 secondCentre =
-                (float3)neighbour * MerkabaConstants.LatticeStep;
-            if (math.abs(math.dot(secondCentre, firstNormal) - firstConstant) >
-                    BranchHeightGap ||
-                math.abs(math.dot(firstCentre, secondNormal) - secondConstant) >
-                    BranchHeightGap)
-                return false;
-
-            if (!TryGetPatchEdge(first, tangentAxis, 1,
-                    out Corner firstLow, out Corner firstHigh) ||
-                !TryGetPatchEdge(second, tangentAxis, -1,
-                    out Corner secondLow, out Corner secondHigh))
-                return false;
-
-            // One physical knot may appear only once in the transition quad.
-            Corner a = firstLow;
-            Corner b = firstHigh;
-            Corner c = secondHigh;
-            Corner d = secondLow;
-            if (a.Identity.Equals(b.Identity) || a.Identity.Equals(c.Identity) ||
-                a.Identity.Equals(d.Identity) || b.Identity.Equals(c.Identity) ||
-                b.Identity.Equals(d.Identity) || c.Identity.Equals(d.Identity))
-                return false;
-
-            float maxEdge = MembraneMaxEdge;
-            if (math.distance(a.GridPosition, b.GridPosition) > maxEdge ||
-                math.distance(b.GridPosition, c.GridPosition) > maxEdge ||
-                math.distance(c.GridPosition, d.GridPosition) > maxEdge ||
-                math.distance(d.GridPosition, a.GridPosition) > maxEdge)
-                return false;
-
-            float3 stitchNormal = math.normalizesafe(firstNormal + secondNormal,
-                firstNormal);
-            float area0 = math.dot(math.cross(
-                b.GridPosition - a.GridPosition,
-                c.GridPosition - a.GridPosition), stitchNormal);
-            float area1 = math.dot(math.cross(
-                c.GridPosition - a.GridPosition,
-                d.GridPosition - a.GridPosition), stitchNormal);
-            if (math.abs(area0) <= NumericalEpsilon ||
-                math.abs(area1) <= NumericalEpsilon || area0 * area1 <= 0f)
-                return false;
-            if (area0 < 0f)
-                (b, d) = (d, b);
-
-            stitch = new Patch(main, stitchNormal, first.Tangent0,
-                first.Tangent1, a, b, c, d);
-            return true;
-        }
-
-        private static bool TryGetPatchEdge(Patch patch, int axis,
-            int direction, out Corner low, out Corner high)
-        {
-            TangentAxes(patch.Corner00.Chart, out int tangent0,
-                out int tangent1);
-            if (axis == tangent0)
-            {
-                if (direction > 0)
-                {
-                    low = patch.Corner10;
-                    high = patch.Corner11;
-                }
-                else
-                {
-                    low = patch.Corner00;
-                    high = patch.Corner01;
-                }
-                return true;
-            }
-            if (axis == tangent1)
-            {
-                if (direction > 0)
-                {
-                    low = patch.Corner01;
-                    high = patch.Corner11;
-                }
-                else
-                {
-                    low = patch.Corner00;
-                    high = patch.Corner10;
-                }
-                return true;
-            }
-            low = default;
-            high = default;
+            int low = math.min(layerA, layerB);
+            int high = math.max(layerA, layerB);
+            for (int layer = low; layer <= high; layer++)
+                if (FreeAt(ColumnCell(halfAddress, chart, tangentAxis0,
+                        tangentAxis1, column, layer), context))
+                    return true;
             return false;
         }
 
+        // (height, layer, column) order used for the median and the seed.
+        private static bool OrderBefore(float heightA, int layerA, int columnA,
+            float heightB, int layerB, int columnB) =>
+            heightA < heightB || (heightA == heightB &&
+            (layerA < layerB || (layerA == layerB && columnA < columnB)));
+
         /// <summary>
-        /// One shared knot of a MAIN's corner. The knot is a function of its
-        /// line, chart, free side and layer only: the uses of the line at that
-        /// layer (the up to four cells of the same chart and side around it)
-        /// define the reference height, the four immediately sharing columns
-        /// at layers -1/0/+1 supply the contributors, one winner per column.
-        /// Every MAIN of the same cluster resolves the identical knot; a MAIN of
-        /// an adjacent layer with the same winners resolves the identical knot
-        /// as well (same inputs, same order). Contract C5 steps 1-9.
+        /// The node of the line component that holds the use (layer, column)
+        /// (contract C5.2). Returns false when the cell is not a use of the
+        /// line, when its component spans more than two layers, or when the
+        /// common window holds no contributor.
         /// </summary>
-        internal static bool TrySolveKnot(int3 main, KernelState mainState,
-            float3 mainNormal, int chart, int tangentAxis0, int tangentAxis1,
-            int cornerSign0, int cornerSign1, int side,
-            IReadOnlyDictionary<int3, KernelState> context,
-            SolveCache chartCache, out Corner corner)
+        internal static bool TrySolveNode(LineKey line, int layer, int column,
+            IReadOnlyDictionary<int3, KernelState> context, SolveCache cache,
+            out Node node)
         {
-            corner = default;
-            int3 halfAddress = main * 2;
-            halfAddress[tangentAxis0] += cornerSign0;
-            halfAddress[tangentAxis1] += cornerSign1;
-            float3 line = (float3)halfAddress * (MembranePatchPitch * 0.5f);
-            int3 lineAddress = halfAddress;
-            lineAddress[chart] = 0;
-            int layer = main[chart];
-            int lower0 = MerkabaConstants.FloorDiv(halfAddress[tangentAxis0], 2);
-            int lower1 = MerkabaConstants.FloorDiv(halfAddress[tangentAxis1], 2);
-
-            // Uses: the cells of this chart and side in the four columns at
-            // MAIN's layer. Column order first*2+second is lexicographic.
-            Span<float> useHeight = stackalloc float[4];
-            int useMask = 0;
-            for (int column = 0; column < 4; column++)
+            if (context == null) throw new ArgumentNullException(nameof(context));
+            var memoKey = (line, layer, column);
+            if (cache != null && cache.Nodes.TryGetValue(memoKey, out Node? known))
             {
-                int3 coord = main;
-                coord[tangentAxis0] = lower0 + (column >> 1);
-                coord[tangentAxis1] = lower1 + (column & 1);
-                coord[chart] = layer;
-                if (!TryGetState(coord, main, mainState, context,
-                        out KernelState use) ||
-                    !use.IsOccupied || !use.HasMeasuredSurfacePlane)
-                    continue;
-                if (ChartOf(coord, use, context, chartCache) != chart ||
-                    FreeSideSignature(coord, chart, context, main, mainState) !=
-                    side)
-                    continue;
-                DecodePlane(coord, use, chartCache, out float3 useNormal,
-                    out float useConstant);
-                // The plan's chart is defined only while |N_c| >= 0.5.
-                // Never manufacture a huge line intersection by dividing a
-                // legitimate MAIN plane by an almost-zero canonical axis.
-                if (math.abs(useNormal[chart]) <
-                        MembraneCompatibleAxisCosine ||
-                    !TryPlaneLineHeight(useNormal, useConstant, chart, line,
-                        out float height))
-                    continue;
-                useHeight[column] = height;
-                useMask |= 1 << column;
+                node = known ?? default;
+                return known.HasValue;
             }
-            int mainColumn = (main[tangentAxis0] - lower0) * 2 +
-                (main[tangentAxis1] - lower1);
-            if ((useMask & (1 << mainColumn)) == 0) return false;
+            bool solved = SolveLine(line, layer, column, context, cache,
+                out node, out List<(int Layer, int Column)> visited);
+            if (cache != null)
+                foreach ((int Layer, int Column) use in visited)
+                    cache.Nodes[(line, use.Layer, use.Column)] =
+                        solved ? node : (Node?)null;
+            return solved;
+        }
 
-            // Cluster: the connected height component of the uses that holds
-            // MAIN (|dh| <= gap). Its median is the knot's reference height.
-            int cluster = 1 << mainColumn;
-            for (int pass = 0; pass < 3; pass++)
-            for (int column = 0; column < 4; column++)
+        private static bool SolveLine(LineKey line, int seedLayer,
+            int seedColumn, IReadOnlyDictionary<int3, KernelState> context,
+            SolveCache cache, out Node node,
+            out List<(int Layer, int Column)> visited)
+        {
+            node = default;
+            visited = new List<(int Layer, int Column)>();
+            int chart = line.Chart;
+            TangentAxes(chart, out int tangentAxis0, out int tangentAxis1);
+            int3 halfAddress = line.LineAddress;
+            int3 seedCell = ColumnCell(halfAddress, chart, tangentAxis0,
+                tangentAxis1, seedColumn, seedLayer);
+            if (!TryMeasured(seedCell, context, out KernelState seedState))
+                return false;
+            if (ChartOf(seedCell, seedState, context, cache) != chart)
+                return false;
+            int side = Signature(seedCell, chart, context);
+            if (!TryUseHeight(seedCell, chart, side, halfAddress, context,
+                    cache, out float seedHeight))
+                return false;
+
+            // Component: connected set of uses under R (same side,
+            // |dL| <= 2, |dh| <= g, no KNOWN FREE in either column between).
+            var members = new List<(int Layer, int Column, float Height)>
             {
-                if ((useMask & (1 << column)) == 0 ||
-                    (cluster & (1 << column)) != 0)
-                    continue;
-                for (int member = 0; member < 4; member++)
-                    if ((cluster & (1 << member)) != 0 &&
-                        math.abs(useHeight[column] - useHeight[member]) <=
-                        BranchHeightGap)
-                    {
-                        cluster |= 1 << column;
-                        break;
-                    }
-            }
-            Span<float> sorted = stackalloc float[4];
-            int members = 0;
-            for (int column = 0; column < 4; column++)
+                (seedLayer, seedColumn, seedHeight)
+            };
+            visited.Add((seedLayer, seedColumn));
+            int minLayer = seedLayer;
+            int maxLayer = seedLayer;
+            for (int read = 0; read < members.Count; read++)
             {
-                if ((cluster & (1 << column)) == 0) continue;
-                float value = useHeight[column];
-                int slot = members;
-                while (slot > 0 && value < sorted[slot - 1])
+                (int layerU, int columnU, float heightU) = members[read];
+                for (int layerV = layerU - MaxLayerSpan;
+                     layerV <= layerU + MaxLayerSpan; layerV++)
+                for (int columnV = 0; columnV < 4; columnV++)
                 {
-                    sorted[slot] = sorted[slot - 1];
-                    slot--;
-                }
-                sorted[slot] = value;
-                members++;
-            }
-            float reference = (members & 1) != 0
-                ? sorted[members / 2]
-                : (sorted[members / 2 - 1] + sorted[members / 2]) * 0.5f;
-
-            // Candidates: the four columns at layers -1, 0, +1 (index
-            // column*3 + offset+1). Contract C5 step 4.
-            Span<float> heights = stackalloc float[CornerCandidateCapacity];
-            Span<int3> coords = stackalloc int3[CornerCandidateCapacity];
-            Span<float3> normals = stackalloc float3[CornerCandidateCapacity];
-            Span<uint> colors = stackalloc uint[CornerCandidateCapacity];
-            Span<uint> weights = stackalloc uint[CornerCandidateCapacity];
-            int validMask = 0;
-            for (int column = 0; column < 4; column++)
-            for (int normalOffset = -1; normalOffset <= 1; normalOffset++)
-            {
-                int index = column * 3 + normalOffset + 1;
-                int3 coord = main;
-                coord[tangentAxis0] = lower0 + (column >> 1);
-                coord[tangentAxis1] = lower1 + (column & 1);
-                coord[chart] = layer + normalOffset;
-                if (!TryGetState(coord, main, mainState, context,
-                        out KernelState candidate) ||
-                    !candidate.IsOccupied ||
-                    !candidate.HasMeasuredSurfacePlane)
-                    continue;
-                if (normalOffset != 0)
-                {
-                    int3 between = coord;
-                    between[chart] = layer;
-                    if (TryGetState(between, main, mainState, context,
-                            out KernelState separator) &&
-                        IsKnownFree(separator))
+                    if (visited.Contains((layerV, columnV))) continue;
+                    int3 cell = ColumnCell(halfAddress, chart, tangentAxis0,
+                        tangentAxis1, columnV, layerV);
+                    if (!TryUseHeight(cell, chart, side, halfAddress, context,
+                            cache, out float heightV) ||
+                        math.abs(heightU - heightV) > BranchHeightGap ||
+                        FreeInColumn(halfAddress, chart, tangentAxis0,
+                            tangentAxis1, columnU, layerU, layerV, context) ||
+                        FreeInColumn(halfAddress, chart, tangentAxis0,
+                            tangentAxis1, columnV, layerU, layerV, context))
                         continue;
+                    visited.Add((layerV, columnV));
+                    members.Add((layerV, columnV, heightV));
+                    minLayer = math.min(minLayer, layerV);
+                    maxLayer = math.max(maxLayer, layerV);
+                    // Invalid: the uses share no common legal window.
+                    if (maxLayer - minLayer > MaxLayerSpan) return false;
                 }
-                DecodePlane(coord, candidate, chartCache,
-                    out float3 candidateNormal, out float candidateConstant);
-                if (math.abs(candidateNormal[chart]) <
-                    MembraneCompatibleAxisCosine ||
-                    FreeSideSignature(coord, chart, context, main, mainState) !=
-                    side ||
-                    !TryPlaneLineHeight(candidateNormal, candidateConstant,
-                        chart, line, out float height))
-                    continue;
-                heights[index] = height;
-                coords[index] = coord;
-                normals[index] = candidateNormal;
-                colors[index] = candidate.PackedColor;
-                weights[index] = math.max(1u, candidate.ColorConfidence);
-                validMask |= 1 << index;
             }
 
-            // Admission: the connected height component (|dh| <= gap) of the
-            // cluster cells among the candidates. No distance-two bridging:
-            // every member is inside the +-1 window.
-            int admitted = 0;
-            for (int column = 0; column < 4; column++)
-                if ((cluster & (1 << column)) != 0 &&
-                    (validMask & (1 << (column * 3 + 1))) != 0)
-                    admitted |= 1 << (column * 3 + 1);
-            for (int pass = 0; pass < CornerCandidateCapacity - 1; pass++)
+            int minColumn = 4;
+            foreach ((int Layer, int Column, float Height) member in members)
+                if (member.Layer == minLayer)
+                    minColumn = math.min(minColumn, member.Column);
+
+            // Reference: median of member heights in (h, L, column) order.
+            float reference = 0f;
+            int middle = members.Count >> 1;
+            float medianLow = 0f;
+            float medianHigh = 0f;
+            foreach ((int Layer, int Column, float Height) member in members)
             {
-                int grown = admitted;
-                for (int index = 0; index < CornerCandidateCapacity; index++)
+                int rank = 0;
+                foreach ((int Layer, int Column, float Height) other in members)
+                    if (OrderBefore(other.Height, other.Layer, other.Column,
+                            member.Height, member.Layer, member.Column))
+                        rank++;
+                if (rank == middle) medianHigh = member.Height;
+                if (middle > 0 && rank == middle - 1) medianLow = member.Height;
+            }
+            reference = (members.Count & 1) != 0
+                ? medianHigh : (medianLow + medianHigh) * 0.5f;
+
+            // Candidates: measured cells of the four columns inside the
+            // common window W = [maxL - 1, minL + 1].
+            int windowLow = maxLayer - 1;
+            int windowHigh = minLayer + 1;
+            var candidates = new List<(int Layer, int Column, float Height,
+                int MemberDistance, int3 Cell, float3 Normal)>();
+            for (int column = 0; column < 4; column++)
+            for (int layer = windowLow; layer <= windowHigh; layer++)
+            {
+                int nearest = NearestMemberLayer(members, layer);
+                int3 cell = ColumnCell(halfAddress, chart, tangentAxis0,
+                    tangentAxis1, column, layer);
+                if (!TryMeasured(cell, context, out KernelState state))
+                    continue;
+                DecodePlane(cell, state, cache, out float3 normal,
+                    out float planeConstant);
+                if (!TryLineHeight(normal, planeConstant, chart, halfAddress,
+                        out float height) ||
+                    Signature(cell, chart, context) != side)
+                    continue;
+                if (layer != nearest)
                 {
-                    if ((validMask & (1 << index)) == 0 ||
-                        (grown & (1 << index)) != 0)
-                        continue;
-                    for (int other = 0; other < CornerCandidateCapacity; other++)
-                        if ((admitted & (1 << other)) != 0 &&
-                            math.abs(heights[index] - heights[other]) <=
-                            BranchHeightGap)
+                    int step = nearest > layer ? 1 : -1;
+                    bool separated = false;
+                    for (int between = layer + step; between != nearest + step;
+                         between += step)
+                        if (FreeAt(ColumnCell(halfAddress, chart, tangentAxis0,
+                                tangentAxis1, column, between), context))
                         {
-                            grown |= 1 << index;
+                            separated = true;
+                            break;
+                        }
+                    if (separated) continue;
+                }
+                candidates.Add((layer, column, height,
+                    math.abs(layer - nearest), cell, normal));
+            }
+            if (candidates.Count == 0) return false;
+
+            // Admission: the connected height component (|dh| <= g) of the
+            // candidate nearest the reference ((h, L, column) order on ties).
+            int seed = 0;
+            for (int index = 1; index < candidates.Count; index++)
+            {
+                float distance = math.abs(candidates[index].Height - reference);
+                float seedDistance = math.abs(candidates[seed].Height -
+                    reference);
+                if (distance < seedDistance ||
+                    (distance == seedDistance && OrderBefore(
+                        candidates[index].Height, candidates[index].Layer,
+                        candidates[index].Column, candidates[seed].Height,
+                        candidates[seed].Layer, candidates[seed].Column)))
+                    seed = index;
+            }
+            var admitted = new bool[candidates.Count];
+            admitted[seed] = true;
+            for (bool grown = true; grown;)
+            {
+                grown = false;
+                for (int index = 0; index < candidates.Count; index++)
+                {
+                    if (admitted[index]) continue;
+                    for (int other = 0; other < candidates.Count; other++)
+                        if (admitted[other] && math.abs(candidates[index].Height -
+                                candidates[other].Height) <= BranchHeightGap)
+                        {
+                            admitted[index] = true;
+                            grown = true;
                             break;
                         }
                 }
-                if (grown == admitted) break;
-                admitted = grown;
             }
-            if (admitted == 0) return false;
 
-            // Winner per column: nearest to the reference height, then the
-            // nearer layer, then the lexicographically smaller coordinate
-            // (contract C5 step 6 against the knot's own reference).
+            // Winner per column: nearest the reference, then nearer to a
+            // member layer, then the smaller layer. Node = column-order mean.
             float heightSum = 0f;
             int accepted = 0;
-            int winnerMask = 0;
-            Span<int3> winners = stackalloc int3[4];
             uint red = 0u, green = 0u, blue = 0u, weightTotal = 0u;
             float3 normalSum = float3.zero;
             for (int column = 0; column < 4; column++)
             {
                 int best = -1;
-                float bestDistance = float.PositiveInfinity;
-                for (int normalOffset = -1; normalOffset <= 1; normalOffset++)
+                float bestDistance = 0f;
+                for (int index = 0; index < candidates.Count; index++)
                 {
-                    int index = column * 3 + normalOffset + 1;
-                    if ((admitted & (1 << index)) == 0) continue;
-                    float distance = math.abs(heights[index] - reference);
-                    int bestOffset = best < 0 ? 0 : math.abs(best - column * 3 - 1);
-                    if (best < 0 || distance < bestDistance - NumericalEpsilon ||
+                    if (!admitted[index] || candidates[index].Column != column)
+                        continue;
+                    float distance = math.abs(candidates[index].Height -
+                        reference);
+                    if (best < 0 ||
+                        distance < bestDistance - NumericalEpsilon ||
                         (math.abs(distance - bestDistance) <= NumericalEpsilon &&
-                         (math.abs(normalOffset) < bestOffset ||
-                          (math.abs(normalOffset) == bestOffset &&
-                           LexicographicallyLess(coords[index], coords[best])))))
+                         (candidates[index].MemberDistance <
+                              candidates[best].MemberDistance ||
+                          (candidates[index].MemberDistance ==
+                               candidates[best].MemberDistance &&
+                           candidates[index].Layer < candidates[best].Layer))))
                     {
                         best = index;
                         bestDistance = distance;
                     }
                 }
-                winners[column] = best < 0 ? int3.zero : coords[best];
                 if (best < 0) continue;
-                winnerMask |= 1 << column;
-                heightSum += heights[best];
+                heightSum += candidates[best].Height;
                 accepted++;
-                float weight = weights[best];
-                normalSum += normals[best] * weight;
-                red += (colors[best] & 255u) * weights[best];
-                green += ((colors[best] >> 8) & 255u) * weights[best];
-                blue += ((colors[best] >> 16) & 255u) * weights[best];
-                weightTotal += weights[best];
+                normalSum += candidates[best].Normal;
+                context.TryGetValue(candidates[best].Cell, out KernelState owner);
+                uint weight = math.max(1u, owner.ColorConfidence);
+                uint packed = owner.PackedColor;
+                red += (packed & 255u) * weight;
+                green += ((packed >> 8) & 255u) * weight;
+                blue += ((packed >> 16) & 255u) * weight;
+                weightTotal += weight;
             }
             if (accepted == 0) return false;
-            line[chart] = heightSum / accepted;
-            if (!math.all(math.isfinite(line))) return false;
+            float3 position = (float3)halfAddress * MembraneHalfPitch;
+            position[chart] = heightSum / accepted;
+            if (!math.all(math.isfinite(position))) return false;
             float inverse = 1f / math.max(1u, weightTotal);
             uint r = math.min(255u, (uint)math.floor(red * inverse + 0.5f));
             uint g = math.min(255u, (uint)math.floor(green * inverse + 0.5f));
             uint b = math.min(255u, (uint)math.floor(blue * inverse + 0.5f));
-            corner = new Corner(line, r | (g << 8) | (b << 16) | 0xff000000u,
-                lineAddress, chart, math.normalizesafe(normalSum, mainNormal),
-                new KnotIdentity(lineAddress, chart, side, winnerMask,
-                    winners[0], winners[1], winners[2], winners[3]));
+            node = new Node(new NodeKey(line.LineAddress, chart, side,
+                    minLayer, minColumn), position,
+                r | (g << 8) | (b << 16) | 0xff000000u,
+                math.normalizesafe(normalSum, AxisVector(chart)));
             return true;
         }
 
-        private static int FreeSideSignature(int3 coord, int dominantAxis,
-            IReadOnlyDictionary<int3, KernelState> context, int3 main,
-            KernelState mainState)
+        private static int NearestMemberLayer(
+            List<(int Layer, int Column, float Height)> members, int layer)
         {
-            int signature = 0;
-            int3 axis = AxisInt3(dominantAxis);
-            if (TryGetState(coord - axis, main, mainState,
-                    context, out KernelState negative) &&
-                IsKnownFree(negative))
-                signature |= 1;
-            if (TryGetState(coord + axis, main, mainState,
-                    context, out KernelState positive) &&
-                IsKnownFree(positive))
-                signature |= 2;
-            return signature;
+            int nearest = members[0].Layer;
+            foreach ((int Layer, int Column, float Height) member in members)
+            {
+                int distance = math.abs(member.Layer - layer);
+                int nearestDistance = math.abs(nearest - layer);
+                if (distance < nearestDistance ||
+                    (distance == nearestDistance && member.Layer < nearest))
+                    nearest = member.Layer;
+            }
+            return nearest;
         }
 
-        private static bool IsKnownFree(in KernelState state) =>
-            !state.IsOccupied && state.OccupancyEvidence <=
-            MerkabaConstants.ExportKnownFreeThreshold;
+        // ---- C5.3 patch ----
 
-        private static bool TryGetState(int3 coord, int3 main,
-            KernelState mainState,
-            IReadOnlyDictionary<int3, KernelState> context,
-            out KernelState state)
+        internal static bool TryResolvePatch(int3 main,
+            IReadOnlyDictionary<int3, KernelState> context, out Patch patch) =>
+            TryResolvePatch(main, context, null, out patch);
+
+        /// <summary>
+        /// Isolated-context convenience used by fixtures: every coordinate
+        /// other than MAIN is UNKNOWN.
+        /// </summary>
+        internal static bool TryResolvePatch(int3 main, KernelState state,
+            out Patch patch) => TryResolvePatch(main,
+            new Dictionary<int3, KernelState> { [main] = state }, null,
+            out patch);
+
+        internal static bool TryResolvePatch(int3 main,
+            IReadOnlyDictionary<int3, KernelState> context, SolveCache cache,
+            out Patch patch)
         {
-            if (context != null) return context.TryGetValue(coord, out state);
-            if (math.all(coord == main))
+            if (context == null) throw new ArgumentNullException(nameof(context));
+            patch = default;
+            if (!TryMeasured(main, context, out KernelState state)) return false;
+            DecodePlane(main, state, cache, out float3 normal,
+                out float planeConstant);
+            int chart = ChartOf(main, state, context, cache);
+            TangentAxes(chart, out int tangentAxis0, out int tangentAxis1);
+            float3 tangent0 = AxisVector(tangentAxis0);
+            float3 tangent1 = AxisVector(tangentAxis1);
+            if (!TryCornerNode(main, chart, tangentAxis0, tangentAxis1, -1, -1,
+                    context, cache, out Node node00) ||
+                !TryCornerNode(main, chart, tangentAxis0, tangentAxis1, 1, -1,
+                    context, cache, out Node node10) ||
+                !TryCornerNode(main, chart, tangentAxis0, tangentAxis1, 1, 1,
+                    context, cache, out Node node11) ||
+                !TryCornerNode(main, chart, tangentAxis0, tangentAxis1, -1, 1,
+                    context, cache, out Node node01))
+                return false;
+
+            float3 p00 = node00.GridPosition;
+            float3 p10 = node10.GridPosition;
+            float3 p11 = node11.GridPosition;
+            float3 p01 = node01.GridPosition;
+            if (!PatchGuards(p00, p10, p11, p01, normal, planeConstant))
+                return false;
+
+            // Node addresses are canonical. Only index orientation changes.
+            if (math.dot(math.cross(p10 - p00, p11 - p00), normal) < 0f)
             {
-                state = mainState;
-                return true;
+                (node10, node01) = (node01, node10);
+                (tangent0, tangent1) = (tangent1, tangent0);
             }
-            state = default;
-            return false;
+            patch = new Patch(main, normal, tangent0, tangent1,
+                new Corner(node00), new Corner(node10), new Corner(node11),
+                new Corner(node01));
+            return true;
+        }
+
+        private static bool TryCornerNode(int3 main, int chart,
+            int tangentAxis0, int tangentAxis1, int sign0, int sign1,
+            IReadOnlyDictionary<int3, KernelState> context, SolveCache cache,
+            out Node node)
+        {
+            int3 halfAddress = main * 2;
+            halfAddress[tangentAxis0] += sign0;
+            halfAddress[tangentAxis1] += sign1;
+            var line = new LineKey(halfAddress, chart);
+            int column = ColumnOf(main, line.LineAddress, tangentAxis0,
+                tangentAxis1);
+            return TrySolveNode(line, main[chart], column, context, cache,
+                out node);
+        }
+
+        /// <summary>Every edge <= 45 mm and every corner within g of the
+        /// MAIN plane (reject, never clamp).</summary>
+        private static bool PatchGuards(float3 p00, float3 p10, float3 p11,
+            float3 p01, float3 normal, float planeConstant)
+        {
+            float maxEdge = MembraneMaxEdge * MembraneMaxEdge;
+            if (math.distancesq(p00, p10) > maxEdge ||
+                math.distancesq(p10, p11) > maxEdge ||
+                math.distancesq(p11, p01) > maxEdge ||
+                math.distancesq(p01, p00) > maxEdge)
+                return false;
+            return math.abs(math.dot(p00, normal) - planeConstant) <=
+                       BranchHeightGap &&
+                   math.abs(math.dot(p10, normal) - planeConstant) <=
+                       BranchHeightGap &&
+                   math.abs(math.dot(p11, normal) - planeConstant) <=
+                       BranchHeightGap &&
+                   math.abs(math.dot(p01, normal) - planeConstant) <=
+                       BranchHeightGap;
+        }
+
+        // ---- C5.4 chart transition ----
+
+        /// <summary>
+        /// The quad between MAIN's +t edge nodes and the -t edge nodes of the
+        /// measured neighbour n = MAIN + e_t whose chart is the other tangent
+        /// (contract C5.4). Owner is MAIN; valid across tile edges.
+        /// </summary>
+        internal static bool TryBuildTransition(int3 main, int tangentAxis,
+            IReadOnlyDictionary<int3, KernelState> context, SolveCache cache,
+            out Patch transition)
+        {
+            if (context == null) throw new ArgumentNullException(nameof(context));
+            transition = default;
+            if (!TryMeasured(main, context, out KernelState mainState))
+                return false;
+            int chart = ChartOf(main, mainState, context, cache);
+            TangentAxes(chart, out int tangentAxis0, out int tangentAxis1);
+            if (tangentAxis != tangentAxis0 && tangentAxis != tangentAxis1)
+                return false;
+            int3 neighbour = main + AxisInt3(tangentAxis);
+            if (!TryMeasured(neighbour, context, out KernelState otherState))
+                return false;
+            int otherChart = ChartOf(neighbour, otherState, context, cache);
+            if (otherChart == chart || otherChart == tangentAxis) return false;
+            DecodePlane(main, mainState, cache, out float3 mainNormal,
+                out float mainConstant);
+            DecodePlane(neighbour, otherState, cache, out float3 otherNormal,
+                out float otherConstant);
+            if (!TransitionCompatible(main, mainNormal, mainConstant, neighbour,
+                    otherNormal, otherConstant))
+                return false;
+
+            if (!TryEdgeNode(main, chart, tangentAxis, 1, otherChart, -1,
+                    context, cache, out Node mainLow) ||
+                !TryEdgeNode(main, chart, tangentAxis, 1, otherChart, 1,
+                    context, cache, out Node mainHigh) ||
+                !TryEdgeNode(neighbour, otherChart, tangentAxis, -1, chart, -1,
+                    context, cache, out Node otherLow) ||
+                !TryEdgeNode(neighbour, otherChart, tangentAxis, -1, chart, 1,
+                    context, cache, out Node otherHigh))
+                return false;
+            if (mainLow.Key.Equals(mainHigh.Key) ||
+                mainLow.Key.Equals(otherLow.Key) ||
+                mainLow.Key.Equals(otherHigh.Key) ||
+                mainHigh.Key.Equals(otherLow.Key) ||
+                mainHigh.Key.Equals(otherHigh.Key) ||
+                otherLow.Key.Equals(otherHigh.Key))
+                return false;
+
+            float3 a = mainLow.GridPosition;
+            float3 b = mainHigh.GridPosition;
+            if (!TransitionQuad(a, b, otherLow.GridPosition,
+                    otherHigh.GridPosition, mainNormal + otherNormal,
+                    tangentAxis, out bool matchHigh, out bool flip))
+                return false;
+            Node c = matchHigh ? otherHigh : otherLow;
+            Node d = matchHigh ? otherLow : otherHigh;
+            Node second = mainHigh;
+            if (flip) (second, d) = (d, second);
+            transition = new Patch(main,
+                math.normalizesafe(mainNormal + otherNormal, mainNormal),
+                AxisVector(tangentAxis), AxisVector(otherChart),
+                new Corner(mainLow), new Corner(second), new Corner(c),
+                new Corner(d));
+            return true;
+        }
+
+        private static bool TryEdgeNode(int3 cell, int chart, int edgeAxis,
+            int edgeSign, int alongAxis, int alongSign,
+            IReadOnlyDictionary<int3, KernelState> context, SolveCache cache,
+            out Node node)
+        {
+            TangentAxes(chart, out int tangentAxis0, out int tangentAxis1);
+            int3 halfAddress = cell * 2;
+            halfAddress[edgeAxis] += edgeSign;
+            halfAddress[alongAxis] += alongSign;
+            var line = new LineKey(halfAddress, chart);
+            int column = ColumnOf(cell, line.LineAddress, tangentAxis0,
+                tangentAxis1);
+            return TrySolveNode(line, cell[chart], column, context, cache,
+                out node);
+        }
+
+        private static bool TransitionCompatible(int3 first, float3 firstNormal,
+            float firstConstant, int3 second, float3 secondNormal,
+            float secondConstant)
+        {
+            if (math.dot(firstNormal, secondNormal) < ChartCompatibleCosine)
+                return false;
+            float3 firstCentre = (float3)first * MerkabaConstants.LatticeStep;
+            float3 secondCentre = (float3)second * MerkabaConstants.LatticeStep;
+            return math.abs(math.dot(secondCentre, firstNormal) -
+                       firstConstant) <= BranchHeightGap &&
+                   math.abs(math.dot(firstCentre, secondNormal) -
+                       secondConstant) <= BranchHeightGap;
+        }
+
+        /// <summary>
+        /// Quad a, b (MAIN edge) and the facing edge oriented co-directed with
+        /// b - a. Edges <= 45 mm, cos >= 0.5, both triangles non-degenerate and
+        /// equally oriented. All four nodes lie in the plane t = +half, so the
+        /// winding follows the reference normal when it has a component along
+        /// that plane's normal and +t otherwise.
+        /// </summary>
+        private static bool TransitionQuad(float3 a, float3 b, float3 low,
+            float3 high, float3 reference, int tangentAxis, out bool matchHigh,
+            out bool flip)
+        {
+            flip = false;
+            float3 edge = b - a;
+            float3 facing = high - low;
+            matchHigh = math.dot(edge, facing) >= 0f;
+            float3 c = matchHigh ? high : low;
+            float3 d = matchHigh ? low : high;
+            float3 facingDirected = c - d;
+            float edgeLength = math.length(edge);
+            float facingLength = math.length(facingDirected);
+            if (!(edgeLength > NumericalEpsilon) ||
+                !(facingLength > NumericalEpsilon) ||
+                math.dot(edge, facingDirected) <
+                TransitionEdgeCosine * edgeLength * facingLength)
+                return false;
+            float maxEdge = MembraneMaxEdge * MembraneMaxEdge;
+            if (math.distancesq(a, b) > maxEdge ||
+                math.distancesq(b, c) > maxEdge ||
+                math.distancesq(c, d) > maxEdge ||
+                math.distancesq(d, a) > maxEdge)
+                return false;
+            float3 first = math.cross(b - a, c - a);
+            float3 second = math.cross(c - a, d - a);
+            if (!(math.lengthsq(first) > NumericalEpsilon * NumericalEpsilon) ||
+                !(math.lengthsq(second) > NumericalEpsilon * NumericalEpsilon) ||
+                math.dot(first, second) <= 0f)
+                return false;
+            float3 quadNormal = first + second;
+            float orientation = math.dot(quadNormal, reference);
+            if (math.abs(orientation) <= NumericalEpsilon)
+                orientation = quadNormal[tangentAxis];
+            flip = orientation < 0f;
+            return true;
         }
 
         internal static int3 NearestGridNormalStep(float3 gridNormal)
@@ -867,10 +974,6 @@ namespace Genesis.RoomScan
             2 => new int3(0, 0, 1),
             _ => throw new ArgumentOutOfRangeException(nameof(axis))
         };
-
-        private static bool LexicographicallyLess(int3 left, int3 right) =>
-            left.x < right.x || (left.x == right.x &&
-            (left.y < right.y || (left.y == right.y && left.z < right.z)));
 
 #if UNITY_EDITOR
         internal static string BuildSurfaceOrientationHlsl()
@@ -982,50 +1085,26 @@ __HASH__define M8_MEMBRANE_INDICES_PER_PATCH __INDICES__u
 __HASH__define M8_MEMBRANE_PATCH_PITCH __PITCH__
 __HASH__define M8_MEMBRANE_HALF_PITCH __HALF_PITCH__
 __HASH__define M8_MEMBRANE_NUMERICAL_EPSILON 1.0e-6
-// A contributor plane must be well conditioned against the corner line of
-// MAIN's chart; the connected height branch and the free side decide sheet
-// membership. No quantized dominant-axis or 26-cell equality.
+// A plane is usable on a line of chart c only while |N[c]| >= this.
 __HASH__define M8_MEMBRANE_COMPATIBLE_AXIS_COSINE 0.5
-// Two heights on one knot line belong to one branch when closer than this;
-// face neighbours belong to one local sheet when their planes agree both
-// ways within it.
+// g: branch height gap and local-sheet plane agreement.
 __HASH__define M8_MEMBRANE_BRANCH_GAP (M8_MEMBRANE_PATCH_PITCH * 0.6)
-// Face neighbours whose normals agree at least this much shape the chart.
 __HASH__define M8_MEMBRANE_CHART_COSINE 0.5
-// No patch edge may exceed this; a longer patch is not emitted.
 __HASH__define M8_MEMBRANE_MAX_EDGE 0.045
+// The uses of one node span at most two normal layers.
+__HASH__define M8_MEMBRANE_MAX_LAYER_SPAN 2
+__HASH__define M8_MEMBRANE_TRANSITION_EDGE_COSINE 0.5
 
-struct M8OverlapPatch
-{
-    float3 corner00;
-    float3 corner10;
-    float3 corner11;
-    float3 corner01;
-    // Knot colour and global identity per corner: the half-lattice address
-    // of its corner line (chart component zero) plus the chart axis. Two
-    // patches share one vertex exactly when line, chart and position agree.
-    uint color00;
-    uint color10;
-    uint color11;
-    uint color01;
-    int3 line00;
-    int3 line10;
-    int3 line11;
-    int3 line01;
-    // Exact knot identity per corner (winner cells): the weld key.
-    uint key00;
-    uint key10;
-    uint key11;
-    uint key01;
-    int chart;
-    uint side;
-    float3 normal;
-    uint packedColor;
-};
+// The kernel that includes this oracle defines the cell accessors:
+//   bool M8MembraneCell(int3, out bool resolved, out bool measured,
+//       out bool knownFree)
+//   float4 M8MembranePlaneOf(int3)   unit normal, dot(C, N) + d
+//   int M8MembraneChartOf(int3)      the C5.1 chart of a measured cell
+//   void M8LoadMembraneColor(int3, out uint packed, out uint confidence)
 
-int M8MembraneDominantAxis(float3 normal)
+int M8MembraneDominantAxis(float3 value)
 {
-    float3 magnitude = abs(normalize(normal));
+    float3 magnitude = abs(value);
     return magnitude.x >= magnitude.y && magnitude.x >= magnitude.z ? 0 :
         magnitude.y >= magnitude.z ? 1 : 2;
 }
@@ -1059,604 +1138,302 @@ float3 M8MembraneSetFloatComponent(float3 value, int axis, float component)
     return value;
 }
 
+// Floor division by two (arithmetic shift).
 int M8MembraneFloorDiv2(int value)
 {
     return value >> 1;
 }
 
-bool M8MembraneLexLess(int3 left, int3 right)
+bool M8MembraneMeasuredAt(int3 coord)
 {
-    return left.x < right.x || (left.x == right.x &&
-        (left.y < right.y || (left.y == right.y && left.z < right.z)));
-}
-
-bool M8MembranePlaneLineHeight(int3 owner, float3 normal,
-    float signedOffset, int dominantAxis, float3 linePoint, out float height)
-{
-    float denominator = normal[dominantAxis];
-    if (abs(denominator) <= M8_MEMBRANE_NUMERICAL_EPSILON)
-    {
-        height = 0.0;
-        return false;
-    }
-    float3 basePoint = linePoint;
-    basePoint = M8MembraneSetFloatComponent(basePoint, dominantAxis, 0.0);
-    float planeConstant = dot((float3)owner * MERKABA_LATTICE_STEP, normal) +
-        signedOffset;
-    height = (planeConstant - dot(basePoint, normal)) / denominator;
-    return isfinite(height);
-}
-
-bool M8MembraneFreeSideSignature(int3 coord, int dominantAxis,
-    out uint signature, out bool unresolved)
-{
-    signature = 0u;
-    unresolved = false;
-    int3 axis = M8MembraneAxis(dominantAxis);
     bool resolved;
     bool measured;
     bool knownFree;
-    bool exists = M8MembraneCell(coord - axis, resolved, measured, knownFree);
-    if (!resolved)
-    {
-        unresolved = true;
-        return false;
-    }
-    if (exists && knownFree) signature |= 1u;
-    exists = M8MembraneCell(coord + axis, resolved, measured, knownFree);
-    if (!resolved)
-    {
-        unresolved = true;
-        return false;
-    }
-    if (exists && knownFree) signature |= 2u;
-    return true;
+    bool exists = M8MembraneCell(coord, resolved, measured, knownFree);
+    return exists && measured;
 }
 
-bool M8MembraneSeparatedByFree(int3 contributor, int normalOffset,
-    int dominantAxis, out bool unresolved)
+bool M8MembraneFreeAt(int3 coord)
 {
-    unresolved = false;
-    if (normalOffset == 0) return false;
-    int3 towardMain = contributor;
-    towardMain = M8MembraneSetIntComponent(towardMain, dominantAxis,
-        towardMain[dominantAxis] - (normalOffset < 0 ? -1 : 1));
     bool resolved;
     bool measured;
     bool knownFree;
-    bool exists = M8MembraneCell(towardMain, resolved, measured, knownFree);
-    if (!resolved)
-    {
-        unresolved = true;
-        return false;
-    }
+    bool exists = M8MembraneCell(coord, resolved, measured, knownFree);
     return exists && knownFree;
 }
 
-// Register-resident storage for the four uses and twelve contributors of
-// one knot: heights in float4 registers, membership in scalar bit masks.
-// Nothing is a private array, so Adreno never lowers the solve to scratch.
-void M8MembraneStoreHeight(inout float4 h0, inout float4 h1,
-    inout float4 h2, uint slot, float value)
+// Free-side signature along the chart axis: bit 0 KNOWN FREE at -c, bit 1
+// KNOWN FREE at +c.
+uint M8MembraneSignature(int3 coord, int chart)
 {
-    uint lane = slot & 3u;
-    if (slot < 4u)
-    {
-        if (lane == 0u) h0.x = value;
-        else if (lane == 1u) h0.y = value;
-        else if (lane == 2u) h0.z = value;
-        else h0.w = value;
-    }
-    else if (slot < 8u)
-    {
-        if (lane == 0u) h1.x = value;
-        else if (lane == 1u) h1.y = value;
-        else if (lane == 2u) h1.z = value;
-        else h1.w = value;
-    }
-    else
-    {
-        if (lane == 0u) h2.x = value;
-        else if (lane == 1u) h2.y = value;
-        else if (lane == 2u) h2.z = value;
-        else h2.w = value;
-    }
+    int3 axis = M8MembraneAxis(chart);
+    uint signature = M8MembraneFreeAt(coord - axis) ? 1u : 0u;
+    if (M8MembraneFreeAt(coord + axis)) signature |= 2u;
+    return signature;
 }
 
-float M8MembraneLoadHeight(float4 h0, float4 h1, float4 h2, uint slot)
+// C5.1 canonical chart of a measured cell: dominant axis of its normal plus
+// the normals of its 26 neighbours of the same local sheet (measured,
+// dot >= 0.5 without abs, planes agreeing both ways within g, no KNOWN FREE
+// on the single-axis steps of an edge or corner neighbour). Fixed order dx,
+// dy, dz; equal weights; tie X, Y, Z. Falls back to the raw dominant axis of
+// the cell when its own |N[chart]| < 0.5.
+int M8MembraneCanonicalChart(int3 coord)
 {
-    uint lane = slot & 3u;
-    float4 values = slot < 4u ? h0 : slot < 8u ? h1 : h2;
-    return lane == 0u ? values.x :
-        lane == 1u ? values.y :
-        lane == 2u ? values.z : values.w;
-}
-
-float M8MembraneLoadUse(float4 uses, uint column)
-{
-    return column == 0u ? uses.x : column == 1u ? uses.y :
-        column == 2u ? uses.z : uses.w;
-}
-
-// Column of a candidate slot (slot = column * 3 + offset + 1) without an
-// integer division: slot < 12.
-uint M8MembraneSlotColumn(uint slot)
-{
-    return slot < 3u ? 0u : slot < 6u ? 1u : slot < 9u ? 2u : 3u;
-}
-
-int3 M8MembraneColumnCoord(int3 main, int chart, int tangentAxis0,
-    int tangentAxis1, int lower0, int lower1, uint column, int layer)
-{
-    int3 coord = main;
-    coord = M8MembraneSetIntComponent(coord, tangentAxis0,
-        lower0 + (int)(column >> 1u));
-    coord = M8MembraneSetIntComponent(coord, tangentAxis1,
-        lower1 + (int)(column & 1u));
-    coord = M8MembraneSetIntComponent(coord, chart, layer);
-    return coord;
-}
-
-// Canonical chart of a measured cell: dominant axis of the sum of its plane
-// normal and the normals of its 26 neighbours of the same local sheet
-// (measured, no KNOWN FREE on the axis steps between, normals agreeing by
-// the chart cosine, planes agreeing both ways within the branch gap).
-// Radius one, fixed order, tie X, Y, Z.
-bool M8MembraneCanonicalChart(int3 coord, out int chart, out bool unresolved)
-{
-    unresolved = false;
-    chart = 0;
     float4 plane = M8MembranePlaneOf(coord);
     float3 normal = plane.xyz;
+    float3 centre = (float3)coord * M8_MEMBRANE_PATCH_PITCH;
     float3 sum = normal;
-    float planeConstant = plane.w;
-    // Binding plan section 1: SIX face neighbours only, fixed axis/sign
-    // order, no abs(dot), confidence weighted.
-    [unroll]
-    for (int axis = 0; axis < 3; axis++)
-    [unroll]
-    for (int signIndex = 0; signIndex < 2; signIndex++)
+    [loop]
+    for (int dx = -1; dx <= 1; dx++)
+    [loop]
+    for (int dy = -1; dy <= 1; dy++)
+    [loop]
+    for (int dz = -1; dz <= 1; dz++)
     {
-        int direction = signIndex == 0 ? -1 : 1;
-        int3 neighbour = coord + M8MembraneAxis(axis) * direction;
-        bool resolved;
-        bool measured;
-        bool knownFree;
-        bool exists = M8MembraneCell(neighbour, resolved, measured, knownFree);
-        if (!resolved)
-        {
-            unresolved = true;
-            return false;
-        }
-        if (!exists || !measured) continue;
-        float4 neighbourPlane = M8MembranePlaneOf(neighbour);
-        float3 neighbourNormal = neighbourPlane.xyz;
-        if (dot(normal, neighbourNormal) < M8_MEMBRANE_CHART_COSINE) continue;
-        float3 neighbourCentre = (float3)neighbour * MERKABA_LATTICE_STEP;
-        float residualHere = abs(dot(neighbourCentre, normal) - planeConstant);
-        float residualThere = abs(dot((float3)coord * MERKABA_LATTICE_STEP,
-            neighbourNormal) - neighbourPlane.w);
-        if (residualHere > M8_MEMBRANE_BRANCH_GAP ||
-            residualThere > M8_MEMBRANE_BRANCH_GAP)
+        if (dx == 0 && dy == 0 && dz == 0) continue;
+        int3 neighbour = coord + int3(dx, dy, dz);
+        if (!M8MembraneMeasuredAt(neighbour)) continue;
+        float4 otherPlane = M8MembranePlaneOf(neighbour);
+        if (dot(normal, otherPlane.xyz) < M8_MEMBRANE_CHART_COSINE) continue;
+        if (abs(dot((float3)neighbour * M8_MEMBRANE_PATCH_PITCH, normal) -
+                plane.w) > M8_MEMBRANE_BRANCH_GAP ||
+            abs(dot(centre, otherPlane.xyz) - otherPlane.w) >
+                M8_MEMBRANE_BRANCH_GAP)
             continue;
-        sum += neighbourNormal;
+        int nonZero = (dx != 0 ? 1 : 0) + (dy != 0 ? 1 : 0) +
+            (dz != 0 ? 1 : 0);
+        if (nonZero >= 2)
+        {
+            if (dx != 0 && M8MembraneFreeAt(coord + int3(dx, 0, 0))) continue;
+            if (dy != 0 && M8MembraneFreeAt(coord + int3(0, dy, 0))) continue;
+            if (dz != 0 && M8MembraneFreeAt(coord + int3(0, 0, dz))) continue;
+        }
+        sum += otherPlane.xyz;
     }
-    chart = M8MembraneDominantAxis(sum);
+    int chart = M8MembraneDominantAxis(sum);
+    if (abs(normal[chart]) < M8_MEMBRANE_COMPATIBLE_AXIS_COSINE)
+        chart = M8MembraneDominantAxis(normal);
+    return chart;
+}
+
+// ---- C5.2 line node ----
+
+int3 M8MembraneColumnCell(int3 halfAddress, int chart, int tangentAxis0,
+    int tangentAxis1, uint column, int layer)
+{
+    int3 cell = int3(0, 0, 0);
+    cell = M8MembraneSetIntComponent(cell, tangentAxis0,
+        M8MembraneFloorDiv2(halfAddress[tangentAxis0]) + (int)(column >> 1u));
+    cell = M8MembraneSetIntComponent(cell, tangentAxis1,
+        M8MembraneFloorDiv2(halfAddress[tangentAxis1]) + (int)(column & 1u));
+    return M8MembraneSetIntComponent(cell, chart, layer);
+}
+
+bool M8MembraneLineHeight(float4 plane, int chart, int3 halfAddress,
+    out float height)
+{
+    height = 0.0;
+    float denominator = plane[chart];
+    if (abs(denominator) < M8_MEMBRANE_COMPATIBLE_AXIS_COSINE) return false;
+    float3 linePoint = M8MembraneSetFloatComponent(
+        (float3)halfAddress * M8_MEMBRANE_HALF_PITCH, chart, 0.0);
+    height = (plane.w - dot(linePoint, plane.xyz)) / denominator;
+    return isfinite(height);
+}
+
+// A use of the line: a measured cell of this chart and side whose plane is
+// usable on the line.
+bool M8MembraneUseHeight(int3 cell, int chart, uint side, int3 halfAddress,
+    out float height)
+{
+    height = 0.0;
+    if (!M8MembraneMeasuredAt(cell)) return false;
+    if (M8MembraneChartOf(cell) != chart) return false;
+    if (M8MembraneSignature(cell, chart) != side) return false;
+    return M8MembraneLineHeight(M8MembranePlaneOf(cell), chart, halfAddress,
+        height);
+}
+
+bool M8MembraneFreeInColumn(int3 halfAddress, int chart, int tangentAxis0,
+    int tangentAxis1, uint column, int layerA, int layerB)
+{
+    int low = min(layerA, layerB);
+    int high = max(layerA, layerB);
+    [loop]
+    for (int layer = low; layer <= high; layer++)
+    {
+        if (M8MembraneFreeAt(M8MembraneColumnCell(halfAddress, chart,
+                tangentAxis0, tangentAxis1, column, layer)))
+            return true;
+    }
+    return false;
+}
+
+// Relation R of two uses of one side: |dL| <= 2, |dh| <= g, no KNOWN FREE in
+// either column between their layers.
+bool M8MembraneRelated(int3 halfAddress, int chart, int tangentAxis0,
+    int tangentAxis1, uint columnU, int layerU, float heightU, uint columnV,
+    int layerV, float heightV)
+{
+    if (abs(layerU - layerV) > M8_MEMBRANE_MAX_LAYER_SPAN) return false;
+    if (abs(heightU - heightV) > M8_MEMBRANE_BRANCH_GAP) return false;
+    if (M8MembraneFreeInColumn(halfAddress, chart, tangentAxis0,
+            tangentAxis1, columnU, layerU, layerV))
+        return false;
+    return !M8MembraneFreeInColumn(halfAddress, chart, tangentAxis0,
+        tangentAxis1, columnV, layerU, layerV);
+}
+
+// (height, layer, column) order of the median and the admission seed.
+bool M8MembraneOrderBefore(float heightA, int layerA, uint columnA,
+    float heightB, int layerB, uint columnB)
+{
+    return heightA < heightB || (heightA == heightB &&
+        (layerA < layerB || (layerA == layerB && columnA < columnB)));
+}
+
+// A contributor of the common window W: measured, usable plane, same side,
+// no KNOWN FREE between its layer and the nearest member layer (inclusive).
+bool M8MembraneCandidateHeight(int3 halfAddress, int chart, int tangentAxis0,
+    int tangentAxis1, uint side, uint column, int layer,
+    int nearestMemberLayer, out float height, out float3 normal)
+{
+    height = 0.0;
+    normal = 0.0;
+    int3 cell = M8MembraneColumnCell(halfAddress, chart, tangentAxis0,
+        tangentAxis1, column, layer);
+    if (!M8MembraneMeasuredAt(cell)) return false;
+    float4 plane = M8MembranePlaneOf(cell);
+    normal = plane.xyz;
+    if (!M8MembraneLineHeight(plane, chart, halfAddress, height)) return false;
+    if (M8MembraneSignature(cell, chart) != side) return false;
+    int distance = abs(nearestMemberLayer - layer);
+    int step = nearestMemberLayer > layer ? 1 : -1;
+    [loop]
+    for (int offset = 1; offset <= distance; offset++)
+    {
+        if (M8MembraneFreeAt(M8MembraneColumnCell(halfAddress, chart,
+                tangentAxis0, tangentAxis1, column, layer + step * offset)))
+            return false;
+    }
     return true;
 }
 
-// The chart-transition predicate is part of the same generated oracle.
-// It creates no point: Resolve/Emit may only use already solved knot edges.
-bool M8MembraneStitchCompatible(int3 first, int3 second)
+// Winner per column: nearest the reference, then nearer to a member layer,
+// then the smaller layer.
+bool M8MembraneWinnerBefore(float distance, int memberDistance, int layer,
+    bool haveBest, float bestDistance, int bestMemberDistance, int bestLayer)
 {
-    float4 firstPlane = M8MembranePlaneOf(first);
-    float4 secondPlane = M8MembranePlaneOf(second);
-    if (dot(firstPlane.xyz, secondPlane.xyz) < M8_MEMBRANE_CHART_COSINE)
-        return false;
-    float3 firstCentre = (float3)first * MERKABA_LATTICE_STEP;
-    float3 secondCentre = (float3)second * MERKABA_LATTICE_STEP;
-    return abs(dot(secondCentre, firstPlane.xyz) - firstPlane.w) <=
-               M8_MEMBRANE_BRANCH_GAP &&
-           abs(dot(firstCentre, secondPlane.xyz) - secondPlane.w) <=
-               M8_MEMBRANE_BRANCH_GAP;
+    return !haveBest ||
+        distance < bestDistance - M8_MEMBRANE_NUMERICAL_EPSILON ||
+        (abs(distance - bestDistance) <= M8_MEMBRANE_NUMERICAL_EPSILON &&
+         (memberDistance < bestMemberDistance ||
+          (memberDistance == bestMemberDistance && layer < bestLayer)));
 }
 
-// One shared knot of a MAIN's corner (contract C5 steps 1-9). The knot is a
-// function of its line, chart, free side and layer only: the uses of the
-// line at that layer define the reference height, the four sharing columns
-// at layers -1/0/+1 supply the contributors, one winner per column. Every
-// MAIN of the same cluster, and every MAIN of an adjacent layer with the
-// same winners, resolves the identical knot. winnerKey encodes the winner
-// cells (mask and layer per column), the exact identity for welding.
-bool M8MembraneSolveKnot(int3 main, float3 mainNormal, int chart,
-    int tangentAxis0, int tangentAxis1, int cornerSign0, int cornerSign1,
-    uint side, out float3 position, out uint packedColor,
-    out int3 lineAddress, out uint winnerKey, out bool unresolved)
+uint M8MembranePackMeanColor(uint red, uint green, uint blue,
+    uint weightTotal)
 {
-    unresolved = false;
-    position = 0.0;
-    packedColor = 0u;
-    winnerKey = 0u;
-    int3 halfAddress = main * 2;
-    halfAddress = M8MembraneSetIntComponent(halfAddress, tangentAxis0,
-        halfAddress[tangentAxis0] + cornerSign0);
-    halfAddress = M8MembraneSetIntComponent(halfAddress, tangentAxis1,
-        halfAddress[tangentAxis1] + cornerSign1);
-    lineAddress = M8MembraneSetIntComponent(halfAddress, chart, 0);
-    float3 linePoint = (float3)halfAddress * (M8_MEMBRANE_PATCH_PITCH * 0.5);
-    int layer = main[chart];
-    int lower0 = M8MembraneFloorDiv2(halfAddress[tangentAxis0]);
-    int lower1 = M8MembraneFloorDiv2(halfAddress[tangentAxis1]);
-
-    // Uses: cells of this chart and side in the four columns at MAIN's layer.
-    float4 useHeights = 0.0;
-    uint useMask = 0u;
-    [loop]
-    for (uint column = 0u; column < 4u; column++)
-    {
-        int3 coord = M8MembraneColumnCoord(main, chart, tangentAxis0,
-            tangentAxis1, lower0, lower1, column, layer);
-        bool resolved;
-        bool measured;
-        bool knownFree;
-        bool exists = M8MembraneCell(coord, resolved, measured, knownFree);
-        if (!resolved)
-        {
-            unresolved = true;
-            return false;
-        }
-        if (!exists || !measured) continue;
-        int useChart;
-        bool chartUnresolved;
-        if (!M8MembraneCanonicalChart(coord, useChart, chartUnresolved))
-        {
-            unresolved = true;
-            return false;
-        }
-        if (useChart != chart) continue;
-        uint useSide;
-        bool sideUnresolved;
-        if (!M8MembraneFreeSideSignature(coord, chart, useSide, sideUnresolved))
-        {
-            if (sideUnresolved) unresolved = true;
-            return false;
-        }
-        if (useSide != side) continue;
-        float4 plane = M8MembranePlaneOf(coord);
-        float denominator = plane[chart];
-        if (abs(denominator) < M8_MEMBRANE_COMPATIBLE_AXIS_COSINE) continue;
-        float3 basePoint = M8MembraneSetFloatComponent(linePoint, chart, 0.0);
-        float height = (plane.w - dot(basePoint, plane.xyz)) / denominator;
-        if (!isfinite(height)) continue;
-        useHeights = column == 0u ? float4(height, useHeights.yzw) :
-            column == 1u ? float4(useHeights.x, height, useHeights.zw) :
-            column == 2u ? float4(useHeights.xy, height, useHeights.w) :
-            float4(useHeights.xyz, height);
-        useMask |= 1u << column;
-    }
-    uint mainColumn = (uint)(main[tangentAxis0] - lower0) * 2u +
-        (uint)(main[tangentAxis1] - lower1);
-    if ((useMask & (1u << mainColumn)) == 0u) return false;
-
-    // Cluster: connected height component of the uses that holds MAIN.
-    uint cluster = 1u << mainColumn;
-    [loop]
-    for (uint expansion = 0u; expansion < 3u; expansion++)
-    [loop]
-    for (uint column = 0u; column < 4u; column++)
-    {
-        if ((useMask & (1u << column)) == 0u ||
-            (cluster & (1u << column)) != 0u)
-            continue;
-        float height = M8MembraneLoadUse(useHeights, column);
-        [loop]
-        for (uint member = 0u; member < 4u; member++)
-        {
-            if ((cluster & (1u << member)) != 0u &&
-                abs(height - M8MembraneLoadUse(useHeights, member)) <=
-                M8_MEMBRANE_BRANCH_GAP)
-            {
-                cluster |= 1u << column;
-                break;
-            }
-        }
-    }
-    // Median of the cluster: rank by (height, column) among members.
-    // (bit sum instead of countbits: FXC rejects the intrinsic here.)
-    uint members = (cluster & 1u) + ((cluster >> 1u) & 1u) +
-        ((cluster >> 2u) & 1u) + ((cluster >> 3u) & 1u);
-    uint middle = members >> 1u;
-    float medianHigh = 0.0;
-    float medianLow = 0.0;
-    [loop]
-    for (uint column = 0u; column < 4u; column++)
-    {
-        if ((cluster & (1u << column)) == 0u) continue;
-        float height = M8MembraneLoadUse(useHeights, column);
-        uint rank = 0u;
-        [loop]
-        for (uint other = 0u; other < 4u; other++)
-        {
-            if ((cluster & (1u << other)) == 0u || other == column) continue;
-            float otherHeight = M8MembraneLoadUse(useHeights, other);
-            if (otherHeight < height ||
-                (otherHeight == height && other < column))
-                rank++;
-        }
-        if (rank == middle) medianHigh = height;
-        if (middle > 0u && rank == middle - 1u) medianLow = height;
-    }
-    float reference = (members & 1u) != 0u
-        ? medianHigh : (medianLow + medianHigh) * 0.5;
-
-    // Candidates: the four columns at layers -1, 0, +1 (slot = column*3 +
-    // offset + 1). Contract C5 step 4.
-    float4 heights0 = 0.0;
-    float4 heights1 = 0.0;
-    float4 heights2 = 0.0;
-    uint validMask = 0u;
-    [loop]
-    for (uint slot = 0u; slot < 12u; slot++)
-    {
-        uint column = M8MembraneSlotColumn(slot);
-        int normalOffset = (int)(slot - column * 3u) - 1;
-        int3 coord = M8MembraneColumnCoord(main, chart, tangentAxis0,
-            tangentAxis1, lower0, lower1, column, layer + normalOffset);
-        bool resolved;
-        bool measured;
-        bool knownFree;
-        bool exists = M8MembraneCell(coord, resolved, measured, knownFree);
-        if (!resolved)
-        {
-            unresolved = true;
-            return false;
-        }
-        if (!exists || !measured) continue;
-        if (normalOffset != 0)
-        {
-            int3 between = M8MembraneSetIntComponent(coord, chart, layer);
-            bool separatorResolved;
-            bool separatorMeasured;
-            bool separatorFree;
-            bool separatorExists = M8MembraneCell(between, separatorResolved,
-                separatorMeasured, separatorFree);
-            if (!separatorResolved)
-            {
-                unresolved = true;
-                return false;
-            }
-            if (separatorExists && separatorFree) continue;
-        }
-        float4 plane = M8MembranePlaneOf(coord);
-        float denominator = plane[chart];
-        if (abs(denominator) < M8_MEMBRANE_COMPATIBLE_AXIS_COSINE) continue;
-        uint candidateSide;
-        bool sideUnresolved;
-        if (!M8MembraneFreeSideSignature(coord, chart, candidateSide,
-                sideUnresolved))
-        {
-            if (sideUnresolved) unresolved = true;
-            return false;
-        }
-        if (candidateSide != side) continue;
-        float3 basePoint = M8MembraneSetFloatComponent(linePoint, chart, 0.0);
-        float height = (plane.w - dot(basePoint, plane.xyz)) / denominator;
-        if (!isfinite(height)) continue;
-        M8MembraneStoreHeight(heights0, heights1, heights2, slot, height);
-        validMask |= 1u << slot;
-    }
-
-    // Admission: connected height component of the cluster cells among the
-    // candidates. Every member stays inside the +-1 window.
-    uint admitted = 0u;
-    [unroll]
-    for (uint column = 0u; column < 4u; column++)
-    {
-        uint slot = column * 3u + 1u;
-        if ((cluster & (1u << column)) != 0u &&
-            (validMask & (1u << slot)) != 0u)
-            admitted |= 1u << slot;
-    }
-    [loop]
-    for (uint expansion = 0u; expansion < 11u; expansion++)
-    {
-        uint grown = admitted;
-        [loop]
-        for (uint slot = 0u; slot < 12u; slot++)
-        {
-            if ((validMask & (1u << slot)) == 0u ||
-                (grown & (1u << slot)) != 0u)
-                continue;
-            float height = M8MembraneLoadHeight(heights0, heights1, heights2,
-                slot);
-            [loop]
-            for (uint other = 0u; other < 12u; other++)
-            {
-                if ((admitted & (1u << other)) == 0u) continue;
-                if (abs(height - M8MembraneLoadHeight(heights0, heights1,
-                        heights2, other)) <= M8_MEMBRANE_BRANCH_GAP)
-                {
-                    grown |= 1u << slot;
-                    break;
-                }
-            }
-        }
-        if (grown == admitted) break;
-        admitted = grown;
-    }
-    if (admitted == 0u) return false;
-
-    // Winner per column: nearest to the reference height, then the nearer
-    // layer, then the lexicographically smaller coordinate.
-    float heightSum = 0.0;
-    uint accepted = 0u;
-    uint red = 0u;
-    uint green = 0u;
-    uint blue = 0u;
-    uint weightTotal = 0u;
-    float3 normalSum = 0.0;
-    [loop]
-    for (uint column = 0u; column < 4u; column++)
-    {
-        bool haveBest = false;
-        uint bestSlot = 0u;
-        float bestDistance = 0.0;
-        int bestOffset = 0;
-        int3 bestCoord = int3(0, 0, 0);
-        [unroll]
-        for (int normalOffset = -1; normalOffset <= 1; normalOffset++)
-        {
-            uint slot = column * 3u + (uint)(normalOffset + 1);
-            if ((admitted & (1u << slot)) == 0u) continue;
-            float distance = abs(M8MembraneLoadHeight(heights0, heights1,
-                heights2, slot) - reference);
-            int3 coord = M8MembraneColumnCoord(main, chart, tangentAxis0,
-                tangentAxis1, lower0, lower1, column, layer + normalOffset);
-            int layerDistance = normalOffset < 0 ? -normalOffset : normalOffset;
-            if (!haveBest ||
-                distance < bestDistance - M8_MEMBRANE_NUMERICAL_EPSILON ||
-                (abs(distance - bestDistance) <=
-                     M8_MEMBRANE_NUMERICAL_EPSILON &&
-                 (layerDistance < bestOffset ||
-                  (layerDistance == bestOffset &&
-                   M8MembraneLexLess(coord, bestCoord)))))
-            {
-                haveBest = true;
-                bestSlot = slot;
-                bestDistance = distance;
-                bestOffset = layerDistance;
-                bestCoord = coord;
-            }
-        }
-        if (!haveBest) continue;
-        heightSum += M8MembraneLoadHeight(heights0, heights1, heights2,
-            bestSlot);
-        accepted++;
-        winnerKey |= 1u << column;
-        winnerKey |= ((uint)bestCoord[chart] & 15u) << (4u + column * 4u);
-        float4 winnerPlane = M8MembranePlaneOf(bestCoord);
-        uint ownerColor;
-        uint ownerConfidence;
-        M8LoadMembraneColor(bestCoord, ownerColor, ownerConfidence);
-        uint weight = max(1u, ownerConfidence);
-        normalSum += winnerPlane.xyz * (float)weight;
-        red += (ownerColor & 255u) * weight;
-        green += ((ownerColor >> 8u) & 255u) * weight;
-        blue += ((ownerColor >> 16u) & 255u) * weight;
-        weightTotal += weight;
-    }
-    if (accepted == 0u) return false;
-    position = M8MembraneSetFloatComponent(linePoint, chart,
-        heightSum / (float)accepted);
-    if (!all(isfinite(position))) return false;
     float inverse = 1.0 / (float)max(1u, weightTotal);
     uint r = min(255u, (uint)floor((float)red * inverse + 0.5));
     uint g = min(255u, (uint)floor((float)green * inverse + 0.5));
     uint b = min(255u, (uint)floor((float)blue * inverse + 0.5));
-    packedColor = r | (g << 8u) | (b << 16u) | 0xff000000u;
+    return r | (g << 8u) | (b << 16u) | 0xff000000u;
+}
+
+float3 M8MembraneNodeNormal(float3 normalSum, int chart)
+{
+    float lengthSquared = dot(normalSum, normalSum);
+    return lengthSquared > 1.17549435e-38
+        ? normalSum * rsqrt(lengthSquared)
+        : (float3)M8MembraneAxis(chart);
+}
+
+float3 M8MembraneNodePosition(int3 halfAddress, int chart, float height)
+{
+    return M8MembraneSetFloatComponent(
+        (float3)halfAddress * M8_MEMBRANE_HALF_PITCH, chart, height);
+}
+
+// ---- C5.3 patch ----
+
+// Every edge <= 45 mm and every corner within g of the MAIN plane.
+bool M8MembranePatchGuards(float3 p00, float3 p10, float3 p11, float3 p01,
+    float4 plane)
+{
+    float maxEdge = M8_MEMBRANE_MAX_EDGE * M8_MEMBRANE_MAX_EDGE;
+    float3 e0 = p00 - p10;
+    float3 e1 = p10 - p11;
+    float3 e2 = p11 - p01;
+    float3 e3 = p01 - p00;
+    if (dot(e0, e0) > maxEdge || dot(e1, e1) > maxEdge ||
+        dot(e2, e2) > maxEdge || dot(e3, e3) > maxEdge)
+        return false;
+    return abs(dot(p00, plane.xyz) - plane.w) <= M8_MEMBRANE_BRANCH_GAP &&
+        abs(dot(p10, plane.xyz) - plane.w) <= M8_MEMBRANE_BRANCH_GAP &&
+        abs(dot(p11, plane.xyz) - plane.w) <= M8_MEMBRANE_BRANCH_GAP &&
+        abs(dot(p01, plane.xyz) - plane.w) <= M8_MEMBRANE_BRANCH_GAP;
+}
+
+// ---- C5.4 chart transition ----
+
+bool M8MembraneTransitionCompatible(int3 first, float4 firstPlane,
+    int3 second, float4 secondPlane)
+{
+    if (dot(firstPlane.xyz, secondPlane.xyz) < M8_MEMBRANE_CHART_COSINE)
+        return false;
+    float3 firstCentre = (float3)first * M8_MEMBRANE_PATCH_PITCH;
+    float3 secondCentre = (float3)second * M8_MEMBRANE_PATCH_PITCH;
+    return abs(dot(secondCentre, firstPlane.xyz) - firstPlane.w) <=
+            M8_MEMBRANE_BRANCH_GAP &&
+        abs(dot(firstCentre, secondPlane.xyz) - secondPlane.w) <=
+            M8_MEMBRANE_BRANCH_GAP;
+}
+
+// Quad a, b (MAIN edge) and the facing edge oriented co-directed with b - a:
+// edges <= 45 mm, cos >= 0.5, both triangles non-degenerate and equally
+// oriented. All four nodes lie in the plane t = +half, so the winding follows
+// the reference normal when it has a component along that plane's normal and
+// +t otherwise.
+bool M8MembraneTransitionQuad(float3 a, float3 b, float3 low, float3 high,
+    float3 referenceNormal, int tangentAxis, out bool matchHigh,
+    out bool flip)
+{
+    flip = false;
+    float3 edge = b - a;
+    matchHigh = dot(edge, high - low) >= 0.0;
+    float3 c = matchHigh ? high : low;
+    float3 d = matchHigh ? low : high;
+    float3 facing = c - d;
+    float edgeLength = length(edge);
+    float facingLength = length(facing);
+    if (!(edgeLength > M8_MEMBRANE_NUMERICAL_EPSILON) ||
+        !(facingLength > M8_MEMBRANE_NUMERICAL_EPSILON) ||
+        dot(edge, facing) < M8_MEMBRANE_TRANSITION_EDGE_COSINE * edgeLength *
+            facingLength)
+        return false;
+    float maxEdge = M8_MEMBRANE_MAX_EDGE * M8_MEMBRANE_MAX_EDGE;
+    float3 ab = a - b;
+    float3 bc = b - c;
+    float3 cd = c - d;
+    float3 da = d - a;
+    if (dot(ab, ab) > maxEdge || dot(bc, bc) > maxEdge ||
+        dot(cd, cd) > maxEdge || dot(da, da) > maxEdge)
+        return false;
+    float3 first = cross(b - a, c - a);
+    float3 second = cross(c - a, d - a);
+    float epsilon2 = M8_MEMBRANE_NUMERICAL_EPSILON *
+        M8_MEMBRANE_NUMERICAL_EPSILON;
+    if (!(dot(first, first) > epsilon2) || !(dot(second, second) > epsilon2) ||
+        dot(first, second) <= 0.0)
+        return false;
+    float3 quadNormal = first + second;
+    float orientation = dot(quadNormal, referenceNormal);
+    if (abs(orientation) <= M8_MEMBRANE_NUMERICAL_EPSILON)
+        orientation = quadNormal[tangentAxis];
+    flip = orientation < 0.0;
     return true;
-}
-
-bool M8TryBuildMembranePatch(int3 main, KernelState state,
-    out M8OverlapPatch patch, out bool unresolved)
-{
-    patch = (M8OverlapPatch)0;
-    unresolved = false;
-    if ((state.flags & MERKABA_OCCUPIED_FLAG) == 0u ||
-        !M8HasSurfacePlane(state.flags))
-        return false;
-    float3 normal;
-    float signedOffset;
-    M8DecodeSurfacePlane(state.flags, normal, signedOffset);
-    int chart;
-    if (!M8MembraneCanonicalChart(main, chart, unresolved)) return false;
-    int tangentAxis0;
-    int tangentAxis1;
-    M8MembraneTangentAxes(chart, tangentAxis0, tangentAxis1);
-    uint side;
-    if (!M8MembraneFreeSideSignature(main, chart, side, unresolved))
-        return false;
-    // One knot solve, inlined once: corners 00, 10, 11, 01.
-    [loop]
-    for (uint corner = 0u; corner < 4u; corner++)
-    {
-        int sign0 = (corner == 1u || corner == 2u) ? 1 : -1;
-        int sign1 = corner >= 2u ? 1 : -1;
-        float3 position;
-        uint color;
-        int3 knotLine;
-        uint key;
-        if (!M8MembraneSolveKnot(main, normal, chart, tangentAxis0,
-                tangentAxis1, sign0, sign1, side, position, color, knotLine,
-                key, unresolved))
-            return false;
-        if (corner == 0u) { patch.corner00 = position; patch.color00 = color; patch.line00 = knotLine; patch.key00 = key; }
-        else if (corner == 1u) { patch.corner10 = position; patch.color10 = color; patch.line10 = knotLine; patch.key10 = key; }
-        else if (corner == 2u) { patch.corner11 = position; patch.color11 = color; patch.line11 = knotLine; patch.key11 = key; }
-        else { patch.corner01 = position; patch.color01 = color; patch.line01 = knotLine; patch.key01 = key; }
-    }
-    // Edge guard: a patch whose knots drifted apart is not emitted.
-    float maxEdge2 = M8_MEMBRANE_MAX_EDGE * M8_MEMBRANE_MAX_EDGE;
-    float3 e0 = patch.corner10 - patch.corner00;
-    float3 e1 = patch.corner11 - patch.corner10;
-    float3 e2 = patch.corner01 - patch.corner11;
-    float3 e3 = patch.corner00 - patch.corner01;
-    if (dot(e0, e0) > maxEdge2 || dot(e1, e1) > maxEdge2 ||
-        dot(e2, e2) > maxEdge2 || dot(e3, e3) > maxEdge2)
-        return false;
-    if (dot(cross(patch.corner10 - patch.corner00,
-            patch.corner11 - patch.corner00), normal) < 0.0)
-    {
-        float3 temporary = patch.corner10;
-        patch.corner10 = patch.corner01;
-        patch.corner01 = temporary;
-        uint temporaryColor = patch.color10;
-        patch.color10 = patch.color01;
-        patch.color01 = temporaryColor;
-        int3 temporaryLine = patch.line10;
-        patch.line10 = patch.line01;
-        patch.line01 = temporaryLine;
-        uint temporaryKey = patch.key10;
-        patch.key10 = patch.key01;
-        patch.key01 = temporaryKey;
-    }
-    patch.chart = chart;
-    patch.side = side;
-    patch.normal = normal;
-    patch.packedColor = state.packedColor;
-    return true;
-}
-
-float3 M8OverlapPatchCorner(M8OverlapPatch patch, uint corner)
-{
-    if (corner == 0u) return patch.corner00;
-    if (corner == 1u) return patch.corner10;
-    if (corner == 2u) return patch.corner11;
-    return patch.corner01;
-}
-
-uint M8OverlapPatchColor(M8OverlapPatch patch, uint corner)
-{
-    if (corner == 0u) return patch.color00;
-    if (corner == 1u) return patch.color10;
-    if (corner == 2u) return patch.color11;
-    return patch.color01;
-}
-
-int3 M8OverlapPatchLine(M8OverlapPatch patch, uint corner)
-{
-    if (corner == 0u) return patch.line00;
-    if (corner == 1u) return patch.line10;
-    if (corner == 2u) return patch.line11;
-    return patch.line01;
-}
-
-uint M8OverlapTriangleCorner(uint vertex)
-{
-    if (vertex == 0u || vertex == 3u) return 0u;
-    if (vertex == 1u) return 1u;
-    if (vertex == 2u || vertex == 4u) return 2u;
-    return 3u;
 }
 
 __HASH__endif

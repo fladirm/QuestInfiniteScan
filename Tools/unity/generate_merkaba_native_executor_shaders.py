@@ -116,8 +116,10 @@ PIPELINES = (
              "AdvanceRenderBuildBatch", "one"),
     Pipeline("CollectRenderPatchInputs", "MerkabaReadout.compute",
              "CollectRenderPatchInputs", "readout_indirect"),
-    Pipeline("SolveSharedKnots", "MerkabaReadout.compute",
-             "SolveSharedKnots", "readout_indirect"),
+    Pipeline("SolveSharedKnotLines", "MerkabaReadout.compute",
+             "SolveSharedKnotLines", "readout_indirect"),
+    Pipeline("ResolveRenderPatches", "MerkabaReadout.compute",
+             "ResolveRenderPatches", "readout_indirect"),
     Pipeline("EmitRenderTileGeometry", "MerkabaReadout.compute",
              "EmitRenderTileGeometry", "readout_indirect"),
     Pipeline("PublishRenderTileList", "MerkabaReadout.compute",
@@ -158,7 +160,7 @@ RESOURCE_NAMES = (
     "FrameDispatchArgs", "RenderVertices", "RenderIndexBack",
     "RenderIndexFront", "RenderPageQueues", "RenderMutationQueue",
     "RenderIndices", "RenderVersions", "RenderPatchScratch",
-    "RenderKnotScratch", "RenderKnotOwner", "RenderScratchHeader",
+    "RenderLineUseScratch", "RenderNodeScratch", "RenderScratchHeader",
 )
 RESOURCE_IDS = {name: index for index, name in enumerate(RESOURCE_NAMES)}
 
@@ -177,7 +179,7 @@ ALIASES = {
         "VisibleTiles", "FrameDispatchArgs", "RenderVertices",
         "RenderIndexBack", "RenderIndexFront", "RenderPageQueues",
         "RenderMutationQueue", "RenderIndices", "RenderVersions",
-        "RenderPatchScratch", "RenderKnotScratch", "RenderKnotOwner",
+        "RenderPatchScratch", "RenderLineUseScratch", "RenderNodeScratch",
         "RenderScratchHeader")},
     "_RefineMetrics": "RefineMetrics",
     "_SrcDepth": "RawDepth",

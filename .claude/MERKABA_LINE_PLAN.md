@@ -394,3 +394,48 @@ conversion); FXC log grep; Unity EditMode 100 %; APK build clean.
 - C1: a failed load of a dependency aborts the observation through one GPU attempt
   with the abort flag (claims are cleaned by the normal failure path); a FINE erase
   is dropped (it writes nothing before its ring is resident).
+- C2+C3: one commit. The CPU oracle and its HLSL twin are one text change by
+  CLAUDE.md (generated file equals the authority, parity test in the same change);
+  a C2 without the GPU twin would leave the generated-HLSL gate red.
+- C3: native ABI 9 (C1 already took 8). Pipelines: Begin [35,45), Batch [45,50)
+  (Advance, Collect, SolveSharedKnotLines, ResolveRenderPatches, Emit), Finalize
+  [50,53), FINE erase from 53, 60 pipelines. Resource count unchanged (two renames).
+- C3: `RenderNodeScratch` holds node records 0..3071 and C5.4 transition records
+  3072..4095 of the tile (section 4 left transitions unplaced). Node record z is the
+  line task (it encodes chart and both indices; the side lives in the use slots).
+  Line use slot: x = height bits, y = valid | side << 1 | (node id + 1) << 4; z/w
+  unused, the colour of the per-column winners is read from the kernel record.
+  Header: x patches, y vertices, z = unresolved | capacity failed << 1 | nodes << 8,
+  w = measured MAINs | transitions << 12; invalid branches go to the new counter 128
+  (`M8_COUNTER_MEMBRANE_INVALID_BRANCH`, 129 counters).
+- C3: the halo cache stores the kernel flags word per cell (plane decoded on read)
+  plus two bits per cell, not a float4 plane: groupshared of SolveSharedKnotLines is
+  28 276 B (section 9 estimated ~26.1 KB), inside the 32 KB gate.
+- C5.4 winding: all four transition nodes lie in the plane t = +1/2 (m's +t edge and
+  n's -t edge are the same half-lattice plane), so the quad normal is +-e_t and
+  "winding from N_m + N_n" is usually a zero dot product. Winding follows
+  sign(dot(quad normal, N_m + N_n)) when |dot| > 1e-6, else +t. Live render is
+  Cull Off and GLB doubleSided, so this fixes only the exported normal direction;
+  geometry and topology are unaffected.
+- C5.4 finding (fixture, not a rule change): when the traces of the two planes cross
+  inside the 25 mm edge, the fixed diagonal (a, c) folds (bowtie or concave at b) and
+  the transition is rejected, leaving a sliver open. The fold fixture therefore steps
+  the second sheet 10 mm inwards; device screenshots of folds (section 11) decide
+  whether the diagonal choice needs a contract change.
+- C5.1 finding (test scope): checkerboard +-15 degree noise around 48.6 degrees on a
+  lattice staircase gives one canonical chart on the 9x9 fixture, but on a 33x33 sheet
+  6.5 % of interior cells (columns with ~10 mm lattice error) flip to X: the stair
+  neighbour 35 mm away with a 30 degree normal difference fails the reciprocal
+  residual g. At +-12 degrees the 33x33 sheet has one chart. The test asserts both
+  (9x9 at +-15, 33x33 at +-12); the chart change at +-15 is closed by C5.4 or stays a
+  hole by contract.
+- C2 tests: the 045be20 regression compares with the 045be20 corner rule (column-order
+  mean of the four agreeing line heights) evaluated in the test, not with the removed
+  code. GLB vertex dedupe stays bit-exact (position, normal, colour); a NodeKey
+  determines all three, and the export test asserts GLB vertices == distinct NodeKeys.
+  `TwoCloseParallelSheets_RemainDistinct` moved from 15 mm (= g, joined by R) to 17 mm.
+- C3: FXC rejects flow control on an Interlocked ticket before a barrier. A transition
+  ticket past 1024 therefore writes the last record and the tile fails from
+  `gM8TransitionTotal > 1024` at the end of ResolveRenderPatches (no `continue`). Source
+  census tests updated for the new kernel (71 pragmas, 77 audited, 9 group barriers in
+  the build, winding strings); each carries its reason comment.

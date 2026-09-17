@@ -489,7 +489,7 @@ namespace Genesis.RoomScan
             {
                 minimumCoord = math.min(minimumCoord, patch.Coord);
                 maximumCoord = math.max(maximumCoord, patch.Coord);
-                uint v0 = AddVertex(patch.Corner00, patch.Normal,
+                uint v0 = AddVertex(patch.Corner00, patch.Normal00,
                     patch.PackedColor);
                 uint v1 = AddVertex(patch.Corner10, patch.Normal10,
                     patch.PackedColor10);

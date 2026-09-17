@@ -16,8 +16,10 @@ namespace Genesis.RoomScan
         internal readonly uint PackedColor;
         internal readonly bool IsInferred;
         internal readonly bool IsTriangle;
-        // Shared-vertex triangles carry the canonical normal and colour of
-        // each corner; quads keep one normal and colour.
+        // Every corner carries its own normal and colour so that corners of
+        // one line node key onto one exported vertex; Normal is the patch
+        // normal. Inferred quads use one normal and colour.
+        internal readonly float3 Normal00;
         internal readonly float3 Normal10;
         internal readonly float3 Normal11;
         internal readonly float3 Normal01;
@@ -30,8 +32,10 @@ namespace Genesis.RoomScan
             uint packedColor, bool isInferred, bool isTriangle = false,
             float3? normal10 = null, float3? normal11 = null,
             uint? packedColor10 = null, uint? packedColor11 = null,
-            float3? normal01 = null, uint? packedColor01 = null)
+            float3? normal01 = null, uint? packedColor01 = null,
+            float3? normal00 = null)
         {
+            Normal00 = normal00 ?? normal;
             Normal10 = normal10 ?? normal;
             Normal11 = normal11 ?? normal;
             Normal01 = normal01 ?? normal;
@@ -127,12 +131,14 @@ namespace Genesis.RoomScan
         }
 
         /// <summary>
-        /// Production export path: the SAME frozen 25 mm membrane oracle as
-        /// live readout. One measured occupied MAIN owns one zero-thickness
-        /// quad whose corners are shared knots (position, colour and normal
-        /// solved from the corner neighbourhood); the 50 mm support is
-        /// connectivity only. The GLB writer keys identical knots onto one
-        /// vertex, across kernels, tiles and chunks.
+        /// Production export path: the SAME 25 mm membrane oracle as live
+        /// readout (contract C5.1-C5.4). One measured occupied MAIN owns one
+        /// zero-thickness quad whose corners are line nodes; chart
+        /// transitions join adjacent charts with existing nodes. The 50 mm
+        /// support is connectivity only. A node key determines position,
+        /// colour and normal bit-identically, so the GLB writer keys the
+        /// corners of one node onto one vertex across kernels, tiles and
+        /// chunks.
         /// </summary>
         internal static MerkabaExportMembraneResult BuildSkin(
             MerkabaExportShellResult shell,
@@ -175,7 +181,7 @@ namespace Genesis.RoomScan
             for (int ownerIndex = 0; ownerIndex < owners.Count; ownerIndex++)
             {
                 MerkabaKernelSnapshot kernel = owners[ownerIndex];
-                if (MerkabaOverlapShell.TryBuildPatch(kernel.Coord, context,
+                if (MerkabaOverlapShell.TryResolvePatch(kernel.Coord, context,
                         chartCache, out MerkabaOverlapShell.Patch patch))
                 {
                     patches.Add(FromMeasured(patch));
@@ -190,10 +196,8 @@ namespace Genesis.RoomScan
                         $"Built {ownerIndex + 1}/{owners.Count} membrane owners"));
             }
 
-            // Export is not constrained by live tile ownership: emit the same
-            // chart-transition stitch for each +tangent neighbour owned by an
-            // exported MAIN. It contains four already solved knots, no new
-            // geometry authority.
+            // C5.4 chart transitions, owned by the MAIN of the +t side. They
+            // contain four already solved nodes, no new geometry authority.
             for (int ownerIndex = 0; ownerIndex < owners.Count; ownerIndex++)
             {
                 int3 main = owners[ownerIndex].Coord;
@@ -201,14 +205,14 @@ namespace Genesis.RoomScan
                     owners[ownerIndex].State, context);
                 MerkabaOverlapShell.TangentAxes(chart, out int tangent0,
                     out int tangent1);
-                if (MerkabaOverlapShell.TryBuildStitch(main, tangent0,
+                if (MerkabaOverlapShell.TryBuildTransition(main, tangent0,
                         context, chartCache,
-                        out MerkabaOverlapShell.Patch stitch0))
-                    patches.Add(FromMeasured(stitch0));
-                if (MerkabaOverlapShell.TryBuildStitch(main, tangent1,
+                        out MerkabaOverlapShell.Patch transition0))
+                    patches.Add(FromMeasured(transition0));
+                if (MerkabaOverlapShell.TryBuildTransition(main, tangent1,
                         context, chartCache,
-                        out MerkabaOverlapShell.Patch stitch1))
-                    patches.Add(FromMeasured(stitch1));
+                        out MerkabaOverlapShell.Patch transition1))
+                    patches.Add(FromMeasured(transition1));
             }
 
             if (patches.Count == 0 && ownsCoordinate == null)
@@ -362,8 +366,8 @@ namespace Genesis.RoomScan
             return true;
         }
 
-        // Every corner carries its own knot colour and normal so identical
-        // knots of neighbouring patches key onto one exported vertex.
+        // Every corner carries its own node colour and normal so the corners
+        // of one node key onto one exported vertex.
         private static MerkabaExportMembranePatch FromMeasured(
             MerkabaOverlapShell.Patch patch) => new(patch.Main,
             patch.Normal,
@@ -372,7 +376,8 @@ namespace Genesis.RoomScan
             patch.Corner00.PackedColor, false, false,
             patch.Corner10.Normal, patch.Corner11.Normal,
             patch.Corner10.PackedColor, patch.Corner11.PackedColor,
-            patch.Corner01.Normal, patch.Corner01.PackedColor);
+            patch.Corner01.Normal, patch.Corner01.PackedColor,
+            patch.Corner00.Normal);
 
         /// <summary>
         /// One membrane oracle evaluation per coordinate for the whole group:
@@ -387,7 +392,7 @@ namespace Genesis.RoomScan
         {
             if (!cache.TryGetValue(coord, out MerkabaOverlapShell.Patch? cached))
             {
-                cached = MerkabaOverlapShell.TryBuildPatch(coord, states,
+                cached = MerkabaOverlapShell.TryResolvePatch(coord, states,
                     solveCache, out MerkabaOverlapShell.Patch built)
                     ? built : (MerkabaOverlapShell.Patch?)null;
                 cache.Add(coord, cached);

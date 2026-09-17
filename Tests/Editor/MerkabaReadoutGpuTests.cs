@@ -276,6 +276,133 @@ namespace Genesis.RoomScan.Tests
                 "the target tile is rebuilt with its complete ring");
         }
 
+        // Plan section 8 numeric parity: the published geometry of tile
+        // [0, 8)^3 is the CPU oracle's patches and C5.4 transitions of the
+        // same world, triangle by triangle, vertex position and colour.
+        [Test]
+        public void LineNodeReadoutEqualsTheCpuOracleOnTheCorpus()
+        {
+            Dictionary<int3, KernelState> world =
+                MerkabaMembraneFixtures.TileCorpus();
+            InstallStates(world);
+            U4 completion = Build();
+            Assert.That(completion.Y,
+                Is.EqualTo(MerkabaGrid.ReadoutPublishedStatus));
+            Assert.That(Counter(MerkabaGrid.CounterMembraneInvalidBranch),
+                Is.GreaterThan(0u), "span chains are invalid branches");
+
+            var expected = new List<(float3 Position, uint Color)[]>();
+            var cache = new MerkabaOverlapShell.SolveCache();
+            void AddQuad(MerkabaOverlapShell.Patch patch)
+            {
+                for (int triangle = 0; triangle < 2; triangle++)
+                {
+                    var vertices = new (float3, uint)[3];
+                    for (int vertex = 0; vertex < 3; vertex++)
+                    {
+                        MerkabaOverlapShell.Corner corner =
+                            patch.GetTriangleVertex(triangle * 3 + vertex);
+                        vertices[vertex] = (corner.GridPosition,
+                            corner.PackedColor);
+                    }
+                    expected.Add(vertices);
+                }
+            }
+            int transitions = 0;
+            foreach (KeyValuePair<int3, KernelState> pair in world)
+            {
+                int3 main = pair.Key;
+                if (!math.all(main >= 0) || !math.all(main < 8) ||
+                    !pair.Value.IsOccupied || !pair.Value.HasMeasuredSurfacePlane)
+                    continue;
+                if (MerkabaOverlapShell.TryResolvePatch(main, world, cache,
+                        out MerkabaOverlapShell.Patch patch))
+                    AddQuad(patch);
+                int chart = MerkabaOverlapShell.CanonicalChart(main, pair.Value,
+                    world);
+                MerkabaOverlapShell.TangentAxes(chart, out int tangent0,
+                    out int tangent1);
+                foreach (int axis in new[] { tangent0, tangent1 })
+                    if (MerkabaOverlapShell.TryBuildTransition(main, axis, world,
+                            cache, out MerkabaOverlapShell.Patch transition))
+                    {
+                        AddQuad(transition);
+                        transitions++;
+                    }
+            }
+            Assert.That(expected.Count, Is.GreaterThan(200));
+            Assert.That(transitions, Is.GreaterThanOrEqualTo(1));
+
+            uint[] index = Index(_front);
+            int record = Header + (int)SlotOf(new int3(0)) * RecordWords;
+            uint indexCount = index[record];
+            var queues = new uint[MerkabaGrid.RenderPageQueueCount];
+            _grid.GetM8RenderPageQueues(_front).GetData(queues);
+            var chain = new List<uint>();
+            uint page = index[record + 6];
+            for (uint ordinal = 0; ordinal < index[record + 1]; ordinal++)
+            {
+                chain.Add(page);
+                page = queues[8 + 3 * MerkabaGrid.RenderPageCapacity + (int)page];
+            }
+            var indexPages = new Dictionary<uint, uint[]>();
+            var vertexPages = new Dictionary<uint, uint[]>();
+            uint[] PageOf(Dictionary<uint, uint[]> pages,
+                Action<uint[], int, int, int> read, uint pageId, int words)
+            {
+                if (pages.TryGetValue(pageId, out uint[] data)) return data;
+                pages[pageId] = data = new uint[words];
+                read(data, 0, (int)pageId * words, words);
+                return data;
+            }
+            var actual = new List<(float3 Position, uint Color)[]>();
+            for (uint first = 0; first < indexCount; first += 3)
+            {
+                var vertices = new (float3, uint)[3];
+                for (uint vertex = 0; vertex < 3; vertex++)
+                {
+                    uint tileIndex = first + vertex;
+                    uint vertexSlot = PageOf(indexPages,
+                        _grid.GetM8PublishedIndices(_front).GetData,
+                        chain[(int)(tileIndex >> 8)],
+                        MerkabaGrid.RenderPageIndices)[tileIndex & 255u];
+                    uint[] words = PageOf(vertexPages,
+                        _grid.GetM8RenderVertices(_front).GetData,
+                        vertexSlot / (uint)MerkabaGrid.RenderPageVertices,
+                        MerkabaGrid.RenderPageVertices * 4);
+                    int offset = (int)(vertexSlot %
+                        (uint)MerkabaGrid.RenderPageVertices) * 4;
+                    vertices[vertex] = (new float3(
+                        BitConverter.Int32BitsToSingle((int)words[offset]),
+                        BitConverter.Int32BitsToSingle((int)words[offset + 1]),
+                        BitConverter.Int32BitsToSingle((int)words[offset + 2])),
+                        words[offset + 3]);
+                }
+                actual.Add(vertices);
+            }
+
+            Assert.That(actual.Count, Is.EqualTo(expected.Count),
+                "one GPU triangle per oracle triangle");
+            var unmatched = new List<(float3 Position, uint Color)[]>(actual);
+            foreach ((float3 Position, uint Color)[] triangle in expected)
+            {
+                int match = unmatched.FindIndex(candidate =>
+                {
+                    for (int vertex = 0; vertex < 3; vertex++)
+                        if (math.distance(candidate[vertex].Position,
+                                triangle[vertex].Position) > 1e-5f ||
+                            candidate[vertex].Color != triangle[vertex].Color)
+                            return false;
+                    return true;
+                });
+                Assert.That(match, Is.GreaterThanOrEqualTo(0),
+                    $"oracle triangle {triangle[0].Position} " +
+                    $"{triangle[1].Position} {triangle[2].Position} " +
+                    "has no GPU twin");
+                unmatched.RemoveAt(match);
+            }
+        }
+
         [Test]
         public void VisibilityEmitsIndicesOnlyForPagesOfVisibleTiles()
         {
@@ -384,6 +511,42 @@ namespace Genesis.RoomScan.Tests
 
         private void InstallWallTiles(params int3[] origins)
         {
+            var world = new Dictionary<int3, KernelState>();
+            foreach (int3 origin in origins)
+                for (int z = 0; z < 8; z++)
+                    for (int y = 0; y < 8; y++)
+                    {
+                        KernelState state = default;
+                        state.Apply(MerkabaObservationKind.Surface, 1f,
+                            new Color32(90, 120, 150, 255));
+                        state.Flags = KernelState.SetSurfacePlane(state.Flags,
+                            new float3(1f, 0f, 0f), 0f);
+                        world[origin + new int3(3, y, z)] = state;
+                    }
+            InstallStates(world);
+        }
+
+        // Installs every tile holding a state of the world as HOT, in first
+        // appearance order of the tiles.
+        private void InstallStates(IReadOnlyDictionary<int3, KernelState> world)
+        {
+            var origins = new List<int3>();
+            var tiles = new Dictionary<int3, KernelState[]>();
+            foreach (KeyValuePair<int3, KernelState> pair in world)
+            {
+                int3 origin = new(MerkabaConstants.FloorDiv(pair.Key.x, 8) * 8,
+                    MerkabaConstants.FloorDiv(pair.Key.y, 8) * 8,
+                    MerkabaConstants.FloorDiv(pair.Key.z, 8) * 8);
+                if (!tiles.TryGetValue(origin, out KernelState[] tile))
+                {
+                    tiles[origin] = tile =
+                        new KernelState[MerkabaSpatial.KernelsPerTile];
+                    origins.Add(origin);
+                }
+                int3 local = pair.Key - origin;
+                tile[local.x | (local.y << 3) | (local.z << 6)] = pair.Value;
+            }
+
             var addresses = new List<MerkabaTileAddress>();
             foreach (int3 origin in origins)
             {
@@ -401,18 +564,10 @@ namespace Genesis.RoomScan.Tests
 
             var states = new KernelState[addresses.Count *
                 MerkabaSpatial.KernelsPerTile];
-            for (int tile = 0; tile < addresses.Count; tile++)
-                for (int z = 0; z < 8; z++)
-                    for (int y = 0; y < 8; y++)
-                    {
-                        ref KernelState state = ref states[
-                            tile * MerkabaSpatial.KernelsPerTile +
-                            (3 | (y << 3) | (z << 6))];
-                        state.Apply(MerkabaObservationKind.Surface, 1f,
-                            new Color32(90, 120, 150, 255));
-                        state.Flags = KernelState.SetSurfacePlane(state.Flags,
-                            new float3(1f, 0f, 0f), 0f);
-                    }
+            for (int tile = 0; tile < origins.Count; tile++)
+                Array.Copy(tiles[origins[tile]], 0, states,
+                    tile * MerkabaSpatial.KernelsPerTile,
+                    MerkabaSpatial.KernelsPerTile);
             _grid.M8LoadStagingAddresses.SetData(addresses);
             _grid.M8LoadStagingStates.SetData(states);
             _grid.InstallLoadedTiles(addresses.Count);
