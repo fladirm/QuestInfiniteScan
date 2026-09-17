@@ -1,5 +1,10 @@
 # Merkaba knot-line membrane, atomic readout transaction, draw/UX closure (2026-09-17)
 
+> SUPERSEDED for geometry and residency scheduling by `.claude/MERKABA_LINE_PLAN.md`
+> (sections 1, 2, 4 and the readout-scheduling part of 3). The corner-centric solver
+> implemented under this plan (f805aea, f5d3f90, 3010d13) did not follow it and is
+> being replaced. Transaction, validation, draw and UX parts remain in force.
+
 Binding implementation plan. Written before the code; every deviation must be recorded
 here in the same commit. Base `ff158cf` (runtime `beb903c`). Serves contr.md C5-C7 and
 the frozen invariants of CLAUDE.md; adds nothing that contradicts them.

@@ -298,9 +298,10 @@ Decode:
 
     measured plane N,d
 
-Determine canonical dominant axis:
+Determine canonical chart axis:
 
-    abs(N)
+    C5.1 (amended 2026-09-17; the raw abs(N) dominant axis is only the
+    fallback of C5.1)
 
 tie order:
     X before Y before Z
@@ -357,11 +358,68 @@ No distance-two bridging.
 Two parallel sheets separated in the normal direction remain two sheets.
 
 If two mathematically distinct sheet branches coexist:
-    MAIN selects the branch nearest its own measured plane;
+    MAIN uses the line branch whose component contains MAIN (C5.2);
     FREE separator dominates;
     tie -> lexicographic deterministic branch.
 
 No eye/camera input.
+
+AMENDMENT 2026-09-17 (binding; plan .claude/MERKABA_LINE_PLAN.md)
+
+The corner is solved once per absolute line branch (node), never once per
+MAIN. Steps 1-9 above are executed by C5.2 for the whole line.
+
+g = 0.6 * lattice step (branch height gap).
+
+C5.1 CANONICAL CHART of measured cell m:
+
+    S = N_m + sum N_n over the 26 neighbours n, fixed lexicographic order,
+        where n is measured,
+        dot(N_m, N_n) >= 0.5 (no abs),
+        |plane_m(centre_n)| <= g and |plane_n(centre_m)| <= g,
+        no KNOWN FREE on the single-axis step cells between m and n.
+    Equal geometric weights. ColorConfidence never weights geometry.
+    chart = dominantAxis(S), tie X, Y, Z.
+    If |N_m[chart]| < 0.5: chart = dominantAxis(abs(N_m)).
+
+C5.2 LINE NODE:
+
+    line      half address 2*m + s0*e_t0 + s1*e_t1, chart component 0, chart c
+    use       measured cell u in one of the four columns, chart(u) = c,
+              free-side signature s (KNOWN FREE at -c, at +c), |N_u[c]| >= 0.5,
+              height h_u of its plane on the line, layer L_u
+    relation  R(u,v): same s, |L_u - L_v| <= 2, |h_u - h_v| <= g,
+              no KNOWN FREE cell in either column within [min L, max L]
+    component connected set under R
+    valid     max L - min L <= 2 (the intersection of all [L_i-1, L_i+1] is
+              non-empty); an invalid component creates no node (counted,
+              never bridged, never chained)
+    window    W = [max L - 1, min L + 1]
+    candidate measured cell of the four columns, layer in W, |N[c]| >= 0.5,
+              signature s, no KNOWN FREE in its column between its layer and
+              the nearest member layer (inclusive)
+    reference h_ref = median of member heights (order height, layer, column;
+              even count = mean of the middle two)
+    admission connected height interval (gap <= g) of candidates containing
+              the candidate nearest h_ref
+    winner    per column: min |h - h_ref|, then nearer to a member layer,
+              then smaller layer, then lexicographic coordinate
+    node      mean winner height (column order 00, 10, 01, 11),
+              confidence-weighted RGB, mean winner normal
+    key       (line address, c, s, min member layer, min member column at it)
+
+    The node is a global function of the line; every tile computes it
+    bit-identically.
+
+C5.3 PATCH of MAIN m: the four nodes whose components contain m. All four
+exist, every edge <= 45 mm, every corner within g of m's measured plane
+(reject, never clamp). Winding from N_m.
+
+C5.4 TRANSITION: m and n = m + e_t (t tangent of m), n measured with chart
+c' != c and c' != t, dot(N_m, N_n) >= 0.5, reciprocal residual <= g, no
+KNOWN FREE between. Quad of m's +t edge nodes and n's -t edge nodes, four
+distinct nodes, edges <= 45 mm, facing edges co-directed (cos >= 0.5), no
+self-intersection, winding from N_m + N_n. Owner m. Valid across tile edges.
 
 ------------------------------------------------------------
 C6. ORDINARY PATCH OUTPUT
@@ -504,6 +562,28 @@ Required conceptual scheduler:
 
 Camera movement may cause streaming/residency work when actually entering new
 coverage, but camera movement by itself must not rebuild existing membrane.
+
+AMENDMENT 2026-09-17 (binding; plan .claude/MERKABA_LINE_PLAN.md section 6)
+
+requiredResidencyActuallyChanged is an EVENT (tiles installed), never an
+epoch comparison.
+
+    A scan or erase commit requires every tile it may dirty and their
+    26-neighbour tile ring HOT or ABSENT (never COLD on SSD, never LOADING).
+    Missing tiles are requested and reported as the attempt's dependencies;
+    the attempt retries on their installation event; a failed load fails the
+    attempt.
+
+    Readout lists a drawn tile only when its 26-neighbour ring is HOT or
+    ABSENT. A COLD/LOADING tile or ring member in coverage is not drawn yet
+    (load requested). Readout never waits for residency and never retries on
+    a clock.
+
+    Eviction never selects a tile pinned by an open attempt, a view-marked
+    tile or a tile inside the focus radius.
+
+    No epoch, frame counter, safe-age window or free-running timer is part
+    of any scheduling or correctness rule.
 
 ------------------------------------------------------------
 C10. FRONT/BACK
