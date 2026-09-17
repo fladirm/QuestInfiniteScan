@@ -170,11 +170,12 @@ namespace Genesis.RoomScan
 
             var patches = new List<MerkabaExportMembranePatch>(
                 Math.Max(owners.Count, 16));
+            var chartCache = new MerkabaOverlapShell.SolveCache();
             for (int ownerIndex = 0; ownerIndex < owners.Count; ownerIndex++)
             {
                 MerkabaKernelSnapshot kernel = owners[ownerIndex];
                 if (MerkabaOverlapShell.TryBuildPatch(kernel.Coord, context,
-                        out MerkabaOverlapShell.Patch patch))
+                        chartCache, out MerkabaOverlapShell.Patch patch))
                     patches.Add(FromMeasured(patch));
 
                 if (ownerIndex + 1 == owners.Count ||
@@ -244,6 +245,7 @@ namespace Genesis.RoomScan
             SparsePartitionResult partition = SolveSparsePartition(shell,
                 isUnknownSpace);
             var patchCache = new Dictionary<int3, MerkabaOverlapShell.Patch?>();
+            var solveCache = new MerkabaOverlapShell.SolveCache();
             HashSet<int3> partitionCut = partition.Cut;
             var candidateCoords = new HashSet<int3>();
             foreach (MerkabaKernelSnapshot kernel in shell.Kernels)
@@ -267,7 +269,7 @@ namespace Genesis.RoomScan
                 bool isSynthetic = synthetic.Contains(coord);
                 if (hasState && !isSynthetic &&
                     TryBuildCachedPatch(coord, membraneContext, patchCache,
-                        out MerkabaOverlapShell.Patch measuredPatch))
+                        solveCache, out MerkabaOverlapShell.Patch measuredPatch))
                 {
                     if (ShouldKeepMeasured(coord, partition, strongFree))
                     {
@@ -284,7 +286,7 @@ namespace Genesis.RoomScan
                     if ((partitionCut.Contains(coord) ||
                          (strongFree.Count == 0 && isSynthetic)) &&
                          TryInferClosure(coord, membraneContext, patchCache,
-                            out MerkabaExportMembranePatch inferred))
+                            solveCache, out MerkabaExportMembranePatch inferred))
                     {
                         patches.Add(inferred);
                         inferredPatches++;
@@ -355,12 +357,13 @@ namespace Genesis.RoomScan
         private static bool TryBuildCachedPatch(int3 coord,
             IReadOnlyDictionary<int3, KernelState> states,
             Dictionary<int3, MerkabaOverlapShell.Patch?> cache,
+            MerkabaOverlapShell.SolveCache solveCache,
             out MerkabaOverlapShell.Patch patch)
         {
             if (!cache.TryGetValue(coord, out MerkabaOverlapShell.Patch? cached))
             {
                 cached = MerkabaOverlapShell.TryBuildPatch(coord, states,
-                    out MerkabaOverlapShell.Patch built)
+                    solveCache, out MerkabaOverlapShell.Patch built)
                     ? built : (MerkabaOverlapShell.Patch?)null;
                 cache.Add(coord, cached);
             }
@@ -371,6 +374,7 @@ namespace Genesis.RoomScan
         private static bool TryInferClosure(int3 coord,
             IReadOnlyDictionary<int3, KernelState> states,
             Dictionary<int3, MerkabaOverlapShell.Patch?> patchCache,
+            MerkabaOverlapShell.SolveCache solveCache,
             out MerkabaExportMembranePatch patch)
         {
             var donors = new List<(int3 Coord, MerkabaOverlapShell.Patch Patch)>();
@@ -379,7 +383,7 @@ namespace Genesis.RoomScan
                 int3 donorCoord = coord + offset;
                 if (!states.ContainsKey(donorCoord) ||
                     !TryBuildCachedPatch(donorCoord, states, patchCache,
-                        out MerkabaOverlapShell.Patch donor))
+                        solveCache, out MerkabaOverlapShell.Patch donor))
                     continue;
                 donors.Add((donorCoord, donor));
             }

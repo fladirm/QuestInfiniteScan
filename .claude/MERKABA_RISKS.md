@@ -325,7 +325,7 @@ operate at controller+0.20 m; hidden (opacity 0) tiles still take model raycasts
 radius/offset are world-sized. Design works only inside GLB View; live membrane has no
 raycastable representation.
 
-## RISK-17 — hybrid build beb903c on Quest: 30 fps, judder on movement, three UX/visual defects [OPEN, DEVICE EVIDENCE 2026-09-17 04:38-04:51]
+## RISK-17 — hybrid build beb903c on Quest: 30 fps, judder on movement, three UX/visual defects [ADDRESSED IN CODE 2026-09-17 (knot-line membrane, batched BACK transaction, UX-on-top render pass, viewer alpha, coverage film, erase tube); DEVICE ACCEPTANCE PENDING]
 
 Evidence (logcat of the run on `beb903c`, `~/Stažené` hybrid patch 0430):
 - Readout job (17 dispatches): n=86, avg 57.7 ms, max 186 ms (045be20 run: 244 / 1538 ms).

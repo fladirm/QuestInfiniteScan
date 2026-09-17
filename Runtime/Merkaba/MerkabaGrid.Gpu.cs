@@ -58,10 +58,14 @@ namespace Genesis.RoomScan
         internal const int RenderMutationJournalEntryWords = 2;
         internal const int RenderMutationJournalCount =
             RenderMutationJournalCapacity * RenderMutationJournalEntryWords;
-        internal const int CounterCount = 119;
+        internal const int CounterCount = 120;
         // MerkabaReadout.compute M8_RENDER_SCRATCH_*: readout build scratch.
+        // Scratch capacity in tiles; a batch uses the first RenderBatchTiles.
         internal const int RenderScratchTiles = 512;
+        internal const int RenderBatchTiles = 64;
         internal const int RenderScratchPatches = 512;
+        // 512 descriptors + 128 uint4 of compact measured indices per tile.
+        internal const int RenderScratchPatchStride = 640;
         internal const int RenderScratchCorners = 2048;
 
         internal const int CounterBlockCount = 0;
@@ -494,7 +498,8 @@ namespace Genesis.RoomScan
                 _m8Counters = Allocate(CounterCount, sizeof(uint));
                 // [0] observation/erase attempt, [1] readout publication.
                 // Each job kind writes only its own record.
-                _m8AttemptCompletion = Allocate(2, sizeof(uint) * 4);
+                // 0 editor readback, 1 publication decision, 2 batch progress.
+                _m8AttemptCompletion = Allocate(3, sizeof(uint) * 4);
 
                 _m8ClaimQueue = Allocate(MerkabaSpatial.ClaimRecordCount,
                     sizeof(uint) * 2);
@@ -531,10 +536,10 @@ namespace Genesis.RoomScan
                     sizeof(uint));
                 _m8RenderVersions = Allocate(MerkabaSpatial.PhysicalTileCapacity,
                     sizeof(uint));
-                // Readout scratch: up to RenderScratchTiles rebuild tiles per
-                // build; more stay dirty for the next build (carry-over).
+                // Readout scratch for one batch of the BACK transaction.
                 _m8RenderPatchScratch = Allocate(
-                    RenderScratchTiles * RenderScratchPatches, sizeof(uint) * 4);
+                    RenderScratchTiles * RenderScratchPatchStride,
+                    sizeof(uint) * 4);
                 _m8RenderKnotScratch = Allocate(
                     RenderScratchTiles * RenderScratchCorners, sizeof(uint) * 4);
                 _m8RenderKnotOwner = Allocate(

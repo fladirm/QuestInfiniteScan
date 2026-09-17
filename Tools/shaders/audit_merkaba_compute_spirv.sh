@@ -44,7 +44,7 @@ for shader in "${shader_paths[@]}"; do
     spirv-dis "$spv" -o "$assembly"
 
     if [[ "$kernel" == "CollectRenderPatchInputs" || \
-          "$kernel" == "ReduceAndSolveSharedKnots" || \
+          "$kernel" == "SolveSharedKnots" || \
           "$kernel" == "EmitRenderTileGeometry" ]]; then
       if grep -Eq 'OpTypeInt 64|Op[US](Div|Mod)|OpSRem' "$assembly"; then
         echo "FAIL: $kernel regressed to int64/integer div/mod" >&2
@@ -58,7 +58,7 @@ for shader in "${shader_paths[@]}"; do
       fi
       # The corner solve is register resident: no function-storage array of
       # any type may survive in the solve kernel.
-      if [[ "$kernel" == "ReduceAndSolveSharedKnots" ]] && awk '
+      if [[ "$kernel" == "SolveSharedKnots" ]] && awk '
         $3 == "OpTypeArray" { arrays[$1] = 1 }
         $3 == "OpTypePointer" && $4 == "Function" { pointed[$5] = 1 }
         END {

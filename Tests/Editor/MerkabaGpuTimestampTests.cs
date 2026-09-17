@@ -82,7 +82,7 @@ namespace Genesis.RoomScan.Tests
                 "MerkabaReadout.compute");
             int query = frame.FindProfiledKernel("RequestWarmResidency",
                 MerkabaGpuStage.WorldQuery);
-            int compile = frame.FindProfiledKernel("ReduceAndSolveSharedKnots",
+            int compile = frame.FindProfiledKernel("SolveSharedKnots",
                 MerkabaGpuStage.ReadoutBuild);
             using var command = new CommandBuffer();
             MerkabaGpuTimestamps.SetAvailableForTests(true);

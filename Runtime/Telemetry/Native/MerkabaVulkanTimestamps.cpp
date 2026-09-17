@@ -116,9 +116,11 @@ namespace
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
 
-    constexpr uint32_t kExecutorAbiVersion = 6;
+    constexpr uint32_t kExecutorAbiVersion = 7;
     constexpr uint32_t kObservationPipelineEnd = 33;
     constexpr uint32_t kReadoutPipelineBegin = 33;
+    constexpr uint32_t kReadoutBatchPipelineBegin = 43;
+    constexpr uint32_t kReadoutFinalizePipelineBegin = 47;
     constexpr uint32_t kFineErasePipelineBegin = 50;
     constexpr uint32_t kMaximumExecutorQueries =
         kMerkabaExecutorPipelineCount * 2 + 2;
@@ -132,6 +134,10 @@ namespace
         kJobObservationRetry = 1,
         kJobReadout = 2,
         kJobFineErase = 4,
+        // One BACK transaction: Begin, any number of Batch, Finalize.
+        kJobReadoutBegin = 5,
+        kJobReadoutBatch = 6,
+        kJobReadoutFinalize = 7,
     };
 
     struct MerkabaUniformValue
@@ -726,6 +732,24 @@ namespace
             *last = kMerkabaExecutorPipelineCount;
             return true;
         }
+        if (kind == kJobReadoutBegin)
+        {
+            *first = kReadoutPipelineBegin;
+            *last = kReadoutBatchPipelineBegin;
+            return true;
+        }
+        if (kind == kJobReadoutBatch)
+        {
+            *first = kReadoutBatchPipelineBegin;
+            *last = kReadoutFinalizePipelineBegin;
+            return true;
+        }
+        if (kind == kJobReadoutFinalize)
+        {
+            *first = kReadoutFinalizePipelineBegin;
+            *last = kFineErasePipelineBegin;
+            return true;
+        }
         return false;
     }
 
@@ -899,7 +923,8 @@ namespace
         return nullptr;
     }
 
-    constexpr VkDeviceSize kCompletionRecordBytes = 32;
+    // 0 editor readback, 1 publication decision, 2 batch progress.
+    constexpr VkDeviceSize kCompletionRecordBytes = 48;
 
     bool CreateJobCompletion(ExecutorJob* job)
     {
@@ -1905,7 +1930,7 @@ extern "C"
             descriptor->structSize != sizeof(MerkabaExecutorJobDescriptor) ||
             descriptor->abiVersion != kExecutorAbiVersion ||
             descriptor->revision == 0 ||
-            descriptor->kind > kJobFineErase || descriptor->kind == 3u ||
+            descriptor->kind > kJobReadoutFinalize || descriptor->kind == 3u ||
             descriptor->resourceCount != kResourceCount ||
             descriptor->resources == nullptr ||
             descriptor->uniformValueCount == 0 ||
@@ -1995,7 +2020,7 @@ extern "C"
         int recordCapacity)
     {
         ExecutorJob* job = static_cast<ExecutorJob*>(handle);
-        if (job == nullptr || record == nullptr || recordCapacity < 8 ||
+        if (job == nullptr || record == nullptr || recordCapacity < 12 ||
             job->completionMapped == nullptr)
             return 0;
         int state = job->state.load(std::memory_order_acquire);
@@ -2012,7 +2037,7 @@ extern "C"
             range.size = VK_WHOLE_SIZE;
             vkInvalidateMappedMemoryRanges(g_instance.device, 1, &range);
         }
-        std::memcpy(record, job->completionMapped, 8 * sizeof(uint32_t));
+        std::memcpy(record, job->completionMapped, 12 * sizeof(uint32_t));
         return 1;
     }
 

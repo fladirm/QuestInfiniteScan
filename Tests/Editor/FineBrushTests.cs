@@ -238,7 +238,8 @@ namespace Genesis.RoomScan.Tests
                 "InterlockedAnd(_M8TileBits[wordIndex].y, ~bit"));
             Assert.That(erase, Does.Contain(
                 "InterlockedAnd(_M8TileBits[wordIndex].z, ~bit"));
-            Assert.That(erase, Does.Contain(
+            // ERASE is a controller capsule tested at the kernel centre.
+            Assert.That(erase, Does.Not.Contain(
                 "gridPosition + normalGrid * signedOffset"));
             Assert.That(erase, Does.Not.Contain("UpdateOccupancy"));
             Assert.That(erase, Does.Not.Contain("MERKABA_FREE_SCALE"));

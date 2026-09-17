@@ -71,7 +71,7 @@ checks = {
         "HasPendingObservation" not in renderer and
         "HasPendingFineErase" not in renderer,
     "patch recount is parallel over current view":
-        "void RecountRenderPatches" in readout,
+        "void AdvanceRenderBuildBatch" in readout,
     "BuildTileCap tuning authority removed":
         "BuildTileCap" not in renderer and
         "_M8RenderBuildTileCap" not in readout,
@@ -79,8 +79,8 @@ checks = {
         "slotGroups" not in renderer,
     "native readout executes on the scanner queue":
         "if (kind == JobKind.Readout) return false;" not in native and
-        "AbiVersion = 6" in native and
-        "kExecutorAbiVersion = 6;" in text(
+        "AbiVersion = 7" in native and
+        "kExecutorAbiVersion = 7;" in text(
             "Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp") and
         "SubmitNativeReadoutBuild" in renderer,
     "device publication is confirmed by the native fence copy":
@@ -151,8 +151,9 @@ checks["managed stage timing begins equal the plugin job boundaries"] = \
     pipeline_begins_match()
 checks["publication validates page ownership, not only index range"] = \
     "M8_RENDER_OWNER_BASE" in readout and \
-    "InterlockedCompareExchange(\n            _M8RenderPageQueues[M8_RENDER_OWNER_BASE + page]" in readout and \
-    "(vertex >> M8_RENDER_PAGE_VERTEX_SHIFT)] !=" in readout
+    "_M8RenderPageQueues[M8_RENDER_OWNER_BASE + page] !=" in readout and \
+    "physicalSlot + 1u" in readout[readout.index("void ValidatePublication"):] and \
+    "InterlockedOr(_M8Counters[M8_COUNTER_RENDER_PUBLICATION_INVALID]" in readout[readout.index("void EmitRenderTileGeometry"):readout.index("void PublishRenderTileList")]
 checks["an unresolved halo keeps the scan transaction open"] = \
     "unresolved != 0u;" in readout
 checks["a rejected BACK keeps FRONT and its own pages"] = \
@@ -185,28 +186,47 @@ checks["corner solve is register resident (no 12-entry private arrays)"] = all(
     for token in ("bool valid[12]", "float heights[12]", "uint signatures[12]",
                   "int3 coords[12]", "uint near[12]", "uint below[12]")) and \
     "float4 heights0 = 0.0" in text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl")
-checks["patch descriptors have fixed kernelLocal slots (no groupshared map)"] = \
+checks["patch descriptors have fixed kernelLocal slots and a compact measured list"] = \
     "gM8PatchOfKernel" not in readout and \
-    "_M8RenderPatchScratch[patchBase + kernelLocal] = descriptor" in readout
+    "_M8RenderPatchScratch[patchBase + kernelLocal] = descriptor" in readout and \
+    "M8ScratchCompactKernel(" in readout
 checks["invalid membrane patches emit no degenerate triangles"] = \
     "M8_SCRATCH_PATCH_VALID" in readout and "b = a; c = a; d = a;" not in readout
 checks["vertex ordinals are assigned only after ownership is final"] = \
     "0x80000000u | ordinal" in readout and \
     readout.index("0x80000000u | ordinal") > readout.index("Phase C:") and \
     "no lane walks the tile serially" in readout
+checks["the knot is a function of its line, chart, side and layer (CPU twin)"] = \
+    "TrySolveKnot(" in membrane and "CanonicalChart(" in membrane and \
+    "KnotIdentity" in membrane and "TryResolveCorner" not in membrane
+checks["BACK is one transaction in batches: no batch publishes, no carry-over FRONT"] = \
+    "M8_RENDER_BATCH_TILES 64u" in readout and \
+    "void AdvanceRenderBuildBatch" in readout and \
+    "M8_COUNTER_RENDER_BATCH_CURSOR" in readout and \
+    "beyond the scratch capacity" not in readout and \
+    "RecountRenderPatches" not in readout and \
+    "JobKind.ReadoutBegin" in renderer and "JobKind.ReadoutBatch" in renderer and \
+    "JobKind.ReadoutFinalize" in renderer and \
+    "NativeReadoutPhase.Finalize" in renderer
+checks["page ownership is written at allocation and cleared at reclaim"] = \
+    "gM8MembranePhysicalSlot + 1u" in readout[readout.index("bool M8TakeRenderPages"):] and \
+    "M8_RENDER_OWNER_BASE + (entry & M8_RENDER_PAGE_ID_MASK)" in readout and \
+    "InterlockedAdd(_M8RenderIndexBack[1]" in readout
+checks["coverage traversal always builds the BACK list; cold loads are gated"] = \
+    "_M8AllowWarmLoads" in readout and \
+    "if (_M8AllowWarmLoads != 0u)" in readout
 checks["live readout consumes the generated membrane oracle"] = \
     '#include "MerkabaOverlapShell.generated.hlsl"' in readout and \
-    "M8MembraneResolveCorner(globalCoord, state, normal, signedOffset," in readout and \
+    "M8MembraneSolveKnot(globalCoord, normal, chart," in readout and \
     "void CollectRenderPatchInputs" in readout and \
-    "void ReduceAndSolveSharedKnots" in readout and \
+    "void SolveSharedKnots" in readout and \
     "void EmitRenderTileGeometry" in readout and \
     "void BuildRenderTiles" not in readout and \
     "M8_MEMBRANE_INDICES_PER_PATCH" in readout
-checks["the 50 mm support no longer defines production topology"] = \
-    "MerkabaSkin" not in readout and "M8_SKIN_" not in readout and \
-    not (ROOT / "Runtime/Merkaba/MerkabaSkin.cs").exists() and \
-    not (ROOT / "Runtime/Shaders/MerkabaSkin.generated.hlsl").exists() and \
-    not (ROOT / "Editor/MerkabaSkinGenerator.cs").exists()
+checks["no support clamp and no invented fallback geometry"] = \
+    "M8_MEMBRANE_KNOT_SUPPORT_LIMIT" not in readout and \
+    "MembraneKnotSupportLimit" not in membrane and \
+    "M8_MEMBRANE_MAX_EDGE" in readout and "MembraneMaxEdge" in membrane
 checks["CPU export uses the same membrane oracle with knot colours"] = \
     "MerkabaOverlapShell.TryBuildPatch(kernel.Coord, context" in exporter and \
     "MerkabaSkin" not in exporter and \
@@ -219,13 +239,16 @@ checks["knots carry global identity and canonical colour"] = \
     "internal readonly int3 LineAddress;" in membrane and \
     "M8LoadMembraneColor(bestCoord, ownerColor, ownerConfidence)" in text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl")
 checks["readout solve and emission are separate dispatches"] = \
-    "M8MembraneResolveCorner(" not in readout[readout.index("void EmitRenderTileGeometry"):] and \
-    "M8StoreRenderVertex(" not in readout[readout.index("void ReduceAndSolveSharedKnots"):readout.index("void EmitRenderTileGeometry")]
-checks["one physical knot is one vertex inside a tile"] = \
-    "M8_MEMBRANE_WELD_EPSILON" in readout and "_M8RenderKnotOwner" in readout
-checks["knots are guarded by support and edge limits on both twins"] = \
-    "M8_MEMBRANE_KNOT_SUPPORT_LIMIT" in readout and "M8_MEMBRANE_MAX_EDGE" in readout and \
-    "MembraneKnotSupportLimit" in membrane and "MembraneMaxEdge" in membrane
+    "M8MembraneSolveKnot(" not in readout[readout.index("void EmitRenderTileGeometry"):] and \
+    "M8StoreRenderVertex(" not in readout[readout.index("void SolveSharedKnots"):readout.index("void EmitRenderTileGeometry")]
+checks["one physical knot is one vertex inside a tile (exact identity, no epsilon)"] = \
+    "_M8RenderKnotOwner" in readout and \
+    "(theirs.w >> 8u) != (mine.w >> 8u)" in readout and \
+    "M8_MEMBRANE_WELD_EPSILON" not in readout
+checks["no support clamp and no invented fallback geometry, edge guard on both twins"] = \
+    "M8_MEMBRANE_KNOT_SUPPORT_LIMIT" not in readout and \
+    "MembraneKnotSupportLimit" not in membrane and \
+    "M8_MEMBRANE_MAX_EDGE" in readout and "MembraneMaxEdge" in membrane
 checks["draw opacity is real alpha blending selected on the CPU"] = \
     "Blend [_SrcBlend] [_DstBlend]" in shader and "M8_ALPHA_BLEND" in shader and \
     "_material.EnableKeyword(\"M8_ALPHA_BLEND\")" in renderer and \

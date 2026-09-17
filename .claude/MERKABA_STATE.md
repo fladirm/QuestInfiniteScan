@@ -87,3 +87,18 @@ offline: MerkabaExportShell -> MerkabaExportMembrane -> MerkabaGlbWriter
 24-face-quadrant / 26-neighbour-mask design and name files that do not exist
 (`MerkabaChunk.cs`, `MerkabaTopology.compute`). They are historical. `contr.md` and the
 source are authoritative.
+
+## 2026-09-17 knot-line membrane and batched readout transaction (this session)
+
+- Membrane: `MerkabaOverlapShell.TrySolveKnot` (CPU) and `M8MembraneSolveKnot` (HLSL twin)
+  solve one knot per (line, chart, side, layer) from the line's own uses; identity =
+  winner cells (`KnotIdentity`); canonical chart per cell from the face-neighbour sheet
+  (`CanonicalChart`). No weld epsilon, no support clamp, no owner-chain weld.
+- Readout: one BACK transaction = ReadoutBegin -> ReadoutBatch (64 tiles, one per
+  frame at most) -> ReadoutFinalize; scratch 64 tiles; page owner written at
+  allocation; index total by delta; ValidatePublication over the rebuild list;
+  RecountRenderPatches deleted; warm cold loads gated by `_M8AllowWarmLoads`. ABI 7.
+- Draw/UX: UI layer drawn by `MerkabaUiOnTopFeature` after transparents (depth Always);
+  translucent scan = depth-only pass + ZTest Equal colour pass; viewer opacity is real
+  alpha; coverage film continuous; erase tube shown from the controller.
+- Plan and deviations: `.claude/MERKABA_KNOT_PLAN.md`. DEVICE ACCEPTANCE PENDING.

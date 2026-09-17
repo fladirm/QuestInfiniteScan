@@ -8,11 +8,11 @@
 #pragma kernel ApplyRenderMutationJournal
 #pragma kernel CollectRenderRebuildTiles
 #pragma kernel PrepareRenderBuild
+#pragma kernel AdvanceRenderBuildBatch
 #pragma kernel CollectRenderPatchInputs
-#pragma kernel ReduceAndSolveSharedKnots
+#pragma kernel SolveSharedKnots
 #pragma kernel EmitRenderTileGeometry
 #pragma kernel PublishRenderTileList
-#pragma kernel RecountRenderPatches
 #pragma kernel ValidatePublication
 #pragma kernel FinalizeReadout
 
@@ -59,7 +59,7 @@ RWStructuredBuffer<uint4> _M8AttemptCompletion;
 // Per-frame visibility (graphics queue, FRONT only).
 // Per-build readout scratch, one region per rebuild tile (work index):
 // patch descriptors from CollectRenderPatchInputs, corner results and knot
-// ownership from ReduceAndSolveSharedKnots, one header per tile.
+// ownership from SolveSharedKnots, one header per tile.
 RWStructuredBuffer<uint4> _M8RenderPatchScratch;
 RWStructuredBuffer<uint4> _M8RenderKnotScratch;
 RWStructuredBuffer<uint> _M8RenderKnotOwner;
@@ -82,6 +82,9 @@ float4x4 _MerkabaGridToWorld;
 float4x4 _MerkabaWorldToGrid;
 uint _M8ReadoutRevision;
 uint _M8ResidencyChanged;
+// 1: the coverage traversal may request cold loads (residency query);
+// 0: it only builds the BACK coverage list and the rebuild set.
+uint _M8AllowWarmLoads;
 
 // Published tile count and active list of the FRONT slot.
 uint M8FrontTileCount()
@@ -214,7 +217,10 @@ void BeginRenderBuild(uint id : SV_DispatchThreadID)
     _M8RenderIndexBack[M8_RENDER_HEADER_LIST_REGION] =
         (_M8RenderIndexBack[M8_RENDER_HEADER_LIST_REGION] ^ 1u) & 1u;
     _M8RenderIndexBack[0] = 0u;
-    _M8RenderIndexBack[1] = 0u;
+    // _M8RenderIndexBack[1] (published indices) follows the records by
+    // delta and is never recounted.
+    _M8Counters[M8_COUNTER_RENDER_BATCH_BASE] = 0u;
+    _M8Counters[M8_COUNTER_RENDER_BATCH_CURSOR] = 0u;
 }
 
 groupshared uint gFrameBlockRef;
@@ -361,8 +367,9 @@ void RequestWarmResidency(uint3 groupId : SV_GroupID, uint thread : SV_GroupInde
                     ((dependency0 >> d0) & 1u) != 0u;
                 if (tileRef == MERKABA_REF_COLD_ON_SSD)
                 {
-                    M8RequestWarmLoad(tileRefIndex, chunkIndex, tileLocal,
-                        inDraw);
+                    if (_M8AllowWarmLoads != 0u)
+                        M8RequestWarmLoad(tileRefIndex, chunkIndex, tileLocal,
+                            inDraw);
                     if (inDraw)
                         M8CounterIncrement(M8_COUNTER_READOUT_UNRESOLVED);
                     continue;
@@ -468,26 +475,22 @@ groupshared uint gM8MembraneOccupiedWords[M8_MEMBRANE_TILE_WORD_COUNT];
 // the kernel states, so a corner candidate costs one groupshared read.
 #define M8_MEMBRANE_CELL_WORDS 108u
 #define M8_RENDER_TILE_KERNELS 512u
-// Readout scratch capacity: at most this many rebuild tiles are solved per
-// build; the rest keep their previous record and stay dirty for the next
-// build (carry-over, never dropped).
+// One BACK transaction runs in batches of this many rebuild tiles; every
+// batch reuses the scratch from work index 0. No batch publishes: FRONT
+// changes only after the last one validated. The scratch keeps its 512-tile
+// capacity (see MERKABA_KNOT_PLAN section 10: editor evidence with 64).
+#define M8_RENDER_BATCH_TILES 64u
 #define M8_RENDER_SCRATCH_TILES 512u
-#define M8_RENDER_SCRATCH_PATCHES 512u
+// Per work tile: 512 descriptors + 128 uint4 of compact measured indices.
+#define M8_RENDER_SCRATCH_PATCH_STRIDE 640u
 #define M8_RENDER_SCRATCH_CORNERS 2048u
 #define M8_RENDER_SCRATCH_CORNER_SHIFT 11u
-#define M8_RENDER_SCRATCH_PATCH_SHIFT 9u
-// Descriptor w after the solve: valid patch flag | output ordinal.
+// Descriptor w: measured flag | compact index while solving, then the valid
+// patch flag | output ordinal, or 0.
+#define M8_SCRATCH_MEASURED 0x40000000u
+#define M8_SCRATCH_INDEX_MASK 0x1ffu
 #define M8_SCRATCH_PATCH_VALID 0x80000000u
 #define M8_SOLVE_GROUP_THREADS 64u
-// Header words: 0 patch count, 1 knot (vertex) count, 2 unresolved, 3 flags.
-#define M8_SCRATCH_FLAG_GUARDED 1u
-// A solved knot may not leave its MAIN's support: farther than one lattice
-// step from MAIN's own plane height it falls back to that height.
-#define M8_MEMBRANE_KNOT_SUPPORT_LIMIT MERKABA_LATTICE_STEP
-// Knots of one line and chart within this height distance are one vertex.
-#define M8_MEMBRANE_WELD_EPSILON 0.001
-// No patch edge may exceed this; longer patches are degenerate.
-#define M8_MEMBRANE_MAX_EDGE 0.045
 groupshared float4 gM8MembranePlane[M8_MEMBRANE_CACHE_COUNT];
 groupshared uint gM8MembraneCellBits[M8_MEMBRANE_CELL_WORDS];
 groupshared uint gM8MembraneCanEmit;
@@ -699,6 +702,9 @@ void ReclaimRenderPages(uint id : SV_DispatchThreadID)
         ((head + id) & M8_RENDER_RETIRE_MASK)];
     _M8RenderPageQueues[M8_RENDER_FREE_BASE + freeBase + id] =
         entry & M8_RENDER_PAGE_ID_MASK;
+    // A page returning to the free stack belongs to no record.
+    _M8RenderPageQueues[M8_RENDER_OWNER_BASE + (entry & M8_RENDER_PAGE_ID_MASK)]
+        = 0u;
 }
 
 [numthreads(1, 1, 1)]
@@ -716,11 +722,8 @@ void ApplyRenderReclaim(uint id : SV_DispatchThreadID)
 [numthreads(128, 1, 1)]
 void CopyRenderIndex(uint id : SV_DispatchThreadID)
 {
-    // Page ownership of this publication starts empty; RecountRenderPatches
-    // claims every page of every published record. This sweep covers one
-    // physical tile per thread, two pages each.
-    _M8RenderPageQueues[M8_RENDER_OWNER_BASE + id * 2u] = 0u;
-    _M8RenderPageQueues[M8_RENDER_OWNER_BASE + id * 2u + 1u] = 0u;
+    // Page ownership persists with the pages: written at allocation, cleared
+    // at reclaim. Nothing is swept here.
     if (id >= M8BackPreviousTileCount()) return;
     uint physicalSlot = _M8RenderIndexBack[M8BackPreviousListBase() + id];
     if (physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) return;
@@ -873,6 +876,9 @@ void CollectRenderRebuildTiles(uint id : SV_DispatchThreadID)
     uint base = M8RecordBase(physicalSlot);
     if (_M8RenderIndexBack[base + 2u] == 0u) return;
     M8RetireBackRecordPages(base);
+    uint ignored;
+    InterlockedAdd(_M8RenderIndexBack[1], ~_M8RenderIndexBack[base + 0u] + 1u,
+        ignored);
     _M8RenderIndexBack[base + 0u] = 0u;
     _M8RenderIndexBack[base + 1u] = 0u;
     _M8RenderIndexBack[base + 2u] = 0u;
@@ -894,9 +900,14 @@ void PrepareRenderBuild(uint id : SV_DispatchThreadID)
     uint tiles = min(_M8Counters[M8_COUNTER_RENDER_REBUILD_TILES],
         MERKABA_M8_PHYSICAL_TILE_CAPACITY);
     _M8Counters[M8_COUNTER_VISIBLE_TILE_COUNT] = tiles;
-    _M8FrameDispatchArgs[0] = tiles;
+    // The rebuild list is immutable from here; AdvanceRenderBuildBatch
+    // schedules it batch by batch. Record 2 tells the CPU how far it is.
+    _M8Counters[M8_COUNTER_RENDER_BATCH_BASE] = 0u;
+    _M8Counters[M8_COUNTER_RENDER_BATCH_CURSOR] = 0u;
+    _M8FrameDispatchArgs[0] = 0u;
     _M8FrameDispatchArgs[1] = 1u;
     _M8FrameDispatchArgs[2] = 1u;
+    _M8AttemptCompletion[2] = uint4(_M8ReadoutRevision, 0u, tiles, 0u);
 }
 
 
@@ -981,6 +992,9 @@ bool M8TakeRenderPages(uint pagesNeeded)
         uint pageId = _M8RenderPageQueues[
             M8_RENDER_FREE_BASE + remaining - 1u - page];
         _M8RenderPageQueues[M8_RENDER_ALLOC_BASE + allocBase + page] = pageId;
+        // Ownership is written with the allocation and cleared by reclaim.
+        _M8RenderPageQueues[M8_RENDER_OWNER_BASE + pageId] =
+            gM8MembranePhysicalSlot + 1u;
         if (previous != M8_RENDER_PAGE_INVALID)
             _M8RenderPageQueues[M8_RENDER_LINK_BASE + previous] = pageId;
         _M8RenderPageQueues[M8_RENDER_LINK_BASE + pageId] =
@@ -1033,29 +1047,76 @@ uint M8MembraneIndexSlot(uint tileIndex)
 }
 
 // ---------------------------------------------------------------------------
-// Readout build in three flat dispatches per rebuild tile (contract C5/C6):
-//   CollectRenderPatchInputs   one descriptor slot per kernel, fixed by
-//                              kernelLocal: no atomic compaction, no map
-//   ReduceAndSolveSharedKnots  one corner solve per task, weld so one physical
-//                              knot is one vertex; valid patches and referenced
-//                              root knots take ordinals by atomic ticket
-//   EmitRenderTileGeometry     pages, one vertex per referenced root knot, six
-//                              indices per valid patch, records
+// Readout build: one BACK transaction in batches of M8_RENDER_BATCH_TILES,
+// every batch three flat dispatches per rebuild tile (contract C5/C6):
+//   AdvanceRenderBuildBatch    cursor and dispatch size of the next batch
+//   CollectRenderPatchInputs   descriptors (fixed kernelLocal slots) and the
+//                              compact list of measured MAINs
+//   SolveSharedKnots           one knot solve per corner task of a measured
+//                              MAIN; a knot is owned by its lowest task and
+//                              identical knots (same winner cells) are one
+//                              vertex by construction: no epsilon weld
+//   EmitRenderTileGeometry     pages (owner written at allocation), one
+//                              vertex per root knot, six indices per valid
+//                              patch, record with index-count delta
 // No kernel mixes solve with emission, nothing is indexed dynamically in
-// private memory and no lane walks the tile serially.
+// private memory, no lane walks the tile serially and no batch publishes.
 // ---------------------------------------------------------------------------
 
 groupshared uint gM8ScratchVertexTotal;
 groupshared uint gM8ScratchValidPatches;
+groupshared uint gM8MeasuredWords[16];
+groupshared uint gM8MeasuredList[M8_RENDER_TILE_KERNELS];
 
+// Scratch of batch-local work tile w: 512 descriptors then 128 uint4 that
+// hold the compact list of measured kernelLocals (four per uint4).
 uint M8ScratchPatchBase(uint work)
 {
-    return work << M8_RENDER_SCRATCH_PATCH_SHIFT;
+    return work * M8_RENDER_SCRATCH_PATCH_STRIDE;
+}
+
+uint M8ScratchCompactBase(uint work)
+{
+    return work * M8_RENDER_SCRATCH_PATCH_STRIDE + M8_RENDER_TILE_KERNELS;
 }
 
 uint M8ScratchCornerBase(uint work)
 {
     return work << M8_RENDER_SCRATCH_CORNER_SHIFT;
+}
+
+uint M8ScratchCompactKernel(uint patchBase, uint index)
+{
+    uint4 entry = _M8RenderPatchScratch[patchBase + M8_RENDER_TILE_KERNELS +
+        (index >> 2u)];
+    uint lane = index & 3u;
+    return lane == 0u ? entry.x : lane == 1u ? entry.y :
+        lane == 2u ? entry.z : entry.w;
+}
+
+uint M8ScratchCompactKernelRead(uint patchBase, uint index)
+{
+    uint4 entry = _M8RenderPatchScratchRead[patchBase +
+        M8_RENDER_TILE_KERNELS + (index >> 2u)];
+    uint lane = index & 3u;
+    return lane == 0u ? entry.x : lane == 1u ? entry.y :
+        lane == 2u ? entry.z : entry.w;
+}
+
+// Population count without the intrinsic (FXC rejects it in this shader on
+// the Vulkan path).
+uint M8PopCount(uint value)
+{
+    value = value - ((value >> 1u) & 0x55555555u);
+    value = (value & 0x33333333u) + ((value >> 2u) & 0x33333333u);
+    value = (value + (value >> 4u)) & 0x0f0f0f0fu;
+    return (value * 0x01010101u) >> 24u;
+}
+
+// Rebuild-list index of batch-local work tile w.
+uint M8BatchWork(uint local)
+{
+    return _M8Counters[M8_COUNTER_RENDER_BATCH_BASE] + local;
 }
 
 // Retires the record of a tile whose identity is gone (evicted or reused).
@@ -1064,6 +1125,9 @@ void M8ClearDepartedRecord(uint work, uint physicalSlot)
     uint ignored;
     uint base = M8RecordBase(physicalSlot);
     M8RetireBackRecordPages(base);
+    // The publication total follows the record by delta, never by recount.
+    InterlockedAdd(_M8RenderIndexBack[1], ~_M8RenderIndexBack[base + 0u] + 1u,
+        ignored);
     _M8RenderIndexBack[base + 0u] = 0u;
     _M8RenderIndexBack[base + 1u] = 0u;
     _M8RenderIndexBack[base + 2u] = 0u;
@@ -1076,40 +1140,48 @@ void M8ClearDepartedRecord(uint work, uint physicalSlot)
     _M8VisibleTiles[work].y = 1u;
 }
 
-// Descriptor: x = kernelLocal | chart << 9 | freeSignature << 11,
-// y = MAIN flags, z = packed colour, w = colour confidence while solving,
-// then M8_SCRATCH_PATCH_VALID | output ordinal for a valid patch, 0 otherwise.
+// Descriptor: x = kernelLocal, y = MAIN flags, z = packed colour,
+// w = compact index | M8_SCRATCH_MEASURED while solving, then
+// M8_SCRATCH_PATCH_VALID | output ordinal for a valid patch, 0 otherwise.
 bool M8DescriptorMeasured(uint4 descriptor)
 {
-    return (descriptor.y & MERKABA_OCCUPIED_FLAG) != 0u &&
-        M8HasSurfacePlane(descriptor.y);
+    return (descriptor.w & M8_SCRATCH_MEASURED) != 0u;
 }
 
-// Kernel 1: one descriptor slot per kernel of the tile. A slot that holds
-// no measured MAIN is written as zero, which also clears stale scratch.
+// The next batch of the transaction: cursor, dispatch size, completion
+// record 2 = (revision, cursor after this batch, rebuild count, scheduled).
+[numthreads(1, 1, 1)]
+void AdvanceRenderBuildBatch(uint id : SV_DispatchThreadID)
+{
+    uint total = min(_M8Counters[M8_COUNTER_RENDER_REBUILD_TILES],
+        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
+    uint cursor = _M8Counters[M8_COUNTER_RENDER_BATCH_CURSOR];
+    uint scheduled = cursor < total
+        ? min(total - cursor, M8_RENDER_BATCH_TILES) : 0u;
+    _M8Counters[M8_COUNTER_RENDER_BATCH_BASE] = cursor;
+    _M8Counters[M8_COUNTER_RENDER_BATCH_CURSOR] = cursor + scheduled;
+    _M8FrameDispatchArgs[0] = scheduled;
+    _M8FrameDispatchArgs[1] = 1u;
+    _M8FrameDispatchArgs[2] = 1u;
+    _M8AttemptCompletion[2] = uint4(_M8ReadoutRevision, cursor + scheduled,
+        total, scheduled);
+}
+
+// Kernel 1: fixed descriptor slot per kernel and the compact measured list.
 [numthreads(128, 1, 1)]
 void CollectRenderPatchInputs(uint3 groupId : SV_GroupID,
     uint thread : SV_GroupIndex)
 {
-    uint work = groupId.x;
+    uint local = groupId.x;
+    uint work = M8BatchWork(local);
     uint physicalSlot = _M8VisibleTiles[work].x;
     if (thread == 0u)
     {
         gM8MembraneMeasuredTotal = 0u;
-        gM8MembraneUnresolved = 0u;
         gM8MembraneFailed = 0u;
         if (M8CurrentRenderIdentity(physicalSlot) == 0u)
         {
             M8ClearDepartedRecord(work, physicalSlot);
-            gM8MembraneFailed = 2u;
-        }
-        else if (work >= M8_RENDER_SCRATCH_TILES)
-        {
-            // Beyond the scratch capacity: keep the previous record, stay
-            // dirty, list it if it was published before.
-            _M8VisibleTiles[work].y =
-                _M8RenderIndexBack[M8RecordBase(physicalSlot) + 2u] != 0u
-                    ? 1u : 0u;
             gM8MembraneFailed = 2u;
         }
         else
@@ -1121,103 +1193,71 @@ void CollectRenderPatchInputs(uint3 groupId : SV_GroupID,
                 _M8TileRecords[M8TileMetaIndex(physicalSlot)].z, ignored);
         }
     }
+    if (thread < 16u) gM8MeasuredWords[thread] = 0u;
     GroupMemoryBarrierWithGroupSync();
     if (gM8MembraneFailed == 2u) return;
 
-    M8ReadoutTileContext context = M8SharedReadoutTileContext();
-    if (thread < M8_MEMBRANE_TILE_COUNT)
-        gM8MembraneTileSlots[thread] = M8ResolveMembraneTile(context,
-            M8MembraneTileOffset(thread));
-    if (thread < M8_MEMBRANE_CELL_WORDS) gM8MembraneCellBits[thread] = 0u;
-    GroupMemoryBarrierWithGroupSync();
-
-    for (uint wordIndex = thread;
-        wordIndex < M8_MEMBRANE_TILE_WORD_COUNT;
-        wordIndex += M8_SHELL_GROUP_THREADS)
-    {
-        uint tileIndex = wordIndex >> 4u;
-        uint word = wordIndex - tileIndex * MERKABA_M8_TILE_WORDS;
-        uint slot = gM8MembraneTileSlots[tileIndex];
-        gM8MembraneOccupiedWords[wordIndex] =
-            slot < MERKABA_M8_PHYSICAL_TILE_CAPACITY
-            ? _M8TileBitsRead[M8TileWordIndex(slot, word)].x : 0u;
-    }
-    // Only the two free-side cells of each MAIN are classified here; the
-    // solve dispatch builds the full plane cache.
-    for (uint cacheIndex = thread; cacheIndex < M8_MEMBRANE_CACHE_COUNT;
-        cacheIndex += M8_SHELL_GROUP_THREADS)
-    {
-        int3 relative;
-        uint tileIndex;
-        uint kernelLocal;
-        M8MembraneCacheAddress(cacheIndex, relative, tileIndex, kernelLocal);
-        uint slot = gM8MembraneTileSlots[tileIndex];
-        uint bits = 0u;
-        if (slot < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
-        {
-            uint occupancy = gM8MembraneOccupiedWords[tileIndex *
-                MERKABA_M8_TILE_WORDS + (kernelLocal >> 5u)];
-            if ((occupancy & (1u << (kernelLocal & 31u))) != 0u)
-                bits = 1u;
-            else if (M8LoadKernelEvidenceOnly(slot, kernelLocal) <=
-                     MERKABA_EXPORT_KNOWN_FREE)
-                bits = 2u;
-        }
-        if (bits != 0u)
-        {
-            uint ignored;
-            InterlockedOr(gM8MembraneCellBits[cacheIndex >> 4u],
-                bits << ((cacheIndex & 15u) * 2u), ignored);
-        }
-    }
-    GroupMemoryBarrierWithGroupSync();
-
-    uint patchBase = M8ScratchPatchBase(work);
+    uint patchBase = M8ScratchPatchBase(local);
     [loop]
     for (uint batch = 0u; batch < 4u; batch++)
     {
         uint kernelLocal = thread + batch * M8_SHELL_GROUP_THREADS;
         uint4 descriptor = 0u;
-        uint occupancy = gM8MembraneOccupiedWords[
-            M8_MEMBRANE_CENTER_TILE * MERKABA_M8_TILE_WORDS +
-            (kernelLocal >> 5u)];
+        uint occupancy = _M8TileBitsRead[M8TileWordIndex(physicalSlot,
+            kernelLocal >> 5u)].x;
         if ((occupancy & (1u << (kernelLocal & 31u))) != 0u)
         {
-            KernelState state =
-                M8LoadKernelStateRead(physicalSlot, kernelLocal);
-            if ((state.flags & MERKABA_OCCUPIED_FLAG) != 0u &&
-                M8HasSurfacePlane(state.flags))
+            uint flags = M8LoadKernelFlagsOnly(physicalSlot, kernelLocal);
+            if ((flags & MERKABA_OCCUPIED_FLAG) != 0u &&
+                M8HasSurfacePlane(flags))
             {
                 uint ignored;
                 InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_PLANE_VALID],
                     1u, ignored);
-                float3 normal;
-                float signedOffset;
-                M8DecodeSurfacePlane(state.flags, normal, signedOffset);
-                int chart = M8MembraneDominantAxis(normal);
-                int3 globalCoord = context.tileOrigin + int3(
-                    kernelLocal & 7u, (kernelLocal >> 3u) & 7u,
-                    (kernelLocal >> 6u) & 7u);
-                uint freeSignature;
-                bool unresolved;
-                if (M8MembraneFreeSideSignature(globalCoord, chart,
-                        freeSignature, unresolved))
-                {
-                    descriptor = uint4(kernelLocal | ((uint)chart << 9u) |
-                        (freeSignature << 11u), state.flags,
-                        state.packedColor, state.colorConfidence);
-                    InterlockedAdd(gM8MembraneMeasuredTotal, 1u, ignored);
-                }
-                else if (unresolved)
-                    InterlockedOr(gM8MembraneUnresolved, 1u, ignored);
+                InterlockedOr(gM8MeasuredWords[kernelLocal >> 5u],
+                    1u << (kernelLocal & 31u), ignored);
+                descriptor = uint4(kernelLocal, flags, 0u, M8_SCRATCH_MEASURED);
             }
         }
         _M8RenderPatchScratch[patchBase + kernelLocal] = descriptor;
     }
     GroupMemoryBarrierWithGroupSync();
+
+    // Compact list in kernelLocal order: prefix over the measured words.
+    [loop]
+    for (uint batch = 0u; batch < 4u; batch++)
+    {
+        uint kernelLocal = thread + batch * M8_SHELL_GROUP_THREADS;
+        uint wordIndex = kernelLocal >> 5u;
+        uint word = gM8MeasuredWords[wordIndex];
+        uint bit = 1u << (kernelLocal & 31u);
+        if ((word & bit) == 0u) continue;
+        uint index = M8PopCount(word & (bit - 1u));
+        [unroll]
+        for (uint previous = 0u; previous < 16u; previous++)
+            index += previous < wordIndex ? M8PopCount(gM8MeasuredWords[previous])
+                : 0u;
+        uint4 descriptor = _M8RenderPatchScratch[patchBase + kernelLocal];
+        descriptor.w = M8_SCRATCH_MEASURED | index;
+        _M8RenderPatchScratch[patchBase + kernelLocal] = descriptor;
+        gM8MeasuredList[index] = kernelLocal;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    // Four compact entries per uint4, one whole element per thread: no
+    // partial element stores, nothing to race.
+    uint total = 0u;
+    [unroll]
+    for (uint wordIndex = 0u; wordIndex < 16u; wordIndex++)
+        total += M8PopCount(gM8MeasuredWords[wordIndex]);
+    uint entry = thread * 4u;
+    if (entry < total)
+        _M8RenderPatchScratch[patchBase + M8_RENDER_TILE_KERNELS + thread] =
+            uint4(gM8MeasuredList[entry],
+                entry + 1u < total ? gM8MeasuredList[entry + 1u] : 0u,
+                entry + 2u < total ? gM8MeasuredList[entry + 2u] : 0u,
+                entry + 3u < total ? gM8MeasuredList[entry + 3u] : 0u);
     if (thread == 0u)
-        _M8RenderScratchHeader[work] = uint4(0u, 0u,
-            gM8MembraneUnresolved, gM8MembraneMeasuredTotal);
+        _M8RenderScratchHeader[local] = uint4(0u, 0u, 0u, total);
 }
 
 // Corner slot order of a patch: 0 = (-1,-1), 1 = (+1,-1), 2 = (+1,+1),
@@ -1225,17 +1265,27 @@ void CollectRenderPatchInputs(uint3 groupId : SV_GroupID,
 int M8CornerSign0(uint corner) { return (corner == 1u || corner == 2u) ? 1 : -1; }
 int M8CornerSign1(uint corner) { return corner >= 2u ? 1 : -1; }
 
-// Kernel 2: solve every patch corner once from the plane cache, weld corners
-// of one line, chart and free side whose heights agree so that one physical
-// knot is one vertex inside the tile, then give valid patches and the root
-// knots they reference their ordinals. Corner task = kernelLocal * 4 + corner.
-// Knot result: x = height bits, y = knot colour, z = key, w = bit 0 solved,
-// bit 1 referenced by a valid patch.
-[numthreads(64, 1, 1)]
-void ReduceAndSolveSharedKnots(uint3 groupId : SV_GroupID,
-    uint thread : SV_GroupIndex)
+// Knot key of a corner task: line address in tangent axes (9 bits each,
+// offset 256), chart and side. Together with the winner key it is the exact
+// identity of the knot.
+uint M8KnotKey(int3 knotLine, int tangentAxis0, int tangentAxis1, int chart,
+    uint side)
 {
-    uint work = groupId.x;
+    return ((uint)(knotLine[tangentAxis0] + 256) & 511u) |
+        (((uint)(knotLine[tangentAxis1] + 256) & 511u) << 9u) |
+        ((uint)chart << 18u) | (side << 20u);
+}
+
+// Kernel 2: solve every corner task of the measured MAINs from the plane
+// cache; owners are the lowest task of identical knots; valid patches and
+// referenced root knots take ordinals by atomic ticket.
+// Knot result: x = height bits, y = knot colour, z = knot key, w = winner
+// key << 8 | bit 0 solved | bit 1 referenced by a valid patch.
+[numthreads(64, 1, 1)]
+void SolveSharedKnots(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
+{
+    uint local = groupId.x;
+    uint work = M8BatchWork(local);
     // Tile prologue inline (FXC rejects a barrier after a return inside
     // a helper): identity, context, halo slots, occupancy, plane cache.
     uint physicalSlot = _M8VisibleTiles[work].x;
@@ -1245,8 +1295,7 @@ void ReduceAndSolveSharedKnots(uint3 groupId : SV_GroupID,
         gM8ScratchVertexTotal = 0u;
         gM8ScratchValidPatches = 0u;
         gM8MembraneFailed = 0u;
-        if (work >= M8_RENDER_SCRATCH_TILES ||
-            M8CurrentRenderIdentity(physicalSlot) == 0u)
+        if (M8CurrentRenderIdentity(physicalSlot) == 0u)
             gM8MembraneFailed = 2u;
         else
             M8InitializeReadoutTileContext(physicalSlot);
@@ -1317,153 +1366,138 @@ void ReduceAndSolveSharedKnots(uint3 groupId : SV_GroupID,
         }
     }
     GroupMemoryBarrierWithGroupSync();
-    uint4 header = _M8RenderScratchHeader[work];
-    uint patchBase = M8ScratchPatchBase(work);
-    uint cornerBase = M8ScratchCornerBase(work);
 
-    // Phase A: one corner solve per task.
+    uint4 header = _M8RenderScratchHeader[local];
+    uint measuredCount = min(header.w, M8_RENDER_TILE_KERNELS);
+    uint taskCount = measuredCount * 4u;
+    uint patchBase = M8ScratchPatchBase(local);
+    uint cornerBase = M8ScratchCornerBase(local);
+
+    // Phase A: one knot solve per corner task of a measured MAIN.
     [loop]
-    for (uint task = thread; task < M8_RENDER_SCRATCH_CORNERS;
-        task += M8_SOLVE_GROUP_THREADS)
+    for (uint task = thread; task < taskCount; task += M8_SOLVE_GROUP_THREADS)
     {
-        uint kernelLocal = task >> 2u;
+        uint kernelLocal = M8ScratchCompactKernel(patchBase, task >> 2u);
         uint corner = task & 3u;
         uint4 descriptor = _M8RenderPatchScratch[patchBase + kernelLocal];
         uint4 result = 0u;
-        if (M8DescriptorMeasured(descriptor))
+        int3 globalCoord = context.tileOrigin + int3(
+            kernelLocal & 7u, (kernelLocal >> 3u) & 7u,
+            (kernelLocal >> 6u) & 7u);
+        float3 normal;
+        float signedOffset;
+        M8DecodeSurfacePlane(descriptor.y, normal, signedOffset);
+        int chart;
+        bool unresolved;
+        bool chartKnown = M8MembraneCanonicalChart(globalCoord, chart,
+            unresolved);
+        if (chartKnown)
         {
-            int chart = (int)((descriptor.x >> 9u) & 3u);
-            uint freeSignature = (descriptor.x >> 11u) & 3u;
-            KernelState state = (KernelState)0;
-            state.flags = descriptor.y;
-            state.packedColor = descriptor.z;
-            state.colorConfidence = descriptor.w;
-            state.evidence = 1;
-            int3 globalCoord = context.tileOrigin + int3(
-                kernelLocal & 7u, (kernelLocal >> 3u) & 7u,
-                (kernelLocal >> 6u) & 7u);
-            float3 normal;
-            float signedOffset;
-            M8DecodeSurfacePlane(state.flags, normal, signedOffset);
             int tangentAxis0;
             int tangentAxis1;
             M8MembraneTangentAxes(chart, tangentAxis0, tangentAxis1);
-            float3 position;
-            uint color;
-            int3 knotLine;
-            bool unresolved;
-            if (M8MembraneResolveCorner(globalCoord, state, normal, signedOffset,
-                    chart, tangentAxis0, tangentAxis1, M8CornerSign0(corner),
-                    M8CornerSign1(corner), freeSignature, position, color,
-                    knotLine, unresolved))
+            uint side;
+            if (M8MembraneFreeSideSignature(globalCoord, chart, side,
+                    unresolved))
             {
-                // Support guard: a knot farther than one lattice step from
-                // MAIN's own measured plane falls back to that plane's
-                // height on the knot line (measured, never invented).
-                float height = position[chart];
-                float3 cornerLine = position;
-                cornerLine = M8MembraneSetFloatComponent(cornerLine, chart,
-                    0.0);
-                float mainHeight;
-                if (M8MembranePlaneLineHeight(globalCoord, normal,
-                        signedOffset, chart, cornerLine, mainHeight) &&
-                    abs(height - mainHeight) > M8_MEMBRANE_KNOT_SUPPORT_LIMIT)
-                    height = mainHeight;
-                // Key: line address in tangent axes (9 bits each, offset
-                // 256), chart and free side.
-                uint key = ((uint)(knotLine[tangentAxis0] + 256) & 511u) |
-                    (((uint)(knotLine[tangentAxis1] + 256) & 511u) << 9u) |
-                    ((uint)chart << 18u) | (freeSignature << 20u);
-                result = uint4(asuint(height), color, key, 1u);
+                float3 position;
+                uint color;
+                int3 knotLine;
+                uint winnerKey;
+                if (M8MembraneSolveKnot(globalCoord, normal, chart,
+                        tangentAxis0, tangentAxis1, M8CornerSign0(corner),
+                        M8CornerSign1(corner), side, position, color, knotLine,
+                        winnerKey, unresolved))
+                    result = uint4(asuint(position[chart]), color,
+                        M8KnotKey(knotLine, tangentAxis0, tangentAxis1, chart,
+                            side), (winnerKey << 8u) | 1u);
             }
-            else if (unresolved)
-            {
-                uint ignored;
-                InterlockedOr(gM8MembraneUnresolved, 1u, ignored);
-            }
+        }
+        if (unresolved)
+        {
+            uint ignored;
+            InterlockedOr(gM8MembraneUnresolved, 1u, ignored);
         }
         _M8RenderKnotScratch[cornerBase + task] = result;
     }
     DeviceMemoryBarrierWithGroupSync();
 
-    // Phase B: weld. The owner of a corner is the lowest task among the
-    // corners of the (up to twelve) patches around the same line, chart and
-    // free side whose height is within the weld epsilon.
+    // Phase B: ownership. The owner of a knot is the lowest task among the
+    // corner tasks of the (up to twelve) MAINs around the same line whose
+    // knot key and winner key are identical: same inputs, same numbers.
     [loop]
-    for (uint task = thread; task < M8_RENDER_SCRATCH_CORNERS;
-        task += M8_SOLVE_GROUP_THREADS)
+    for (uint task = thread; task < taskCount; task += M8_SOLVE_GROUP_THREADS)
     {
         uint4 mine = _M8RenderKnotScratch[cornerBase + task];
         uint owner = task;
         if ((mine.w & 1u) != 0u)
         {
-            uint kernelLocal = task >> 2u;
+            uint kernelLocal = M8ScratchCompactKernel(patchBase, task >> 2u);
             uint corner = task & 3u;
             int chart = (int)((mine.z >> 18u) & 3u);
             int tangentAxis0;
             int tangentAxis1;
             M8MembraneTangentAxes(chart, tangentAxis0, tangentAxis1);
-            int3 local = int3(kernelLocal & 7u, (kernelLocal >> 3u) & 7u,
+            int3 local3 = int3(kernelLocal & 7u, (kernelLocal >> 3u) & 7u,
                 (kernelLocal >> 6u) & 7u);
-            float height = asfloat(mine.x);
             int s0 = M8CornerSign0(corner);
             int s1 = M8CornerSign1(corner);
-            // Candidate patches: the four columns around the line, three
-            // layers along the chart axis. The sharing kernels sit at
-            // local + (sign>0 ? 0|+1 : -1|0) per tangent axis.
             [unroll]
             for (uint column = 0u; column < 4u; column++)
             [unroll]
             for (uint layer = 0u; layer < 3u; layer++)
             {
-                int3 other = local;
+                int3 other = local3;
                 int d0 = (column & 1u) != 0u ? 1 : 0;
                 int d1 = (column & 2u) != 0u ? 1 : 0;
                 other = M8MembraneSetIntComponent(other, tangentAxis0,
-                    local[tangentAxis0] + (s0 > 0 ? d0 : d0 - 1));
+                    local3[tangentAxis0] + (s0 > 0 ? d0 : d0 - 1));
                 other = M8MembraneSetIntComponent(other, tangentAxis1,
-                    local[tangentAxis1] + (s1 > 0 ? d1 : d1 - 1));
+                    local3[tangentAxis1] + (s1 > 0 ? d1 : d1 - 1));
                 other = M8MembraneSetIntComponent(other, chart,
-                    local[chart] + (int)layer - 1);
+                    local3[chart] + (int)layer - 1);
                 if (any(other < 0) || any(other > 7)) continue;
                 uint otherKernel = (uint)other.x | ((uint)other.y << 3u) |
                     ((uint)other.z << 6u);
-                // The corner of the other patch on the same line.
-                int o0 = (other[tangentAxis0] < local[tangentAxis0] ||
-                    (other[tangentAxis0] == local[tangentAxis0] && s0 > 0))
+                uint4 otherDescriptor =
+                    _M8RenderPatchScratch[patchBase + otherKernel];
+                if (!M8DescriptorMeasured(otherDescriptor)) continue;
+                int o0 = (other[tangentAxis0] < local3[tangentAxis0] ||
+                    (other[tangentAxis0] == local3[tangentAxis0] && s0 > 0))
                     ? 1 : -1;
-                int o1 = (other[tangentAxis1] < local[tangentAxis1] ||
-                    (other[tangentAxis1] == local[tangentAxis1] && s1 > 0))
+                int o1 = (other[tangentAxis1] < local3[tangentAxis1] ||
+                    (other[tangentAxis1] == local3[tangentAxis1] && s1 > 0))
                     ? 1 : -1;
                 uint otherCorner = o0 > 0 ? (o1 > 0 ? 2u : 1u)
                     : (o1 > 0 ? 3u : 0u);
-                uint otherTask = otherKernel * 4u + otherCorner;
+                uint otherTask = (otherDescriptor.w & M8_SCRATCH_INDEX_MASK) *
+                    4u + otherCorner;
                 if (otherTask >= task) continue;
                 uint4 theirs = _M8RenderKnotScratch[cornerBase + otherTask];
-                if ((theirs.w & 1u) == 0u || theirs.z != mine.z) continue;
-                if (abs(asfloat(theirs.x) - height) > M8_MEMBRANE_WELD_EPSILON)
+                if ((theirs.w & 1u) == 0u || theirs.z != mine.z ||
+                    (theirs.w >> 8u) != (mine.w >> 8u))
                     continue;
                 owner = min(owner, otherTask);
             }
         }
-        // Direct owner only; chains are followed where they are consumed.
-        // Ownership is transitive by the lowest-task rule inside one
-        // line, chart and side, and every hop strictly decreases the task.
+        // Direct owner only; every hop strictly decreases the task and the
+        // chain is followed where it is consumed.
         _M8RenderKnotOwner[cornerBase + task] = owner;
     }
     DeviceMemoryBarrierWithGroupSync();
 
     // Phase C: patch validity and output ordinals, in parallel. A valid patch
-    // has four solved corners and no edge above the limit; it takes an output
-    // ordinal and marks the root knot of every corner as referenced. Owner
-    // entries are still task indices here, so following a chain is safe.
+    // has four solved knots and no edge above the limit (the oracle checked
+    // both inside M8TryBuildMembranePatch; here the four corner tasks did it
+    // once each, so the guard is re-evaluated from the results); it takes an
+    // output ordinal and marks the root knot of every corner as referenced.
     [loop]
-    for (uint kernelLocal = thread; kernelLocal < M8_RENDER_TILE_KERNELS;
-        kernelLocal += M8_SOLVE_GROUP_THREADS)
+    for (uint index = thread; index < measuredCount;
+        index += M8_SOLVE_GROUP_THREADS)
     {
+        uint kernelLocal = M8ScratchCompactKernel(patchBase, index);
         uint4 descriptor = _M8RenderPatchScratch[patchBase + kernelLocal];
-        if (!M8DescriptorMeasured(descriptor)) continue;
-        uint firstTask = kernelLocal * 4u;
+        uint firstTask = index * 4u;
         uint4 r0 = _M8RenderKnotScratch[cornerBase + firstTask + 0u];
         uint4 r1 = _M8RenderKnotScratch[cornerBase + firstTask + 1u];
         uint4 r2 = _M8RenderKnotScratch[cornerBase + firstTask + 2u];
@@ -1511,11 +1545,10 @@ void ReduceAndSolveSharedKnots(uint3 groupId : SV_GroupID,
     DeviceMemoryBarrierWithGroupSync();
 
     // Phase D: vertex ordinals for referenced roots only. Only root entries
-    // are written, nobody reads owner entries in this phase: no lane can
-    // ever read an ordinal as a task index.
+    // are written and nobody reads owner entries in this phase, so no lane
+    // can read an ordinal as a task index.
     [loop]
-    for (uint task = thread; task < M8_RENDER_SCRATCH_CORNERS;
-        task += M8_SOLVE_GROUP_THREADS)
+    for (uint task = thread; task < taskCount; task += M8_SOLVE_GROUP_THREADS)
     {
         if (_M8RenderKnotOwner[cornerBase + task] != task) continue;
         if ((_M8RenderKnotScratch[cornerBase + task].w & 2u) == 0u) continue;
@@ -1525,9 +1558,8 @@ void ReduceAndSolveSharedKnots(uint3 groupId : SV_GroupID,
     }
     DeviceMemoryBarrierWithGroupSync();
     if (thread == 0u)
-        _M8RenderScratchHeader[work] = uint4(gM8ScratchValidPatches,
-            gM8ScratchVertexTotal, header.z | gM8MembraneUnresolved,
-            header.w);
+        _M8RenderScratchHeader[local] = uint4(gM8ScratchValidPatches,
+            gM8ScratchVertexTotal, gM8MembraneUnresolved, header.w);
 }
 
 // Vertex ordinal of a corner task: follow owners until the root, whose entry
@@ -1547,9 +1579,10 @@ uint M8KnotVertexOrdinal(uint cornerBase, uint task)
 void EmitRenderTileGeometry(uint3 groupId : SV_GroupID,
     uint thread : SV_GroupIndex)
 {
-    uint work = groupId.x;
+    uint local = groupId.x;
+    uint work = M8BatchWork(local);
     uint physicalSlot = _M8VisibleTiles[work].x;
-    uint4 header = _M8RenderScratchHeaderRead[work];
+    uint4 header = _M8RenderScratchHeaderRead[local];
     if (thread == 0u)
     {
         gM8MembraneMeasuredTotal = header.w;
@@ -1558,8 +1591,7 @@ void EmitRenderTileGeometry(uint3 groupId : SV_GroupID,
         gM8MembraneCanEmit = 0u;
         gM8MembraneFailed = 0u;
         gM8MembraneUnresolved = header.z;
-        if (work >= M8_RENDER_SCRATCH_TILES ||
-            M8CurrentRenderIdentity(physicalSlot) == 0u)
+        if (M8CurrentRenderIdentity(physicalSlot) == 0u)
             gM8MembraneFailed = 2u;
         else
         {
@@ -1585,21 +1617,31 @@ void EmitRenderTileGeometry(uint3 groupId : SV_GroupID,
     GroupMemoryBarrierWithGroupSync();
     if (gM8MembraneFailed == 2u) return;
 
-    uint patchBase = M8ScratchPatchBase(work);
-    uint cornerBase = M8ScratchCornerBase(work);
+    uint measuredCount = min(header.w, M8_RENDER_TILE_KERNELS);
+    uint taskCount = measuredCount * 4u;
+    uint patchBase = M8ScratchPatchBase(local);
+    uint cornerBase = M8ScratchCornerBase(local);
     M8ReadoutTileContext context = M8SharedReadoutTileContext();
+    uint vertexTotal = header.y;
+    uint patchTotal = header.x;
     if (gM8MembraneCanEmit != 0u)
     {
         // Vertices: one per referenced root knot, at the knot line with the
         // solved height on the chart axis (the oracle's own construction).
         [loop]
-        for (uint task = thread; task < M8_RENDER_SCRATCH_CORNERS;
+        for (uint task = thread; task < taskCount;
             task += M8_SHELL_GROUP_THREADS)
         {
             uint owner = _M8RenderKnotOwnerRead[cornerBase + task];
             if ((owner & 0x80000000u) == 0u) continue;
+            uint ordinal = owner & 0x7fffffffu;
+            if (ordinal >= vertexTotal)
+            {
+                { uint ignoredReason; InterlockedOr(_M8Counters[M8_COUNTER_RENDER_PUBLICATION_INVALID], 1u, ignoredReason); }
+                continue;
+            }
             uint4 result = _M8RenderKnotScratchRead[cornerBase + task];
-            uint kernelLocal = task >> 2u;
+            uint kernelLocal = M8ScratchCompactKernelRead(patchBase, task >> 2u);
             uint corner = task & 3u;
             int chart = (int)((result.z >> 18u) & 3u);
             int tangentAxis0;
@@ -1616,19 +1658,25 @@ void EmitRenderTileGeometry(uint3 groupId : SV_GroupID,
                 (M8_MEMBRANE_PATCH_PITCH * 0.5);
             position = M8MembraneSetFloatComponent(position, chart,
                 asfloat(result.x));
-            M8StoreRenderVertex(M8MembraneVertexSlot(owner & 0x7fffffffu),
-                position, result.y);
+            M8StoreRenderVertex(M8MembraneVertexSlot(ordinal), position,
+                result.y);
         }
         // Indices: six per valid patch onto root ordinals, canonical
         // winding from the solved corners.
         [loop]
-        for (uint kernelLocal = thread; kernelLocal < M8_RENDER_TILE_KERNELS;
-            kernelLocal += M8_SHELL_GROUP_THREADS)
+        for (uint index = thread; index < measuredCount;
+            index += M8_SHELL_GROUP_THREADS)
         {
+            uint kernelLocal = M8ScratchCompactKernelRead(patchBase, index);
             uint4 descriptor = _M8RenderPatchScratchRead[patchBase + kernelLocal];
             if ((descriptor.w & M8_SCRATCH_PATCH_VALID) == 0u) continue;
             uint outputPatch = descriptor.w & ~M8_SCRATCH_PATCH_VALID;
-            uint firstTask = kernelLocal * 4u;
+            if (outputPatch >= patchTotal)
+            {
+                { uint ignoredReason; InterlockedOr(_M8Counters[M8_COUNTER_RENDER_PUBLICATION_INVALID], 2u, ignoredReason); }
+                continue;
+            }
+            uint firstTask = index * 4u;
             uint4 r0 = _M8RenderKnotScratchRead[cornerBase + firstTask + 0u];
             uint4 r1 = _M8RenderKnotScratchRead[cornerBase + firstTask + 1u];
             uint4 r2 = _M8RenderKnotScratchRead[cornerBase + firstTask + 2u];
@@ -1636,6 +1684,11 @@ void EmitRenderTileGeometry(uint3 groupId : SV_GroupID,
             uint v1 = M8KnotVertexOrdinal(cornerBase, firstTask + 1u);
             uint v2 = M8KnotVertexOrdinal(cornerBase, firstTask + 2u);
             uint v3 = M8KnotVertexOrdinal(cornerBase, firstTask + 3u);
+            if (max(max(v0, v1), max(v2, v3)) >= vertexTotal)
+            {
+                { uint ignoredReason; InterlockedOr(_M8Counters[M8_COUNTER_RENDER_PUBLICATION_INVALID], 4u, ignoredReason); }
+                continue;
+            }
             int chart = (int)((r0.z >> 18u) & 3u);
             int tangentAxis0;
             int tangentAxis1;
@@ -1705,6 +1758,9 @@ void EmitRenderTileGeometry(uint3 groupId : SV_GroupID,
     }
 
     uint indexTotal = gM8MembranePatchTotal * M8_MEMBRANE_INDICES_PER_PATCH;
+    // The publication total follows the record by delta, never by recount.
+    InterlockedAdd(_M8RenderIndexBack[1],
+        indexTotal + (~_M8RenderIndexBack[base + 0u] + 1u), ignoredCount);
     M8RetireBackRecordPages(base);
     // Record 0 is the published index count of this tile.
     _M8RenderIndexBack[base + 0u] = indexTotal;
@@ -1725,6 +1781,8 @@ void EmitRenderTileGeometry(uint3 groupId : SV_GroupID,
     _M8VisibleTiles[work].y = 1u;
     InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_EMITTED_PATCHES],
         gM8MembranePatchTotal, ignoredCount);
+    InterlockedAdd(_M8Counters[M8_COUNTER_READOUT_EMITTED_VERTICES],
+        vertexTotal, ignoredCount);
 }
 
 [numthreads(1, 1, 1)]
@@ -1733,52 +1791,28 @@ void PublishRenderTileList(uint id : SV_DispatchThreadID)
     uint tiles = min(_M8RenderIndexBack[0],
         MERKABA_M8_PHYSICAL_TILE_CAPACITY);
     _M8RenderIndexBack[0] = tiles;
-    _M8RenderIndexBack[1] = 0u;
+    // _M8RenderIndexBack[1] (published indices) is kept by delta.
     _M8FrameDispatchArgs[0] = max(1u, (tiles + 127u) >> 7u);
     _M8FrameDispatchArgs[1] = 1u;
     _M8FrameDispatchArgs[2] = 1u;
 }
 
-[numthreads(128, 1, 1)]
-void RecountRenderPatches(uint id : SV_DispatchThreadID)
-{
-    uint tiles = _M8RenderIndexBack[0];
-    if (id >= tiles) return;
-    uint physicalSlot = _M8RenderIndexBack[M8BackListBase() + id];
-    if (physicalSlot >= MERKABA_M8_PHYSICAL_TILE_CAPACITY) return;
-    uint base = M8RecordBase(physicalSlot);
-    uint patches = _M8RenderIndexBack[base + 0u];
-    uint ignored;
-    InterlockedAdd(_M8RenderIndexBack[1], patches, ignored);
-    // Every page of this record is claimed for this tile. A page claimed by
-    // two records is publication corruption; ValidatePublication then also
-    // rejects every index that does not land in a page of its own record.
-    uint pages = min(_M8RenderIndexBack[base + 1u], M8_RENDER_TILE_MAX_PAGES);
-    uint page = _M8RenderIndexBack[base + M8_RENDER_RECORD_FIRST_PAGE];
-    [loop]
-    for (uint ordinal = 0u; ordinal < pages; ordinal++)
-    {
-        if (page >= M8_RENDER_PAGE_CAPACITY) break;
-        uint prior;
-        InterlockedCompareExchange(
-            _M8RenderPageQueues[M8_RENDER_OWNER_BASE + page], 0u,
-            physicalSlot + 1u, prior);
-        if (prior != 0u)
-            _M8Counters[M8_COUNTER_RENDER_PUBLICATION_INVALID] = 1u;
-        page = _M8RenderPageQueues[M8_RENDER_LINK_BASE + page];
-    }
-}
-
-// Every published record of BACK is checked before it can become FRONT: page
-// ids in range, chains of exactly the recorded length, index counts within
-// the chain and every index inside this slot's vertex arena. One violation
-// keeps the whole build from publishing.
+// Every record this transaction rebuilt is checked before BACK can become
+// FRONT: identity, chain of exactly the recorded length inside the page
+// pool, every page owned by this record, index count a whole number of
+// patches inside the chain. Unchanged records were validated when they were
+// written and their pages are immutable until the record is replaced;
+// index ranges were checked fail-closed by the emitting kernel. One
+// violation keeps the whole transaction from publishing.
 [numthreads(128, 1, 1)]
 void ValidatePublication(uint id : SV_DispatchThreadID)
 {
-    uint tiles = min(_M8RenderIndexBack[0], MERKABA_M8_PHYSICAL_TILE_CAPACITY);
+    uint tiles = min(_M8Counters[M8_COUNTER_RENDER_REBUILD_TILES],
+        MERKABA_M8_PHYSICAL_TILE_CAPACITY);
     if (id >= tiles) return;
-    uint physicalSlot = _M8RenderIndexBack[M8BackListBase() + id];
+    uint2 entry = _M8VisibleTilesRead[id];
+    if (entry.y == 0u) return;
+    uint physicalSlot = entry.x;
     bool valid = physicalSlot < MERKABA_M8_PHYSICAL_TILE_CAPACITY;
     if (valid)
     {
@@ -1787,41 +1821,45 @@ void ValidatePublication(uint id : SV_DispatchThreadID)
         uint pages = _M8RenderIndexBack[base + 1u];
         valid = pages <= M8_RENDER_TILE_MAX_PAGES &&
             indexCount <= pages * M8_RENDER_PAGE_INDICES &&
-            (indexCount % M8_MEMBRANE_INDICES_PER_PATCH) == 0u;
+            (indexCount % M8_MEMBRANE_INDICES_PER_PATCH) == 0u &&
+            (_M8RenderIndexBack[base + 2u] != 0u || pages == 0u);
+        uint reason = valid ? 0u : 8u;
         uint page = _M8RenderIndexBack[base + M8_RENDER_RECORD_FIRST_PAGE];
-        uint remaining = indexCount;
         [loop]
         for (uint ordinal = 0u; valid && ordinal < pages; ordinal++)
         {
             if (page >= M8_RENDER_PAGE_CAPACITY)
             {
                 valid = false;
+                reason = 16u;
                 break;
             }
-            uint used = min(remaining, M8_RENDER_PAGE_INDICES);
-            uint source = page * M8_RENDER_PAGE_INDICES;
-            [loop]
-            for (uint slot = 0u; slot < used; slot++)
+            if (_M8RenderPageQueues[M8_RENDER_OWNER_BASE + page] !=
+                physicalSlot + 1u)
             {
-                uint vertex = _M8RenderIndicesRead[source + slot];
-                // The vertex must live in a page this very record owns.
-                if (vertex >= M8_RENDER_PAGE_CAPACITY *
-                        M8_RENDER_PAGE_VERTICES ||
-                    _M8RenderPageQueues[M8_RENDER_OWNER_BASE +
-                        (vertex >> M8_RENDER_PAGE_VERTEX_SHIFT)] !=
-                    physicalSlot + 1u)
-                {
-                    valid = false;
-                    break;
-                }
+                valid = false;
+                reason = 32u;
+                break;
             }
-            remaining -= used;
             page = _M8RenderPageQueues[M8_RENDER_LINK_BASE + page];
         }
-        if (valid && pages != 0u && page != M8_RENDER_PAGE_INVALID)
+        if (valid && page != M8_RENDER_PAGE_INVALID)
+        {
             valid = false;
+            reason = 64u;
+        }
+        if (!valid)
+        {
+            uint ignoredReason;
+            InterlockedOr(_M8Counters[M8_COUNTER_RENDER_PUBLICATION_INVALID],
+                reason, ignoredReason);
+        }
+        return;
     }
-    if (!valid) _M8Counters[M8_COUNTER_RENDER_PUBLICATION_INVALID] = 1u;
+    // A listed slot outside the physical range.
+    uint ignoredRange;
+    InterlockedOr(_M8Counters[M8_COUNTER_RENDER_PUBLICATION_INVALID], 128u,
+        ignoredRange);
 }
 
 [numthreads(1, 1, 1)]

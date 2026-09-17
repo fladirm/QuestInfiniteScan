@@ -11,6 +11,9 @@ namespace Genesis.RoomScan.Tests
     {
         private static readonly Color32 MainColor = new(80, 120, 160, 255);
         private const float Tolerance = 2e-5f;
+        // Plane encoding (octahedral normal, quantized offset) moves a knot
+        // by up to a few 1e-5 m; geometry assertions above that use this.
+        private const float QuantizationTolerance = 1e-4f;
 
         [Test]
         public void IsolatedMeasuredMain_EmitsOne25mmMembranePatch()
@@ -396,6 +399,146 @@ namespace Genesis.RoomScan.Tests
             var knots = Knots(context, out int patches);
             Assert.That(patches, Is.EqualTo(context.Count));
             AssertKnotsShared(knots);
+        }
+
+        // ---- knot-line fixtures: a knot is a function of its line, chart,
+        // side and layer; identical winners are one identity ----
+
+        private static Dictionary<int3, KernelState> Sheet(
+            IEnumerable<int3> coords, float3 normal, float planeConstant)
+        {
+            var context = new Dictionary<int3, KernelState>();
+            KernelState.DecodeSurfacePlane(
+                Surface(new int3(0), normal, 0f).Flags, out float3 decoded,
+                out _);
+            foreach (int3 coord in coords)
+            {
+                float offset = planeConstant - math.dot((float3)coord *
+                    MerkabaConstants.LatticeStep, decoded);
+                if (math.abs(offset) > MerkabaConstants.SurfacePlaneOffsetRange)
+                    continue;
+                context[coord] = Surface(coord, decoded, offset);
+            }
+            return context;
+        }
+
+        [Test]
+        public void SlopedSheetKnotsAreIdenticalFromEveryLayerAcrossTileEdge()
+        {
+            // 45 degree sheet x = z through the tile edge x = 8: the MAINs on
+            // both sides of a shared knot sit in different normal layers and
+            // still resolve the identical knot (same winners, same numbers).
+            var coords = new List<int3>();
+            for (int x = 4; x <= 12; x++)
+            for (int y = 0; y <= 3; y++)
+                coords.Add(new int3(x, y, x));
+            float3 normal = math.normalize(new float3(-1f, 0f, 1f));
+            Dictionary<int3, KernelState> context = Sheet(coords, normal, 0f);
+            var knots = Knots(context, out int patches);
+            Assert.That(patches, Is.EqualTo(context.Count));
+            AssertKnotsShared(knots);
+            Assert.That(knots.Values.Count(list => list.Count == 4),
+                Is.GreaterThan(0), "interior knots belong to four patches");
+            foreach (var pair in knots)
+                Assert.That(pair.Value.Select(c => c.Identity).Distinct().Count(),
+                    Is.EqualTo(1), $"knot {pair.Key} has one identity");
+        }
+
+        [Test]
+        public void ThreeSheetsStackedInOneColumnStayThreeKnots()
+        {
+            var context = new Dictionary<int3, KernelState>();
+            foreach (int z in new[] { 0, 6, 12 })
+                foreach (KeyValuePair<int3, KernelState> pair in
+                         Wall(new int3(-1, -1, z), 3, 3, new float3(0f, 0f, 1f)))
+                    context[pair.Key] = pair.Value;
+            var knots = Knots(context, out int patches);
+            Assert.That(patches, Is.EqualTo(27));
+            foreach (var pair in knots)
+            {
+                var identities = pair.Value.Select(c => c.Identity).Distinct()
+                    .ToArray();
+                Assert.That(identities.Length, Is.EqualTo(3),
+                    $"line {pair.Key} carries one knot per sheet");
+                foreach (MerkabaOverlapShell.Corner corner in pair.Value)
+                    Assert.That(math.abs(corner.GridPosition.z -
+                        math.round(corner.GridPosition.z /
+                            (6f * MerkabaConstants.LatticeStep)) *
+                        6f * MerkabaConstants.LatticeStep),
+                        Is.LessThan(QuantizationTolerance),
+                        "no bridging between sheets");
+            }
+        }
+
+        [Test]
+        public void ThinLeafHasTwoSidesThatNeverMix()
+        {
+            // Front face at z = 0 (normal +Z, free above), back face at z = -1
+            // (normal -Z, free below): two sides, two knot families per line.
+            var context = new Dictionary<int3, KernelState>();
+            for (int x = -1; x <= 1; x++)
+            for (int y = -1; y <= 1; y++)
+            {
+                context[new int3(x, y, 0)] = Surface(new int3(x, y, 0),
+                    new float3(0f, 0f, 1f), 0f);
+                context[new int3(x, y, -1)] = Surface(new int3(x, y, -1),
+                    new float3(0f, 0f, -1f), 0f);
+                context[new int3(x, y, 1)] = StrongFree();
+                context[new int3(x, y, -2)] = StrongFree();
+            }
+            var knots = Knots(context, out int patches);
+            Assert.That(patches, Is.EqualTo(18));
+            foreach (var pair in knots)
+            {
+                Assert.That(pair.Value.Select(c => c.Identity.Side).Distinct()
+                    .Count(), Is.EqualTo(2), $"line {pair.Key} has two sides");
+                foreach (MerkabaOverlapShell.Corner corner in pair.Value)
+                    Assert.That(corner.Identity.Side == 2
+                        ? corner.GridPosition.z
+                        : corner.GridPosition.z + MerkabaConstants.LatticeStep,
+                        Is.EqualTo(0f).Within(QuantizationTolerance),
+                        "each side keeps its own height");
+            }
+        }
+
+        [Test]
+        public void NoisyNormalsAroundFortyFiveDegreesShareOneCanonicalChart()
+        {
+            // One physical sheet x + z = const whose measured normals scatter
+            // +-10 degrees around 38 degrees: single cells fall on either
+            // side of the 45 degree chart boundary, the canonical chart
+            // (26-neighbour sheet mean) does not.
+            float3 baseNormal = math.normalize(new float3(0.788f, 0f, 0.616f));
+            var context = new Dictionary<int3, KernelState>();
+            for (int x = -2; x <= 2; x++)
+            for (int y = -2; y <= 2; y++)
+            {
+                int3 coord = new(x, y, -x);
+                uint hash = (uint)(x * 73856093) ^ (uint)(y * 19349663);
+                hash ^= hash >> 13;
+                hash *= 0x5bd1e995u;
+                float angle = ((hash & 1023u) / 1023f * 2f - 1f) *
+                    math.radians(10f);
+                float3 normal = math.normalize(new float3(
+                    baseNormal.x * math.cos(angle) - baseNormal.z * math.sin(angle),
+                    0f,
+                    baseNormal.x * math.sin(angle) + baseNormal.z * math.cos(angle)));
+                context[coord] = Surface(coord, normal, 0f);
+            }
+            int scatteredCharts = context.Select(pair =>
+            {
+                KernelState.DecodeSurfacePlane(pair.Value.Flags,
+                    out float3 normal, out _);
+                return MerkabaOverlapShell.DominantAxis(normal);
+            }).Distinct().Count();
+            Assert.That(scatteredCharts, Is.EqualTo(2),
+                "the fixture really straddles the chart boundary");
+            var charts = new HashSet<int>();
+            foreach (int3 coord in context.Keys)
+                charts.Add(MerkabaOverlapShell.CanonicalChart(coord,
+                    context[coord], context));
+            Assert.That(charts.Count, Is.EqualTo(1),
+                "one canonical chart for one sheet");
         }
 
         private static Dictionary<int3, KernelState> PlaneNeighbourhood(

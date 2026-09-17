@@ -277,8 +277,8 @@ namespace Genesis.RoomScan.Tests
             Assert.That(source, Does.Contain(
                 "#if defined(M8_CHECKER_READOUT)"));
             Assert.That(source, Does.Contain(
-                "? half3(0.02h, 0.025h, 0.035h)"));
-            Assert.That(source, Does.Contain(": (half3)iridescent;"));
+                "0.10 + film * (0.12 + 0.75 * fresnel)"));
+            Assert.That(source, Does.Contain("(half3)saturate(0.10 + film"));
             Assert.That(source, Does.Not.Contain("SampleSH"));
             Assert.That(source, Does.Not.Contain("GetMainLight"));
             Assert.That(source, Does.Not.Contain("normalWS"));

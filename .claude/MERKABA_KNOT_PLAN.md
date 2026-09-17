@@ -213,3 +213,45 @@ Per work tile (batch-local index w, absolute rebuild index batchBase + w):
 - A sheet steeper than 60 deg in its canonical chart is outside the chart's definition.
 - A chart transition where the two sides fail the reciprocal residual is a seam, by
   contract (no bridging).
+
+## 10. Deviations recorded during implementation (2026-09-17)
+
+- Chart-transition stitch quads (section 1) are NOT emitted, live or export. The
+  facing edges of two patches in different charts are perpendicular segments in the
+  shared cell face; for a fold through the face centre they cross, so a quad on them
+  self-intersects instead of closing a gap. The seam stays a seam until device
+  evidence shows an actual gap (then a different primitive, not this one).
+- The canonical chart sums unit normals with equal weights, not colour-confidence
+  weights: the colour confidence is a colour attribute and says nothing about the
+  geometry. Still deterministic, still radius one.
+- `CollectRenderPatchInputs` no longer builds any halo cache; the solve kernel
+  decodes the plane of every occupied halo cell and loads evidence for every empty
+  one (the "needed mask" of section 2 is not implemented; measure first).
+- Descriptors carry no colour (`z = 0`); colour and confidence of the winners are
+  loaded from the kernel state when the knot is solved, exactly as the CPU twin.
+- The knot solve kernel is named `SolveSharedKnots`; `AdvanceRenderBuildBatch`
+  replaces `RecountRenderPatches` in the pipeline table (55 pipelines, readout 33..49,
+  fine erase 50 unchanged). Job ranges: Begin 33..42, Batch 43..46, Finalize 47..49.
+- Editor path records `PhysicalTileCapacity / 64` batch groups behind indirect
+  arguments in one command buffer (no CPU round trip in the editor).
+- The knot winner key packs the absolute layer of each winner modulo 16 (4 bits per
+  column) plus the winner mask; two tasks within +-2 layers of each other therefore
+  compare exactly.
+- Scratch capacity stays 512 tiles (a batch uses work indices 0..63), not 64 as in
+  section 2. Evidence: with 64-tile scratch the editor GPU fixture
+  `MerkabaReadoutGpuTests` failed `RetiredPagesReturnOnlyAfterTheNextPublication`
+  only when run after other tests (alone it passed): right after `SetUp` the slot-1
+  page queue words 4..7 held a knot record (key line t0=1 t1=-1, flags solved and
+  referenced, colour 90/120/150) from the previous test's knot scratch, so
+  `RETIRE_TAIL` was garbage and the next reclaim pushed page 0 twice. A GPU sync in
+  `TearDown` did not help; restoring the 512-tile buffers made all 12 pass. Every
+  scratch index is bounded by the batch (<= 63 << 11 + 2047), so this is attributed to
+  editor reuse of released memory in the 2 MB size class; the device never releases
+  these buffers during a session. Kept at 512 until the mechanism is understood.
+- `EvictedTileLeavesThePublicationAndRetiresItsPages` asserted a state the contract
+  forbids (a COLD tile inside the draw sphere publishing without it); it failed on the
+  0ea6cb8 baseline too. The test now moves the head so the tile leaves coverage first.
+- `FirstBuildPublishesMeasuredWallIntoPages` expected four vertex pages (4 vertices per
+  patch); with shared knots an 8x8 sheet has 81 vertices, two pages. Baseline failed it.
+- `PublicationInvalid` counter carries a reason bit mask (1/2/4 emit ranges, 8 record
+  shape, 16 page id, 32 owner, 64 chain length, 128 slot range) for device logs.

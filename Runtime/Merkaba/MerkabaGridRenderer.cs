@@ -63,7 +63,7 @@ namespace Genesis.RoomScan
         private int _solveKnotsKernel;
         private int _emitGeometryKernel;
         private int _publishKernel;
-        private int _recountKernel;
+        private int _advanceBatchKernel;
         private int _validateKernel;
         private int _finalizeKernel;
         private int _cullKernel;
@@ -94,6 +94,12 @@ namespace Genesis.RoomScan
         private ReadoutBuildTicket _pendingBuild;
         private MerkabaNativeVulkanExecutor.MerkabaNativeVulkanJob
             _nativeReadoutJob;
+        // Native readout transaction: Begin -> Batch* -> Finalize, at most
+        // one job per frame; nothing publishes before Finalize decided.
+        private enum NativeReadoutPhase { None, Begin, Batch, Finalize }
+        private NativeReadoutPhase _nativePhase;
+        private int _nativeQueryGroups;
+        private int _nativeBatchesSubmitted;
         private uint _builtResidencyEpoch;
         private uint _pendingRetryEpoch;
         private bool _retryPendingTiles;
@@ -250,6 +256,8 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_M8VisibleIndices");
         private static readonly int ReadoutRevisionId =
             Shader.PropertyToID("_M8ReadoutRevision");
+        private static readonly int AllowWarmLoadsId =
+            Shader.PropertyToID("_M8AllowWarmLoads");
         private static readonly int ResidencyChangedId =
             Shader.PropertyToID("_M8ResidencyChanged");
         private static readonly int RenderMutationQueueId =
@@ -528,8 +536,8 @@ namespace Genesis.RoomScan
             // fails here, never as per-frame "Kernel at index is invalid".
             foreach (string name in new[]
                      {
-                         "CollectRenderPatchInputs", "ReduceAndSolveSharedKnots",
-                         "EmitRenderTileGeometry"
+                         "AdvanceRenderBuildBatch", "CollectRenderPatchInputs",
+                         "SolveSharedKnots", "EmitRenderTileGeometry"
                      })
                 if (!readoutCompute.HasKernel(name))
                     throw new InvalidOperationException(
@@ -545,13 +553,13 @@ namespace Genesis.RoomScan
             _collectPatchKernel = readoutCompute.FindProfiledKernel(
                 "CollectRenderPatchInputs", MerkabaGpuStage.ReadoutBuild);
             _solveKnotsKernel = readoutCompute.FindProfiledKernel(
-                "ReduceAndSolveSharedKnots", MerkabaGpuStage.ReadoutBuild);
+                "SolveSharedKnots", MerkabaGpuStage.ReadoutBuild);
+            _advanceBatchKernel = readoutCompute.FindProfiledKernel(
+                "AdvanceRenderBuildBatch", MerkabaGpuStage.ReadoutBuild);
             _emitGeometryKernel = readoutCompute.FindProfiledKernel(
                 "EmitRenderTileGeometry", MerkabaGpuStage.ReadoutBuild);
             _publishKernel = readoutCompute.FindProfiledKernel(
                 "PublishRenderTileList", MerkabaGpuStage.ReadoutBuild);
-            _recountKernel = readoutCompute.FindProfiledKernel(
-                "RecountRenderPatches", MerkabaGpuStage.ReadoutBuild);
             _validateKernel = readoutCompute.FindProfiledKernel(
                 "ValidatePublication", MerkabaGpuStage.ReadoutBuild);
             _finalizeKernel = readoutCompute.FindProfiledKernel(
@@ -568,8 +576,9 @@ namespace Genesis.RoomScan
                          _reclaimKernel,
                          _applyReclaimKernel, _copyKernel, _markKernel,
                          _applyMutationKernel, _collectKernel,
-                         _prepareKernel, _collectPatchKernel, _solveKnotsKernel,
-                         _emitGeometryKernel, _publishKernel, _recountKernel,
+                         _prepareKernel, _advanceBatchKernel,
+                         _collectPatchKernel, _solveKnotsKernel,
+                         _emitGeometryKernel, _publishKernel,
                          _validateKernel, _finalizeKernel
                      })
             {
@@ -714,7 +723,7 @@ namespace Genesis.RoomScan
                 timedSubmission = MerkabaGpuTimestamps.TryAcquire(
                     CaptureOwner.ReadoutBuild, revision, command);
                 RecordBuild(command, ticket.Slot, revision, _previousPublished,
-                    _retryPendingTiles, query, query.Groups);
+                    _retryPendingTiles, query, query.Groups, residencyQuery);
                 MerkabaGpuTimestamps.End(CaptureOwner.ReadoutBuild, command,
                     timedSubmission);
                 Graphics.ExecuteCommandBuffer(command);
@@ -766,22 +775,22 @@ namespace Genesis.RoomScan
             QueryShape query = ComputeQueryShape(cameraGridMeters);
             // The warm pass always sweeps the whole coverage sphere.
             RecordBuild(command, backSlot, revision, previousPublished,
-                retryPendingTiles, query, query.Groups);
+                retryPendingTiles, query, query.Groups, true);
         }
 
         private void RecordBuild(CommandBuffer command, int backSlot,
             uint revision, bool previousPublished, bool retryPendingTiles,
-            QueryShape query, int queryGroups)
+            QueryShape query, int queryGroups, bool allowWarmLoads)
         {
             SetBuildParameters(command, revision, previousPublished,
-                retryPendingTiles, query);
+                retryPendingTiles, query, allowWarmLoads);
             ComputeBuffer back = _grid.GetM8RenderIndex(backSlot);
             ComputeBuffer front = _grid.GetM8RenderIndex(1 - backSlot);
             foreach (int kernel in new[]
                      {
                          _beginKernel, _warmKernel, _copyKernel,
                          _collectKernel, _prepareKernel, _collectPatchKernel,
-                         _emitGeometryKernel, _publishKernel, _recountKernel,
+                         _emitGeometryKernel, _publishKernel,
                          _finalizeKernel
                      })
                 command.SetComputeBufferParam(readoutCompute, kernel,
@@ -797,7 +806,7 @@ namespace Genesis.RoomScan
                          _beginKernel, _warmKernel, _prepareReclaimKernel,
                          _reclaimKernel, _applyReclaimKernel, _copyKernel,
                          _collectKernel, _collectPatchKernel,
-                         _emitGeometryKernel, _recountKernel, _validateKernel
+                         _emitGeometryKernel, _validateKernel
                      })
                 command.SetComputeBufferParam(readoutCompute, kernel,
                     RenderPageQueuesId, backPages);
@@ -830,18 +839,25 @@ namespace Genesis.RoomScan
                 frontGroups, 1, 1);
             command.DispatchComputeProfiled(readoutCompute, _prepareKernel,
                 1, 1, 1);
-            // Three flat dispatches per rebuild tile: descriptors, one solve
-            // per shared knot, emission. Nothing solves and emits at once.
-            command.DispatchComputeProfiled(readoutCompute, _collectPatchKernel,
-                _grid.M8FrameDispatchArgs);
-            command.DispatchComputeProfiled(readoutCompute, _solveKnotsKernel,
-                _grid.M8FrameDispatchArgs);
-            command.DispatchComputeProfiled(readoutCompute, _emitGeometryKernel,
-                _grid.M8FrameDispatchArgs);
+            // One BACK transaction in batches of RenderBatchTiles: the batch
+            // cursor lives on the GPU, so the editor records every possible
+            // batch behind indirect arguments (zero groups once the rebuild
+            // list is exhausted). Nothing publishes before Finalize.
+            int batches = MerkabaSpatial.PhysicalTileCapacity /
+                MerkabaGrid.RenderBatchTiles;
+            for (int batch = 0; batch < batches; batch++)
+            {
+                command.DispatchComputeProfiled(readoutCompute,
+                    _advanceBatchKernel, 1, 1, 1);
+                command.DispatchComputeProfiled(readoutCompute,
+                    _collectPatchKernel, _grid.M8FrameDispatchArgs);
+                command.DispatchComputeProfiled(readoutCompute,
+                    _solveKnotsKernel, _grid.M8FrameDispatchArgs);
+                command.DispatchComputeProfiled(readoutCompute,
+                    _emitGeometryKernel, _grid.M8FrameDispatchArgs);
+            }
             command.DispatchComputeProfiled(readoutCompute, _publishKernel,
                 1, 1, 1);
-            command.DispatchComputeProfiled(readoutCompute, _recountKernel,
-                _grid.M8FrameDispatchArgs);
             command.DispatchComputeProfiled(readoutCompute, _validateKernel,
                 frontGroups, 1, 1);
             command.DispatchComputeProfiled(readoutCompute, _finalizeKernel,
@@ -887,8 +903,11 @@ namespace Genesis.RoomScan
         }
 
         private void SetBuildParameters(CommandBuffer command, uint revision,
-            bool previousPublished, bool retryPendingTiles, QueryShape query)
+            bool previousPublished, bool retryPendingTiles, QueryShape query,
+            bool allowWarmLoads)
         {
+            command.SetComputeIntParam(readoutCompute, AllowWarmLoadsId,
+                allowWarmLoads ? 1 : 0);
             command.SetComputeVectorParam(readoutCompute, CameraGridMetersId,
                 query.CameraGridMeters);
             command.SetComputeVectorParam(readoutCompute, GridMetricDiagonalId,
@@ -923,6 +942,34 @@ namespace Genesis.RoomScan
             QueryShape query, int queryGroups)
         {
             if (MerkabaNativeVulkanExecutor.HasJobInFlight) return;
+            _nativeQueryGroups = queryGroups;
+            _nativeBatchesSubmitted = 0;
+            _buildInFlight = true;
+            _pendingBuild = ticket;
+            if (!TrySubmitNativeReadoutJob(
+                    MerkabaNativeVulkanExecutor.JobKind.ReadoutBegin, ticket,
+                    query))
+            {
+                _buildInFlight = false;
+                _pendingBuild = default;
+                _nativePhase = NativeReadoutPhase.None;
+                return;
+            }
+            _nativePhase = NativeReadoutPhase.Begin;
+            OnBuildSubmitted(ticket);
+        }
+#endif
+
+        /// <summary>
+        /// One job of the readout transaction on the native scanner queue:
+        /// Begin (reclaim, journal, coverage list, rebuild list), Batch (one
+        /// batch of rebuild tiles into the same BACK) or Finalize (validate,
+        /// publication record). The same resources and uniforms every time.
+        /// </summary>
+        private bool TrySubmitNativeReadoutJob(
+            MerkabaNativeVulkanExecutor.JobKind kind, ReadoutBuildTicket ticket,
+            QueryShape query)
+        {
             var values = new MerkabaNativeUniformTable();
             values.Vector3("_M8CameraGridMeters", query.CameraGridMeters);
             values.Vector3("_M8GridMetricDiagonal", query.MetricDiagonal);
@@ -937,6 +984,7 @@ namespace Genesis.RoomScan
             values.Int("_M8QueryBlockSide", query.Side);
             values.UInt("_M8ReadoutRevision", ticket.Revision);
             values.UInt("_M8ResidencyChanged", _retryPendingTiles ? 1u : 0u);
+            values.UInt("_M8AllowWarmLoads", ticket.ResidencyQuery ? 1u : 0u);
             var resources = new IntPtr[
                 MerkabaNativeVulkanExecutor.ResourceCount];
             _grid.FillNativeExecutorWorldResources(resources);
@@ -956,48 +1004,43 @@ namespace Genesis.RoomScan
                 .RenderIndexFront] = _grid.GetM8RenderIndex(1 - ticket.Slot)
                 .GetNativeBufferPtr();
             int frontGroups = MerkabaSpatial.PhysicalTileCapacity / 128;
-            if (!MerkabaNativeVulkanExecutor.TryCreateJob(
-                    MerkabaNativeVulkanExecutor.JobKind.Readout,
+            if (!MerkabaNativeVulkanExecutor.TryCreateJob(kind,
                     ticket.Revision, resources, values, 0, 0, 0,
-                    queryGroups, out var nativeJob,
-                    frontGroups))
-                return;
+                    _nativeQueryGroups, out var nativeJob, frontGroups))
+                return false;
 
             CommandBuffer command = CommandBufferPool.Get(
                 "Merkaba native readout submit");
             bool recorded = false;
-            _buildInFlight = true;
-            _pendingBuild = ticket;
             try
             {
                 nativeJob.RecordPrepareAndSubmit(command);
                 recorded = true;
                 Graphics.ExecuteCommandBuffer(command);
                 _nativeReadoutJob = nativeJob;
-                OnBuildSubmitted(ticket);
+                return true;
             }
             catch (Exception exception)
             {
                 if (recorded)
                 {
                     _nativeReadoutJob = nativeJob;
-                    OnBuildSubmitted(ticket);
                     Logger.Error("Merkaba native readout submission became " +
                         "uncertain; BACK remains quarantined: " +
                         exception.Message);
-                    return;
+                    return true;
                 }
                 nativeJob.CancelBeforeExecution();
                 nativeJob.Dispose();
-                _buildInFlight = false;
-                _pendingBuild = default;
+                Logger.Error("Merkaba native readout submission failed: " +
+                    exception.Message);
+                return false;
             }
             finally
             {
                 CommandBufferPool.Release(command);
             }
         }
-#endif
 
         private void PollNativeReadoutBuild()
         {
@@ -1014,15 +1057,80 @@ namespace Genesis.RoomScan
             if (!string.IsNullOrEmpty(error))
             {
                 Logger.Error(error);
-                RejectPublication(ticket);
+                AbortNativeTransaction(ticket);
                 return;
             }
-            bool valid = job.TryReadCompletion(_completionRecord) &&
-                DecidePublication(ticket, _completionRecord, 4);
-            if (!valid) RejectPublication(ticket);
+            if (!job.TryReadCompletion(_completionRecord))
+            {
+                AbortNativeTransaction(ticket);
+                return;
+            }
+            switch (_nativePhase)
+            {
+                case NativeReadoutPhase.Begin:
+                case NativeReadoutPhase.Batch:
+                {
+                    // Record 2 = (revision, cursor, rebuild count, scheduled).
+                    uint cursor = _completionRecord[9];
+                    uint total = _completionRecord[10];
+                    int maximumBatches = MerkabaSpatial.PhysicalTileCapacity /
+                        MerkabaGrid.RenderBatchTiles + 1;
+                    if (_completionRecord[8] != ticket.Revision ||
+                        _nativeBatchesSubmitted > maximumBatches)
+                    {
+                        AbortNativeTransaction(ticket);
+                        return;
+                    }
+                    bool more = cursor < total;
+                    MerkabaNativeVulkanExecutor.JobKind next = more
+                        ? MerkabaNativeVulkanExecutor.JobKind.ReadoutBatch
+                        : MerkabaNativeVulkanExecutor.JobKind.ReadoutFinalize;
+                    QueryShape query = ComputeQueryShape(
+                        ticket.CameraGridMeters);
+                    if (!TrySubmitNativeReadoutJob(next, ticket, query))
+                    {
+                        AbortNativeTransaction(ticket);
+                        return;
+                    }
+                    if (more)
+                    {
+                        _nativeBatchesSubmitted++;
+                        _nativePhase = NativeReadoutPhase.Batch;
+                    }
+                    else
+                    {
+                        _nativePhase = NativeReadoutPhase.Finalize;
+                        Logger.Info("Merkaba readout transaction " +
+                            $"revision={ticket.Revision} tiles={total} " +
+                            $"batches={_nativeBatchesSubmitted}");
+                    }
+                    return;
+                }
+                case NativeReadoutPhase.Finalize:
+                {
+                    _nativePhase = NativeReadoutPhase.None;
+                    if (!DecidePublication(ticket, _completionRecord, 4))
+                        RejectPublication(ticket);
+                    return;
+                }
+                default:
+                    AbortNativeTransaction(ticket);
+                    return;
+            }
         }
 
-        private readonly uint[] _completionRecord = new uint[8];
+        /// <summary>
+        /// Any failure inside the transaction rejects the whole BACK: FRONT,
+        /// its tile count and the scan barrier stay exactly as they were.
+        /// </summary>
+        private void AbortNativeTransaction(ReadoutBuildTicket ticket)
+        {
+            _nativePhase = NativeReadoutPhase.None;
+            RejectPublication(ticket);
+        }
+
+        // 0 editor readback, 1 publication decision, 2 batch progress.
+        private readonly uint[] _completionRecord = new uint[12];
 
         /// <summary>
         /// Adopts BACK as FRONT only when the readout itself reports a

@@ -67,6 +67,11 @@ namespace Genesis.RoomScan.Tests
         [TearDown]
         public void ReleaseWorld()
         {
+            // Wait for every queued dispatch of this test before its buffers
+            // are released: the editor frees immediately, and a late write
+            // into freed memory lands in the next test's fresh buffers.
+            if (_grid != null && _grid.M8Counters != null)
+                _grid.M8Counters.GetData(new uint[1], 0, 0, 1);
             _renderer?.ReleaseOwnedResourcesAfterGpuRetirement();
             _grid?.ReleaseOwnedResourcesAfterGpuRetirement();
             if (_owner != null) UnityEngine.Object.DestroyImmediate(_owner);
@@ -84,11 +89,22 @@ namespace Genesis.RoomScan.Tests
             uint slot = back[ListBase(back)];
             int record = Header + (int)slot * RecordWords;
             uint indexCount = back[record];
+            var header = new U4[1];
+            _grid.M8RenderScratchHeader.GetData(header, 0, 0, 1);
             Assert.That(indexCount, Is.EqualTo(64u * 6u),
-                "one 25 mm membrane quad per measured MAIN");
+                "one 25 mm membrane quad per measured MAIN; " +
+                $"planeValid={Counter(30)} emittedPatches={Counter(31)} " +
+                $"emittedVertices={Counter(97)} unresolved={Counter(50)} " +
+                $"pending={Counter(108)} overflow={Counter(23)} " +
+                $"rebuild={Counter(100)} batchBase={Counter(106)} " +
+                $"cursor={Counter(119)} header=({header[0].X},{header[0].Y}," +
+                $"{header[0].Z},{header[0].W})");
             Assert.That(back[1], Is.EqualTo(indexCount));
-            Assert.That(back[record + 1], Is.EqualTo(4u),
-                "64 patches = 256 vertices = four 64-vertex pages");
+            // Shared knots: an 8x8 sheet has 9x9 = 81 knot vertices (two
+            // 64-vertex pages) and 64 * 6 = 384 indices (two 256-index pages).
+            Assert.That(back[record + 1], Is.EqualTo(2u),
+                "81 shared knots and 384 indices = two pages");
+            Assert.That(Counter(97), Is.EqualTo(81u), "one vertex per knot");
             Assert.That(Control(MerkabaGrid.RenderControlFreePages),
                 Is.EqualTo((uint)MerkabaGrid.RenderPageCapacity -
                     back[record + 1]));
@@ -165,9 +181,13 @@ namespace Genesis.RoomScan.Tests
             MarkTileDirty(new int3(0, 0, 0));
             // The slot that rebuilds the tile retires its old pages into its
             // own ring; they are free again only when that slot builds next.
+            int rebuiltSlot = 1 - _front;
+            string beforeChain = ChainDump(rebuiltSlot, new int3(0, 0, 0));
             Build();
+            string afterChain = ChainDump(rebuiltSlot, new int3(0, 0, 0));
             uint retired = Retired();
-            Assert.That(retired, Is.GreaterThan(0u));
+            Assert.That(retired, Is.GreaterThan(0u),
+                $"before: {beforeChain} after: {afterChain}");
             Assert.That(Control(MerkabaGrid.RenderControlFreePages),
                 Is.EqualTo(free - retired), "old pages wait in the retire ring");
             Build();
@@ -202,12 +222,17 @@ namespace Genesis.RoomScan.Tests
         [Test]
         public void EvictedTileLeavesThePublicationAndRetiresItsPages()
         {
-            InstallWallTiles(new int3(0, 0, 0), new int3(0, 24, 0));
+            // The second tile spans y = 6.0..6.2 m: inside the 6.4 m coverage
+            // sphere from the origin, outside it once the head moved 0.5 m.
+            // (A tile evicted INSIDE coverage is unresolved: FRONT stays.)
+            InstallWallTiles(new int3(0, 0, 0), new int3(0, 240, 0));
             Build();
             Build();
-            uint slot = SlotOf(new int3(0, 24, 0));
+            uint[] published = Index(_front);
+            Assert.That(published[0], Is.EqualTo(2u));
+            uint slot = SlotOf(new int3(0, 240, 0));
             SetTileRef(RefIndexOf(slot), RefCold);
-            Build();
+            Build(cameraGridMeters: new Vector3(0f, -0.5f, 0f));
             uint[] back = Index(_front);
             Assert.That(back[0], Is.EqualTo(1u));
             Assert.That(back[Header + (int)slot * RecordWords + 2], Is.Zero);
@@ -307,23 +332,32 @@ namespace Genesis.RoomScan.Tests
                 "first visible tile owns one contiguous output range");
         }
 
-        private U4 Build(bool publish = true)
+        private U4 Build(bool publish = true, Vector3 cameraGridMeters = default)
         {
             int back = 1 - _front;
             var command = new CommandBuffer { name = "readout-gpu-test" };
             try
             {
                 _renderer.RecordBuild(command, back, ++_revision, _published,
-                    true, Vector3.zero);
+                    true, cameraGridMeters);
                 Graphics.ExecuteCommandBuffer(command);
             }
             finally
             {
                 command.Release();
             }
-            var completion = new U4[2];
+            var completion = new U4[3];
             _grid.M8AttemptCompletion.GetData(completion);
             Assert.That(completion[1].X, Is.EqualTo(_revision));
+            if (completion[1].Y != MerkabaGrid.ReadoutPublishedStatus)
+                Debug.Log($"readout-gpu-test revision={_revision} not published: " +
+                    $"status={completion[1].Y} tiles={completion[1].Z} " +
+                    $"flags={completion[1].W:X8} batch=({completion[2].Y}/" +
+                    $"{completion[2].Z}) rebuild={Counter(100)} " +
+                    $"unresolved={Counter(50)} pending={Counter(108)} " +
+                    $"capacity={Counter(109)} overflow={Counter(23)} " +
+                    $"viewOverflow={Counter(104)} invalid={Counter(105)} " +
+                    $"planeValid={Counter(30)} emitted={Counter(31)}");
             _published = publish &&
                 completion[1].Y == MerkabaGrid.ReadoutPublishedStatus;
             if (_published) _front = back;
@@ -431,6 +465,35 @@ namespace Genesis.RoomScan.Tests
             var values = new uint[MerkabaGrid.RenderIndexCount];
             _grid.GetM8RenderIndex(slot).GetData(values);
             return values;
+        }
+
+        private string ChainDump(int slot, int3 origin)
+        {
+            uint tile = SlotOf(origin);
+            uint[] index = Index(slot);
+            int record = Header + (int)tile * RecordWords;
+            var queues = new uint[MerkabaGrid.RenderPageQueueCount];
+            _grid.GetM8RenderPageQueues(slot).GetData(queues);
+            const int capacity = MerkabaGrid.RenderPageCapacity;
+            int link = 8 + 3 * capacity;
+            int owner = 8 + 4 * capacity;
+            int alloc = 8 + 2 * capacity;
+            var text = new System.Text.StringBuilder();
+            text.Append($"slot={slot} tile={tile} record=[");
+            for (int word = 0; word < RecordWords; word++)
+                text.Append(index[record + word]).Append(word + 1 < RecordWords ? "," : "]");
+            text.Append($" free={queues[0]} retireCount={queues[1]} alloc={queues[2]} " +
+                $"reclaim={queues[3]} head={queues[4]} tail={queues[5]} chain=");
+            uint page = index[record + 6];
+            for (int hop = 0; hop < 6 && page < capacity; hop++)
+            {
+                text.Append($"{page}(owner={queues[owner + page]})->");
+                page = queues[link + (int)page];
+            }
+            text.Append(page == 0xffffffffu ? "END" : page.ToString());
+            text.Append($" allocList={queues[alloc]},{queues[alloc + 1]},{queues[alloc + 2]}");
+            text.Append($" freeTop={queues[8 + queues[0] - 1]},{queues[8 + queues[0] - 2]}");
+            return text.ToString();
         }
 
         private string Diagnostics() =>
