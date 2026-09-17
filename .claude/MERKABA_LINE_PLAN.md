@@ -439,3 +439,17 @@ conversion); FXC log grep; Unity EditMode 100 %; APK build clean.
   `gM8TransitionTotal > 1024` at the end of ResolveRenderPatches (no `continue`). Source
   census tests updated for the new kernel (71 pragmas, 77 audited, 9 group barriers in
   the build, winding strings); each carries its reason comment.
+- C4: no lifetime change and no dummy rebinding; the diagnosis refuted the lifetime
+  hypothesis of section 7. The foreign record in a fresh page queue (words 4..7 held a
+  knot record after other tests) came from the deleted owner-chain solve: its
+  `_M8RenderKnotOwner` table was never initialised, `M8KnotRootTask` followed stale
+  entries of a reused allocation to an unbounded root, and
+  `_M8RenderKnotScratch[cornerBase + root]` (including an `InterlockedOr` on `.w`)
+  wrote outside the scratch into the neighbouring allocation. C3 removed that code;
+  every scratch index of Collect/Solve/Resolve/Emit is bounded (task < 243, slot < 64,
+  node id < 3072 checked, transition clamped to 1024, record ids masked to 12 bits).
+  Acceptance (section 7.3): `MerkabaReadoutGpuTests` green in three consecutive runs on
+  the C3 code: full EditMode 333 tests (329 + 4 source-census failures), filtered
+  68/68, full EditMode on 042d453 333/333 including the formerly failing
+  `TileWithNonResidentRingIsNotListedUntilInstalled` and
+  `RetiredPagesReturnOnlyAfterTheNextPublication`.

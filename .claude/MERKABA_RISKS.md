@@ -354,3 +354,13 @@ Defects confirmed in code (not yet fixed):
    cylinder unless the cursor is on a surface; the scan-side highlight shows only where
    the membrane intersects the capsule. Required: show the tube from the controller
    for its full length regardless of surface hit.
+
+## RISK-18 — readout fixture saw foreign data in a fresh page queue [CLOSED IN CODE 2026-09-17 by 042d453]
+
+Only after other tests: a knot record appeared in page-queue words 4..7 and the next
+publication failed with PUBLICATION_INVALID 16. Cause: out-of-bounds scratch writes of
+the deleted knot owner chain (uninitialised `_M8RenderKnotOwner` -> unbounded root).
+The line-node kernels index only bounded values. Evidence: three consecutive green
+`MerkabaReadoutGpuTests` runs, full EditMode 333/333 on 042d453. On Vulkan without
+robust buffer access the same class of bug corrupts neighbouring GPU allocations on
+Quest, so any new scratch index must stay provably bounded.
