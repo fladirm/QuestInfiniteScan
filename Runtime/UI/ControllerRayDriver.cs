@@ -75,6 +75,16 @@ namespace Genesis.RoomScan.UI
             SetupLineRenderer();
             SetupCursor();
             SetupFinePreview();
+            // Pointer feedback lives on the UI layer: the UX overlay camera
+            // draws it after the world, so it is never hidden by the scan
+            // or by the GLB viewer. Nothing here carries a collider.
+            int uiLayer = LayerMask.NameToLayer("UI");
+            if (uiLayer >= 0)
+            {
+                gameObject.layer = uiLayer;
+                _cursor.layer = uiLayer;
+                _fineCursor.layer = uiLayer;
+            }
         }
 
         private void Update()

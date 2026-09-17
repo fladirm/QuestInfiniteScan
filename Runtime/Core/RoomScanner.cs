@@ -1030,6 +1030,16 @@ namespace Genesis.RoomScan
                     out Vector3 rayDirection))
                 return false;
 
+            if (operation == FineBrushOperation.Erase)
+            {
+                // ERASE is a world-space capsule from the controller along
+                // its forward axis: no surface hit, no depth-frame gate.
+                // Whatever is inside is gone at once, as if never scanned.
+                return FineBrushDescriptor.TryCreate(rayOrigin, -rayDirection,
+                    rayDirection, fineBrushRadius, fineToolLength, operation,
+                    out descriptor);
+            }
+
             float targetDistance = _integrator != null
                 ? _integrator.MaxUpdateDistance : 5f;
             if (!_depthCapture.TryUpdateFineSurfaceTarget(rayOrigin,

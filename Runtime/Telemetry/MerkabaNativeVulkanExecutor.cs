@@ -13,15 +13,15 @@ namespace Genesis.RoomScan
     internal static class MerkabaNativeVulkanExecutor
     {
         private const float TimingLogIntervalSeconds = 5f;
-        internal const int AbiVersion = 5;
-        internal const int ResourceCount = 48;
+        internal const int AbiVersion = 6;
+        internal const int ResourceCount = 52;
         // First pipeline of each job kind; must equal the plugin's
         // kReadoutPipelineBegin / kFineErasePipelineBegin and the
         // observation-retry start so stage timings keep their names.
         internal const int ObservationRetryPipelineBegin = 13;
         internal const int ReadoutPipelineBegin = 33;
-        internal const int FineErasePipelineBegin = 48;
-        internal const int PipelineCount = 53;
+        internal const int FineErasePipelineBegin = 50;
+        internal const int PipelineCount = 55;
         internal const int MaximumTimestampCount = PipelineCount * 2 + 2;
 
         internal enum JobKind : uint
@@ -82,6 +82,10 @@ namespace Genesis.RoomScan
             RenderMutationQueue,
             RenderIndices,
             RenderVersions,
+            RenderPatchScratch,
+            RenderKnotScratch,
+            RenderKnotOwner,
+            RenderScratchHeader,
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -158,7 +162,9 @@ namespace Genesis.RoomScan
             "RequestWarmResidency",
             "CollectRenderRebuildTiles",
             "PrepareRenderBuild",
-            "BuildRenderTiles",
+            "CollectRenderPatchInputs",
+            "ReduceAndSolveSharedKnots",
+            "EmitRenderTileGeometry",
             "PublishRenderTileList",
             "RecountRenderPatches",
             "ValidatePublication",

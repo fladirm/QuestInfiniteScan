@@ -12,6 +12,7 @@ def text(path: str) -> str:
 world = text("Runtime/Shaders/MerkabaWorld.hlsl")
 world_compute = text("Runtime/Shaders/MerkabaWorld.compute")
 readout = text("Runtime/Shaders/MerkabaReadout.compute")
+visibility = text("Runtime/Resources/Merkaba/MerkabaVisibility.compute")
 grid = text("Runtime/Merkaba/MerkabaGrid.Gpu.cs")
 renderer = text("Runtime/Merkaba/MerkabaGridRenderer.cs")
 integrator = text("Runtime/Merkaba/MerkabaIntegrator.cs")
@@ -78,8 +79,8 @@ checks = {
         "slotGroups" not in renderer,
     "native readout executes on the scanner queue":
         "if (kind == JobKind.Readout) return false;" not in native and
-        "AbiVersion = 5" in native and
-        "kExecutorAbiVersion = 5;" in text(
+        "AbiVersion = 6" in native and
+        "kExecutorAbiVersion = 6;" in text(
             "Runtime/Telemetry/Native/MerkabaVulkanTimestamps.cpp") and
         "SubmitNativeReadoutBuild" in renderer,
     "device publication is confirmed by the native fence copy":
@@ -166,17 +167,40 @@ checks["per-tile page chain bound is the contract's 2560"] = \
     "RenderTileMaxPages = 2560" in grid and \
     "M8_RENDER_TILE_MAX_PAGES 2560u" in text("Runtime/Shaders/MerkabaWorld.hlsl")
 checks["the visible index stream is exact: no page padding, whole triangles"] = \
-    "RWStructuredBuffer<uint4> _M8VisiblePages" in readout and \
-    "InterlockedAdd(_M8CullControl[1], indexCount, tileOutputBase)" in readout and \
-    "_M8RenderDrawArgs[0] = valid ? totalIndices : 0u" in readout and \
-    "(totalIndices % 3u) == 0u" in readout and \
-    "_M8RenderDrawArgs[0] = pages * M8_RENDER_PAGE_INDICES" not in readout and \
-    "slot < used ?" not in readout and \
+    "RWStructuredBuffer<uint4> _M8VisiblePages" in visibility and \
+    "InterlockedAdd(_M8CullControl[1], indexCount, tileOutputBase)" in visibility and \
+    "_M8RenderDrawArgs[0] = valid ? totalIndices : 0u" in visibility and \
+    "(totalIndices % 3u) == 0u" in visibility and \
+    "_M8RenderDrawArgs[1] = 2u" in visibility and \
+    "_M8RenderDrawArgs[0] = pages * M8_RENDER_PAGE_INDICES" not in visibility and \
+    "slot < used ?" not in visibility and \
     "Allocate(RenderPageCapacity, sizeof(uint) * 4)" in grid
+checks["draw kernels are isolated from the native publication ABI"] = \
+    "#pragma kernel CullRenderTiles" not in readout and \
+    visibility.count("#pragma kernel ") == 3 and \
+    "_visibilityCompute.FindProfiledKernel" in renderer and \
+    'Resources.Load<ComputeShader>(' in renderer
+checks["corner solve is register resident (no 12-entry private arrays)"] = all(
+    token not in text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl")
+    for token in ("bool valid[12]", "float heights[12]", "uint signatures[12]",
+                  "int3 coords[12]", "uint near[12]", "uint below[12]")) and \
+    "float4 heights0 = 0.0" in text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl")
+checks["patch descriptors have fixed kernelLocal slots (no groupshared map)"] = \
+    "gM8PatchOfKernel" not in readout and \
+    "_M8RenderPatchScratch[patchBase + kernelLocal] = descriptor" in readout
+checks["invalid membrane patches emit no degenerate triangles"] = \
+    "M8_SCRATCH_PATCH_VALID" in readout and "b = a; c = a; d = a;" not in readout
+checks["vertex ordinals are assigned only after ownership is final"] = \
+    "0x80000000u | ordinal" in readout and \
+    readout.index("0x80000000u | ordinal") > readout.index("Phase C:") and \
+    "no lane walks the tile serially" in readout
 checks["live readout consumes the generated membrane oracle"] = \
     '#include "MerkabaOverlapShell.generated.hlsl"' in readout and \
-    "M8TryBuildMembranePatch(globalCoord, state, patch" in readout and \
-    "M8EmitMembranePatch" in readout and \
+    "M8MembraneResolveCorner(globalCoord, state, normal, signedOffset," in readout and \
+    "void CollectRenderPatchInputs" in readout and \
+    "void ReduceAndSolveSharedKnots" in readout and \
+    "void EmitRenderTileGeometry" in readout and \
+    "void BuildRenderTiles" not in readout and \
     "M8_MEMBRANE_INDICES_PER_PATCH" in readout
 checks["the 50 mm support no longer defines production topology"] = \
     "MerkabaSkin" not in readout and "M8_SKIN_" not in readout and \
@@ -194,6 +218,21 @@ checks["membrane compatibility is residual-based, not quantized"] = \
 checks["knots carry global identity and canonical colour"] = \
     "internal readonly int3 LineAddress;" in membrane and \
     "M8LoadMembraneColor(bestCoord, ownerColor, ownerConfidence)" in text("Runtime/Shaders/MerkabaOverlapShell.generated.hlsl")
+checks["readout solve and emission are separate dispatches"] = \
+    "M8MembraneResolveCorner(" not in readout[readout.index("void EmitRenderTileGeometry"):] and \
+    "M8StoreRenderVertex(" not in readout[readout.index("void ReduceAndSolveSharedKnots"):readout.index("void EmitRenderTileGeometry")]
+checks["one physical knot is one vertex inside a tile"] = \
+    "M8_MEMBRANE_WELD_EPSILON" in readout and "_M8RenderKnotOwner" in readout
+checks["knots are guarded by support and edge limits on both twins"] = \
+    "M8_MEMBRANE_KNOT_SUPPORT_LIMIT" in readout and "M8_MEMBRANE_MAX_EDGE" in readout and \
+    "MembraneKnotSupportLimit" in membrane and "MembraneMaxEdge" in membrane
+checks["draw opacity is real alpha blending selected on the CPU"] = \
+    "Blend [_SrcBlend] [_DstBlend]" in shader and "M8_ALPHA_BLEND" in shader and \
+    "_material.EnableKeyword(\"M8_ALPHA_BLEND\")" in renderer and \
+    "coverageThreshold" not in shader
+checks["erase is a controller capsule that leaves known free space"] = \
+    "operation == FineBrushOperation.Erase" in text("Runtime/Core/RoomScanner.cs") and \
+    "emptyState.evidence = MERKABA_EXPORT_KNOWN_FREE;" in text("Runtime/Shaders/MerkabaIntegration.compute")
 checks["membrane pitch is frozen at one 25 mm lattice step"] = \
     "MembranePatchPitch = MerkabaConstants.LatticeStep" in membrane
 checks["the publication producer has a diagnostic hard-off"] = \

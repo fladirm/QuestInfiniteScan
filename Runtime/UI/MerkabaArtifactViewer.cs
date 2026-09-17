@@ -42,6 +42,10 @@ namespace Genesis.RoomScan.UI
         private const float AnnotationPlaneAlpha = 0.2f;
         private const float AnnotationHandleRadius = 0.018f;
         private const float AnnotationPickRadius = 0.045f;
+        // Quest system keyboard: it is a system overlay that takes the
+        // app's input focus; Unity may never report Done on it.
+        private const float NoteKeyboardOpenTimeout = 4f;
+        private const float NoteKeyboardFocusGrace = 0.75f;
         private const float PaintSurfaceOffset = 0.001f;
         private const float PaintEraseInterval = 0.06f;
         private const float ModelRayDistance = 1000f;
@@ -115,6 +119,9 @@ namespace Genesis.RoomScan.UI
         private int _noteAnnotationId;
         private int _noteKeyboardOpenedFrame;
         private bool _noteKeyboardWasVisible;
+        private float _noteKeyboardOpenedTime;
+        private bool _noteKeyboardFocusLost;
+        private float _noteKeyboardFocusBackTime = -1f;
         private int _generation;
         private int _alignmentRevision;
         private int _tileLoadsInFlight;
@@ -169,6 +176,7 @@ namespace Genesis.RoomScan.UI
         public string Status { get; private set; } = "GLB View closed";
         public string AnnotationModeText => _annotationMode.ToString().ToUpperInvariant();
         public bool HasSelectedAnnotation => FindSelectedAnnotation() != null;
+        public bool NoteKeyboardActive => _noteKeyboard != null;
         public bool PaintInputEnabled
         {
             get => _paintInputEnabled;
@@ -390,6 +398,13 @@ namespace Genesis.RoomScan.UI
         {
             PollNoteKeyboard();
             if (!IsOpen || _modelRoot == null) return;
+            if (_noteKeyboard != null)
+            {
+                // The system keyboard owns the input: no pointer tool may
+                // draw, select or paint until the edit is retired.
+                CancelTransientInput();
+                return;
+            }
             HandleViewerInput();
             if (Time.unscaledTime >= _nextResidencyRefresh)
             {
@@ -937,7 +952,10 @@ namespace Genesis.RoomScan.UI
             _noteBeforeKeyboard = selected.note ?? string.Empty;
             _noteAnnotationId = selected.id;
             _noteKeyboardOpenedFrame = Time.frameCount;
+            _noteKeyboardOpenedTime = Time.unscaledTime;
             _noteKeyboardWasVisible = false;
+            _noteKeyboardFocusLost = false;
+            _noteKeyboardFocusBackTime = -1f;
             _noteKeyboard = TouchScreenKeyboard.Open(_noteBeforeKeyboard,
                 TouchScreenKeyboardType.Default, false, false, false, false,
                 "Annotation note", 512);
@@ -954,19 +972,41 @@ namespace Genesis.RoomScan.UI
         {
             if (_noteKeyboard == null) return;
             TouchScreenKeyboard.Status keyboardStatus = _noteKeyboard.status;
-            if (keyboardStatus == TouchScreenKeyboard.Status.Visible ||
-                _noteKeyboard.active)
+            bool claimsVisible = keyboardStatus ==
+                TouchScreenKeyboard.Status.Visible || _noteKeyboard.active;
+            // The Quest keyboard is a system overlay: while it owns the input
+            // the app has no input focus. Focus that came back and stayed
+            // ends the edit even when Unity never reports a status change.
+            if (!OVRManager.hasInputFocus)
+            {
+                _noteKeyboardFocusLost = true;
+                _noteKeyboardFocusBackTime = -1f;
+            }
+            else if (_noteKeyboardFocusLost && _noteKeyboardFocusBackTime < 0f)
+                _noteKeyboardFocusBackTime = Time.unscaledTime;
+            bool focusReturned = _noteKeyboardFocusLost &&
+                _noteKeyboardFocusBackTime >= 0f &&
+                Time.unscaledTime - _noteKeyboardFocusBackTime >=
+                NoteKeyboardFocusGrace;
+            bool neverOpened = !_noteKeyboardFocusLost &&
+                Time.unscaledTime - _noteKeyboardOpenedTime >=
+                NoteKeyboardOpenTimeout;
+            if (claimsVisible)
             {
                 _noteKeyboardWasVisible = true;
+                if (!focusReturned && !neverOpened) return;
+            }
+            else if (!_noteKeyboardWasVisible && !_noteKeyboardFocusLost &&
+                     Time.frameCount <= _noteKeyboardOpenedFrame + 2)
+            {
+                // Android may not report Visible until the overlay owns
+                // focus. Do not interpret the request-frame default state
+                // as completion.
                 return;
             }
-            // Android may not report Visible until the overlay owns focus.
-            // Do not interpret the request-frame default state as completion.
-            if (!_noteKeyboardWasVisible &&
-                Time.frameCount <= _noteKeyboardOpenedFrame + 2)
-                return;
             bool committed = keyboardStatus ==
-                TouchScreenKeyboard.Status.Done;
+                TouchScreenKeyboard.Status.Done ||
+                (claimsVisible && focusReturned);
             if (committed)
                 SetAnnotationNote(_noteAnnotationId, _noteKeyboard.text);
             AnnotationRecord selected = _annotations.Find(item =>
@@ -974,13 +1014,19 @@ namespace Genesis.RoomScan.UI
             if (selected != null)
                 Status = committed
                     ? $"Updated note for {selected.type} #{selected.id}"
-                    : $"Note unchanged for {selected.type} #{selected.id}";
+                    : claimsVisible && neverOpened
+                        ? "Quest system keyboard did not open"
+                        : $"Note unchanged for {selected.type} #{selected.id}";
             Logger.Info($"Merkaba GLB note keyboard retired: " +
-                $"status={keyboardStatus}, annotation={_noteAnnotationId}.");
+                $"status={keyboardStatus}, focusReturned={focusReturned}, " +
+                $"neverOpened={neverOpened}, annotation={_noteAnnotationId}.");
+            _noteKeyboard.active = false;
             _noteKeyboard = null;
             _noteBeforeKeyboard = string.Empty;
             _noteAnnotationId = 0;
             _noteKeyboardWasVisible = false;
+            _noteKeyboardFocusLost = false;
+            _noteKeyboardFocusBackTime = -1f;
         }
 
         private void CloseNoteKeyboard()
@@ -991,6 +1037,8 @@ namespace Genesis.RoomScan.UI
             _noteBeforeKeyboard = string.Empty;
             _noteAnnotationId = 0;
             _noteKeyboardWasVisible = false;
+            _noteKeyboardFocusLost = false;
+            _noteKeyboardFocusBackTime = -1f;
         }
 
         private void SetAnnotationNote(int annotationId, string value)
@@ -2118,8 +2166,10 @@ namespace Genesis.RoomScan.UI
             }
             _selectedAnnotationId = selected.id;
             RefreshAnnotationObjects();
+            // Selection never opens the system keyboard by itself: the
+            // keyboard takes the app's input focus, so it is requested only
+            // by the explicit "Edit note" button on the panel.
             Status = $"Selected {selected.type} #{selected.id}";
-            BeginNoteEdit();
         }
 
         private void AddPointAnnotation(Ray ray)

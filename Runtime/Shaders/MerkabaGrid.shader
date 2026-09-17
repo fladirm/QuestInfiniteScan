@@ -3,6 +3,11 @@ Shader "Genesis/RoomScan/MerkabaGrid"
     Properties
     {
         _ScanOpacity("Scan Opacity", Range(0,1)) = 1
+        // Blend state is material state chosen on the CPU (opaque or real
+        // alpha blending), never a per-fragment branch.
+        _SrcBlend("Src Blend", Float) = 1
+        _DstBlend("Dst Blend", Float) = 0
+        _ZWrite("ZWrite", Float) = 1
     }
     SubShader
     {
@@ -15,8 +20,8 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             // second UNKNOWN-side surface. Both physical sides of that one
             // sheet therefore use the same disposable vertex stream.
             Cull Off
-            Blend One Zero
-            ZWrite On
+            Blend [_SrcBlend] [_DstBlend]
+            ZWrite [_ZWrite]
             ZTest LEqual
 
             HLSLPROGRAM
@@ -31,7 +36,7 @@ Shader "Genesis/RoomScan/MerkabaGrid"
             // variants without a serialized material user may be stripped.
             #pragma multi_compile_local_fragment _ M8_FINE_PREVIEW
             #pragma multi_compile_local_fragment _ M8_ENVIRONMENT_OCCLUSION
-            #pragma multi_compile_local_fragment _ M8_ALPHA_COVERAGE
+            #pragma multi_compile_local_fragment _ M8_ALPHA_BLEND
             #pragma multi_compile_local_fragment _ M8_CHECKER_READOUT
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
@@ -125,29 +130,37 @@ Shader "Genesis/RoomScan/MerkabaGrid"
 #if defined(M8_ENVIRONMENT_OCCLUSION) && defined(XR_HARD_OCCLUSION)
                 clip(M8EnvironmentVisibility(input.worldPosition) - 0.5);
 #endif
-#if defined(M8_ALPHA_COVERAGE)
-                uint2 coveragePixel = (uint2)input.positionCS.xy;
-                uint coverageHash = coveragePixel.x * 0x8da6b343u ^
-                    coveragePixel.y * 0xd8163841u;
-                coverageHash ^= coverageHash >> 13u;
-                coverageHash *= 0x85ebca6bu;
-                coverageHash ^= coverageHash >> 16u;
-                half coverageThreshold =
-                    (half)((coverageHash & 255u) + 0.5) / 256.0h;
-                clip(_ScanOpacity - coverageThreshold);
-#endif
                 half3 color = input.hasRgb != 0u
                     ? input.color : half3(0.625h, 0.625h, 0.625h);
 #if defined(M8_CHECKER_READOUT)
-                // Coverage readout: one continuous iridescent field over the
-                // canonical grid position, so a connected sheet reads as one
-                // smooth surface and every hole stays exactly where it is
-                // while the head moves. No per-cell parity, no black cells.
-                float coverageHue = frac(dot(input.gridPosition,
-                    float3(1.7, 2.3, 1.1)) * 1.25);
-                float3 iridescent = 0.5 + 0.5 * cos(6.2831853 *
+                // Coverage readout: a dark membrane under a thin iridescent
+                // film. The film hue follows the viewing angle (fresnel) and
+                // a coarse stable cell seed, never a diagonal position ramp;
+                // the 25 mm parity only lifts the base a little so holes stay
+                // readable exactly where they are.
+                int3 coverageCell = (int3)floor(input.gridPosition / 0.025);
+                uint coverageParity = (uint(coverageCell.x) ^
+                    uint(coverageCell.y) ^ uint(coverageCell.z)) & 1u;
+                int3 coarseCell = (int3)floor(input.gridPosition / 0.2);
+                uint coverageSeed = uint(coarseCell.x) * 0x9e3779b9u ^
+                    uint(coarseCell.y) * 0x85ebca6bu ^
+                    uint(coarseCell.z) * 0xc2b2ae35u;
+                coverageSeed ^= coverageSeed >> 15u;
+                coverageSeed *= 0x2545f491u;
+                coverageSeed ^= coverageSeed >> 13u;
+                float3 faceNormal = normalize(cross(ddy(input.worldPosition),
+                    ddx(input.worldPosition)));
+                float3 viewDirection = normalize(_WorldSpaceCameraPos -
+                    input.worldPosition);
+                float fresnel = pow(1.0 - abs(dot(faceNormal, viewDirection)),
+                    1.5);
+                float coverageHue = frac((float)(coverageSeed & 0xffffu) /
+                    65536.0 + fresnel * 0.6);
+                float3 film = 0.5 + 0.5 * cos(6.2831853 *
                     (coverageHue + float3(0.0, 0.33, 0.67)));
-                color = (half3)saturate(iridescent * 1.15);
+                float coverageBase = coverageParity == 0u ? 0.08 : 0.14;
+                color = (half3)saturate(coverageBase +
+                    film * (0.15 + 0.85 * fresnel));
 #endif
 #if defined(M8_FINE_PREVIEW)
                 if (_FineBrushParams.x > 0.5)
@@ -165,7 +178,11 @@ Shader "Genesis/RoomScan/MerkabaGrid"
                             _FinePreviewColor.a);
                 }
 #endif
-                return half4(color, 1.0h);
+                half alpha = 1.0h;
+#if defined(M8_ALPHA_BLEND)
+                alpha = (half)_ScanOpacity;
+#endif
+                return half4(color, alpha);
             }
             ENDHLSL
         }

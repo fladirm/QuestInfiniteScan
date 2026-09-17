@@ -234,7 +234,7 @@ namespace Genesis.RoomScan.Tests
         }
 
         [Test]
-        public void OpacityUsesOpaqueDepthWritingCoverageInsteadOfBlending()
+        public void OpacityUsesRealAlphaBlendingSelectedOnTheCpu()
         {
             const string assetPath =
                 "Packages/com.genesis.roomscan/Runtime/Shaders/MerkabaGrid.shader";
@@ -245,14 +245,13 @@ namespace Genesis.RoomScan.Tests
             Object.DestroyImmediate(material);
             string source = File.ReadAllText(Path.GetFullPath(assetPath));
             Assert.That(source, Does.Contain(
-                "Blend One Zero"));
-            Assert.That(source, Does.Contain("ZWrite On"));
+                "Blend [_SrcBlend] [_DstBlend]"));
+            Assert.That(source, Does.Contain("ZWrite [_ZWrite]"));
             Assert.That(source, Does.Contain(
-                "#pragma multi_compile_local_fragment _ M8_ALPHA_COVERAGE"));
+                "#pragma multi_compile_local_fragment _ M8_ALPHA_BLEND"));
+            Assert.That(source, Does.Not.Contain("coverageThreshold"));
             Assert.That(source, Does.Contain(
-                "clip(_ScanOpacity - coverageThreshold)"));
-            Assert.That(source, Does.Contain(
-                "return half4(color, 1.0h)"));
+                "return half4(color, alpha)"));
             Assert.That(source, Does.Contain(
                 "#pragma multi_compile _ XR_HARD_OCCLUSION"));
             Assert.That(source, Does.Contain(
@@ -301,9 +300,9 @@ namespace Genesis.RoomScan.Tests
             Assert.That(renderer, Does.Contain(
                 "_material.EnableKeyword(\"M8_ENVIRONMENT_OCCLUSION\")"));
             Assert.That(renderer, Does.Contain(
-                "_material.EnableKeyword(\"M8_ALPHA_COVERAGE\")"));
+                "_material.EnableKeyword(\"M8_ALPHA_BLEND\")"));
             Assert.That(renderer, Does.Contain(
-                "_material.renderQueue = (int)RenderQueue.Geometry"));
+                "(int)RenderQueue.Transparent : (int)RenderQueue.Geometry"));
             Assert.That(renderer, Does.Not.Contain("BlendMode."));
             Assert.That(renderer, Does.Not.Contain("M8_STEREO_MESH"));
         }

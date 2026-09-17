@@ -25,10 +25,16 @@ alias_bases=(
 )
 
 kernel_count=0
-for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
-  MerkabaReadout.compute DepthNormals.compute DepthDilation.compute \
-  StereoRgbdRefine.compute; do
-  shader="$shader_dir/$shader_name"
+shader_paths=(
+  "$shader_dir/MerkabaWorld.compute"
+  "$shader_dir/MerkabaIntegration.compute"
+  "$shader_dir/MerkabaReadout.compute"
+  "$repo_root/Runtime/Resources/Merkaba/MerkabaVisibility.compute"
+  "$shader_dir/DepthNormals.compute"
+  "$shader_dir/DepthDilation.compute"
+  "$shader_dir/StereoRgbdRefine.compute"
+)
+for shader in "${shader_paths[@]}"; do
   while read -r _ _ kernel; do
     spv="$audit_dir/$kernel.spv"
     assembly="$audit_dir/$kernel.spvasm"
@@ -37,7 +43,9 @@ for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
     spirv-val --target-env vulkan1.1 "$spv"
     spirv-dis "$spv" -o "$assembly"
 
-    if [[ "$kernel" == "BuildRenderTiles" ]]; then
+    if [[ "$kernel" == "CollectRenderPatchInputs" || \
+          "$kernel" == "ReduceAndSolveSharedKnots" || \
+          "$kernel" == "EmitRenderTileGeometry" ]]; then
       if grep -Eq 'OpTypeInt 64|Op[US](Div|Mod)|OpSRem' "$assembly"; then
         echo "FAIL: $kernel regressed to int64/integer div/mod" >&2
         exit 1
@@ -48,8 +56,21 @@ for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
         echo "FAIL: $kernel carries a private KernelState array" >&2
         exit 1
       fi
-      if ! grep -Eq 'OpExecutionMode .* LocalSize 128 1 1' "$assembly"; then
-        echo "FAIL: $kernel is not the frozen 128-lane tile workgroup" >&2
+      # The corner solve is register resident: no function-storage array of
+      # any type may survive in the solve kernel.
+      if [[ "$kernel" == "ReduceAndSolveSharedKnots" ]] && awk '
+        $3 == "OpTypeArray" { arrays[$1] = 1 }
+        $3 == "OpTypePointer" && $4 == "Function" { pointed[$5] = 1 }
+        END {
+          for (id in arrays)
+            if (pointed[id]) exit 0
+          exit 1
+        }' "$assembly"; then
+        echo "FAIL: $kernel carries a function-storage array" >&2
+        exit 1
+      fi
+      if ! grep -Eq 'OpExecutionMode .* LocalSize (128|64) 1 1' "$assembly"; then
+        echo "FAIL: $kernel is not a 128- or 64-lane tile workgroup" >&2
         exit 1
       fi
       barrier_count=$(grep -c 'OpControlBarrier' "$assembly" || true)
@@ -113,9 +134,9 @@ for shader_name in MerkabaWorld.compute MerkabaIntegration.compute \
   done < <(rg '^#pragma kernel ' "$shader")
 done
 
-if (( kernel_count != 72 )); then
-  echo "FAIL: audited $kernel_count kernels; expected 72" >&2
+if (( kernel_count != 74 )); then
+  echo "FAIL: audited $kernel_count kernels; expected 74" >&2
   exit 1
 fi
 
-echo "PASS: 72 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"
+echo "PASS: 74 Quest compute kernels validate; writable buffer/image storage <= 8; no RW/read alias pair"

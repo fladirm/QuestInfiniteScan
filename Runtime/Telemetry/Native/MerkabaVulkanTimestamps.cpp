@@ -67,6 +67,10 @@ namespace
         kResourceRenderMutationQueue,
         kResourceRenderIndices,
         kResourceRenderVersions,
+        kResourceRenderPatchScratch,
+        kResourceRenderKnotScratch,
+        kResourceRenderKnotOwner,
+        kResourceRenderScratchHeader,
         kResourceCount,
     };
 
@@ -112,10 +116,10 @@ namespace
     static_assert(kMerkabaExecutorResourceCount == kResourceCount,
         "C#/native M8 executor resource ABI mismatch");
 
-    constexpr uint32_t kExecutorAbiVersion = 5;
+    constexpr uint32_t kExecutorAbiVersion = 6;
     constexpr uint32_t kObservationPipelineEnd = 33;
     constexpr uint32_t kReadoutPipelineBegin = 33;
-    constexpr uint32_t kFineErasePipelineBegin = 48;
+    constexpr uint32_t kFineErasePipelineBegin = 50;
     constexpr uint32_t kMaximumExecutorQueries =
         kMerkabaExecutorPipelineCount * 2 + 2;
     // 32768 physical tile slots in 256-lane groups.

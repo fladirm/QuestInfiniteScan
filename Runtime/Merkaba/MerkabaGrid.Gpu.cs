@@ -59,6 +59,10 @@ namespace Genesis.RoomScan
         internal const int RenderMutationJournalCount =
             RenderMutationJournalCapacity * RenderMutationJournalEntryWords;
         internal const int CounterCount = 119;
+        // MerkabaReadout.compute M8_RENDER_SCRATCH_*: readout build scratch.
+        internal const int RenderScratchTiles = 512;
+        internal const int RenderScratchPatches = 512;
+        internal const int RenderScratchCorners = 2048;
 
         internal const int CounterBlockCount = 0;
         internal const int CounterChunkCount = 1;
@@ -229,6 +233,11 @@ namespace Genesis.RoomScan
         private readonly ComputeBuffer[] _m8PublishedIndices =
             new ComputeBuffer[2];
         private ComputeBuffer _m8RenderVersions;
+        // Readout build scratch, one region per rebuild tile (work index).
+        private ComputeBuffer _m8RenderPatchScratch;
+        private ComputeBuffer _m8RenderKnotScratch;
+        private ComputeBuffer _m8RenderKnotOwner;
+        private ComputeBuffer _m8RenderScratchHeader;
         private ComputeBuffer _m8RenderMutationQueue;
         private ComputeBuffer _m8VisiblePages;
         private ComputeBuffer _m8CullControl;
@@ -293,6 +302,10 @@ namespace Genesis.RoomScan
         internal ComputeBuffer GetM8PublishedIndices(int slot) =>
             _m8PublishedIndices[ValidateReadoutSlot(slot)];
         internal ComputeBuffer M8RenderVersions => _m8RenderVersions;
+        internal ComputeBuffer M8RenderPatchScratch => _m8RenderPatchScratch;
+        internal ComputeBuffer M8RenderKnotScratch => _m8RenderKnotScratch;
+        internal ComputeBuffer M8RenderKnotOwner => _m8RenderKnotOwner;
+        internal ComputeBuffer M8RenderScratchHeader => _m8RenderScratchHeader;
         // Slot 0 views for fixtures and diagnostics.
         internal Mesh M8RenderMesh => _m8RenderMesh[0];
         internal GraphicsBuffer M8RenderVertices => _m8RenderVertices[0];
@@ -398,6 +411,14 @@ namespace Genesis.RoomScan
                 _m8PublishedIndices[0]);
             Set(MerkabaNativeVulkanExecutor.Resource.RenderVersions,
                 _m8RenderVersions);
+            Set(MerkabaNativeVulkanExecutor.Resource.RenderPatchScratch,
+                _m8RenderPatchScratch);
+            Set(MerkabaNativeVulkanExecutor.Resource.RenderKnotScratch,
+                _m8RenderKnotScratch);
+            Set(MerkabaNativeVulkanExecutor.Resource.RenderKnotOwner,
+                _m8RenderKnotOwner);
+            Set(MerkabaNativeVulkanExecutor.Resource.RenderScratchHeader,
+                _m8RenderScratchHeader);
         }
 
         internal bool GpuReady => _gpuReady;
@@ -510,6 +531,16 @@ namespace Genesis.RoomScan
                     sizeof(uint));
                 _m8RenderVersions = Allocate(MerkabaSpatial.PhysicalTileCapacity,
                     sizeof(uint));
+                // Readout scratch: up to RenderScratchTiles rebuild tiles per
+                // build; more stay dirty for the next build (carry-over).
+                _m8RenderPatchScratch = Allocate(
+                    RenderScratchTiles * RenderScratchPatches, sizeof(uint) * 4);
+                _m8RenderKnotScratch = Allocate(
+                    RenderScratchTiles * RenderScratchCorners, sizeof(uint) * 4);
+                _m8RenderKnotOwner = Allocate(
+                    RenderScratchTiles * RenderScratchCorners, sizeof(uint));
+                _m8RenderScratchHeader = Allocate(RenderScratchTiles,
+                    sizeof(uint) * 4);
                 // Visible page record: page, live indices, stream position.
                 _m8VisiblePages = Allocate(RenderPageCapacity, sizeof(uint) * 4);
                 _m8CullControl = Allocate(4, sizeof(uint),
@@ -1171,6 +1202,10 @@ namespace Genesis.RoomScan
                 _m8PublishedIndices[slot] = null;
             }
             _m8RenderVersions = null;
+            _m8RenderPatchScratch = null;
+            _m8RenderKnotScratch = null;
+            _m8RenderKnotOwner = null;
+            _m8RenderScratchHeader = null;
             _m8HashEntries = null;
             _m8OwnerRecords = null;
             _m8BlockChunkRefs = null;

@@ -36,6 +36,7 @@ namespace Genesis.RoomScan.Tests
         private MerkabaGrid _grid;
         private MerkabaGridRenderer _renderer;
         private ComputeShader _readout;
+        private ComputeShader _visibility;
         private int _front;
         private bool _published;
         private uint _revision;
@@ -51,6 +52,8 @@ namespace Genesis.RoomScan.Tests
             _renderer = _owner.AddComponent<MerkabaGridRenderer>();
             _readout = Load<ComputeShader>(
                 "Runtime/Shaders/MerkabaReadout.compute");
+            _visibility = Load<ComputeShader>(
+                "Runtime/Resources/Merkaba/MerkabaVisibility.compute");
             SetField(_renderer, "readoutCompute", _readout);
             SetField(_renderer, "renderShader", Load<Shader>(
                 "Runtime/Shaders/MerkabaGrid.shader"));
@@ -240,39 +243,39 @@ namespace Genesis.RoomScan.Tests
             uint nearPatches = front[nearRecord];
             uint nearPages = front[nearRecord + 1];
 
-            int cull = _readout.FindKernel("CullRenderTiles");
-            int prepare = _readout.FindKernel("PrepareVisibleIndices");
-            int emit = _readout.FindKernel("EmitVisibleIndices");
+            int cull = _visibility.FindKernel("CullRenderTiles");
+            int prepare = _visibility.FindKernel("PrepareVisibleIndices");
+            int emit = _visibility.FindKernel("EmitVisibleIndices");
             _grid.M8CullControl.SetData(new uint[] { 0u, 0u, 0u, 0u });
             var planes = new Vector4[12];
             for (int plane = 0; plane < 12; plane++)
                 planes[plane] = new Vector4(0f, 0f, 0f, 1f);
-            _readout.SetVectorArray("_M8CullGridPlanes", planes);
-            _readout.SetVector("_M8CameraGridMeters", Vector3.zero);
+            _visibility.SetVectorArray("_M8CullGridPlanes", planes);
+            _visibility.SetVector("_M8CameraGridMeters", Vector3.zero);
             MerkabaReadoutCoverage.WriteGridMetric(Matrix4x4.identity,
                 out Vector3 diagonal, out Vector3 cross);
-            _readout.SetVector("_M8GridMetricDiagonal", diagonal);
-            _readout.SetVector("_M8GridMetricCross", cross);
-            _readout.SetFloat("_M8RenderDistance", 13f);
-            _readout.SetInt("_M8FrontTileCount", (int)front[0]);
-            _readout.SetBuffer(cull, "_M8RenderIndexFrontRead",
+            _visibility.SetVector("_M8GridMetricDiagonal", diagonal);
+            _visibility.SetVector("_M8GridMetricCross", cross);
+            _visibility.SetFloat("_M8RenderDistance", 13f);
+            _visibility.SetInt("_M8FrontTileCount", (int)front[0]);
+            _visibility.SetBuffer(cull, "_M8RenderIndexFrontRead",
                 _grid.GetM8RenderIndex(_front));
-            _readout.SetBuffer(cull, "_M8RenderPageQueues",
+            _visibility.SetBuffer(cull, "_M8RenderPageQueues",
                 _grid.GetM8RenderPageQueues(_front));
-            _readout.SetBuffer(cull, "_M8VisiblePages", _grid.M8VisiblePages);
-            _readout.SetBuffer(cull, "_M8CullControl", _grid.M8CullControl);
-            _readout.SetBuffer(prepare, "_M8CullControl", _grid.M8CullControl);
-            _readout.SetBuffer(prepare, "_M8RenderDrawArgs",
+            _visibility.SetBuffer(cull, "_M8VisiblePages", _grid.M8VisiblePages);
+            _visibility.SetBuffer(cull, "_M8CullControl", _grid.M8CullControl);
+            _visibility.SetBuffer(prepare, "_M8CullControl", _grid.M8CullControl);
+            _visibility.SetBuffer(prepare, "_M8RenderDrawArgs",
                 _grid.M8RenderDrawArgs);
-            _readout.SetBuffer(emit, "_M8VisiblePagesRead", _grid.M8VisiblePages);
-            _readout.SetBuffer(emit, "_M8CullControlRead", _grid.M8CullControl);
-            _readout.SetBuffer(emit, "_M8VisibleIndices",
+            _visibility.SetBuffer(emit, "_M8VisiblePagesRead", _grid.M8VisiblePages);
+            _visibility.SetBuffer(emit, "_M8CullControlRead", _grid.M8CullControl);
+            _visibility.SetBuffer(emit, "_M8VisibleIndices",
                 _grid.GetM8RenderIndices(_front));
-            _readout.SetBuffer(emit, "_M8RenderIndicesRead",
+            _visibility.SetBuffer(emit, "_M8RenderIndicesRead",
                 _grid.GetM8PublishedIndices(_front));
-            _readout.Dispatch(cull, 1, 1, 1);
-            _readout.Dispatch(prepare, 1, 1, 1);
-            _readout.DispatchIndirect(emit, _grid.M8CullControl, sizeof(uint));
+            _visibility.Dispatch(cull, 1, 1, 1);
+            _visibility.Dispatch(prepare, 1, 1, 1);
+            _visibility.DispatchIndirect(emit, _grid.M8CullControl, sizeof(uint));
 
             var control = new uint[MerkabaGrid.CullControlWords];
             _grid.M8CullControl.GetData(control);

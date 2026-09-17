@@ -26,6 +26,13 @@ namespace Genesis.RoomScan
         // decide sheet membership. No quantized dominant-axis or 26-cell
         // equality (MERKABA_GEOMETRY_REVIEW FINDING B).
         internal const float MembraneCompatibleAxisCosine = 0.5f;
+        // A solved knot may not leave its MAIN's support: farther than one
+        // lattice step from MAIN's own plane height it falls back to that
+        // height (same guard as the GPU solve).
+        internal const float MembraneKnotSupportLimit =
+            MerkabaConstants.LatticeStep;
+        // No patch edge may exceed this; a longer patch is not emitted.
+        internal const float MembraneMaxEdge = 0.045f;
 
         private static readonly byte[] TriangleOrder = { 0, 1, 2, 0, 2, 3 };
 
@@ -216,6 +223,21 @@ namespace Genesis.RoomScan
                 return false;
             }
 
+            // Edge guard: a patch whose corners drifted apart is not a
+            // 25 mm membrane cell and is not emitted.
+            if (math.distance(corner00.GridPosition, corner10.GridPosition) >
+                MembraneMaxEdge ||
+                math.distance(corner10.GridPosition, corner11.GridPosition) >
+                MembraneMaxEdge ||
+                math.distance(corner11.GridPosition, corner01.GridPosition) >
+                MembraneMaxEdge ||
+                math.distance(corner01.GridPosition, corner00.GridPosition) >
+                MembraneMaxEdge)
+            {
+                patch = default;
+                return false;
+            }
+
             // Corner addresses are canonical. Only index orientation changes.
             if (math.dot(math.cross(corner10.GridPosition - corner00.GridPosition,
                     corner11.GridPosition - corner00.GridPosition), normal) < 0f)
@@ -398,6 +420,9 @@ namespace Genesis.RoomScan
             if (accepted == 0) return false;
             line[dominantAxis] = heightSum / accepted;
             if (!math.all(math.isfinite(line))) return false;
+            if (math.abs(line[dominantAxis] - mainHeight) >
+                MembraneKnotSupportLimit)
+                line[dominantAxis] = mainHeight;
             float inverse = 1f / math.max(1u, weightTotal);
             uint r = math.min(255u, (uint)math.floor(red * inverse + 0.5f));
             uint g = math.min(255u, (uint)math.floor(green * inverse + 0.5f));
@@ -801,17 +826,135 @@ bool M8MembraneSeparatedByFree(int3 contributor, int normalOffset,
     return exists && knownFree;
 }
 
+// Register-resident candidate storage for the twelve corner contributors.
+// Three float4 values replace the old seven 12-element private arrays. The
+// candidate mask and the two-bit free-side signatures stay in scalar uints,
+// so the Adreno compiler does not lower the corner solve to scratch memory.
+void M8MembraneStoreHeight(inout float4 h0, inout float4 h1,
+    inout float4 h2, uint slot, float value)
+{
+    uint lane = slot & 3u;
+    if (slot < 4u)
+    {
+        if (lane == 0u) h0.x = value;
+        else if (lane == 1u) h0.y = value;
+        else if (lane == 2u) h0.z = value;
+        else h0.w = value;
+    }
+    else if (slot < 8u)
+    {
+        if (lane == 0u) h1.x = value;
+        else if (lane == 1u) h1.y = value;
+        else if (lane == 2u) h1.z = value;
+        else h1.w = value;
+    }
+    else
+    {
+        if (lane == 0u) h2.x = value;
+        else if (lane == 1u) h2.y = value;
+        else if (lane == 2u) h2.z = value;
+        else h2.w = value;
+    }
+}
+
+float M8MembraneLoadHeight(float4 h0, float4 h1, float4 h2, uint slot)
+{
+    uint lane = slot & 3u;
+    float4 values = slot < 4u ? h0 : slot < 8u ? h1 : h2;
+    return lane == 0u ? values.x :
+        lane == 1u ? values.y :
+        lane == 2u ? values.z : values.w;
+}
+
+uint M8MembraneLoadSignature(uint signatures, uint slot)
+{
+    return (signatures >> (slot * 2u)) & 3u;
+}
+
+int3 M8MembraneCandidateCoord(int3 main, int dominantAxis,
+    int tangentAxis0, int tangentAxis1, int lower0, int lower1, uint slot,
+    out uint columnIndex, out uint layerDistance, out int normalOffset)
+{
+    columnIndex = slot < 3u ? 0u : slot < 6u ? 1u :
+        slot < 9u ? 2u : 3u;
+    uint layerIndex = slot - columnIndex * 3u;
+    int first = (int)(columnIndex >> 1u);
+    int second = (int)(columnIndex & 1u);
+    normalOffset = (int)layerIndex - 1;
+    layerDistance = layerIndex == 1u ? 0u : 1u;
+    int3 coord = main;
+    coord = M8MembraneSetIntComponent(coord, tangentAxis0, lower0 + first);
+    coord = M8MembraneSetIntComponent(coord, tangentAxis1, lower1 + second);
+    coord = M8MembraneSetIntComponent(coord, dominantAxis,
+        main[dominantAxis] + normalOffset);
+    return coord;
+}
+
+bool M8MembraneEvaluateCandidate(int3 main, int dominantAxis,
+    int tangentAxis0, int tangentAxis1, int lower0, int lower1,
+    float3 cornerLine, uint slot, out float height, out uint signature,
+    out int3 coord, out uint layerDistance, out uint columnIndex,
+    out bool unresolved)
+{
+    height = 0.0;
+    signature = 0u;
+    unresolved = false;
+    int normalOffset;
+    coord = M8MembraneCandidateCoord(main, dominantAxis, tangentAxis0,
+        tangentAxis1, lower0, lower1, slot, columnIndex, layerDistance,
+        normalOffset);
+
+    bool resolved;
+    bool measured;
+    bool knownFree;
+    bool exists = M8MembraneCell(coord, resolved, measured, knownFree);
+    if (!resolved)
+    {
+        unresolved = true;
+        return false;
+    }
+    if (!exists || !measured) return false;
+
+    bool separatorUnresolved;
+    bool separated = M8MembraneSeparatedByFree(coord, normalOffset,
+        dominantAxis, separatorUnresolved);
+    if (separatorUnresolved)
+    {
+        unresolved = true;
+        return false;
+    }
+    if (separated) return false;
+
+    float4 plane = M8MembranePlaneOf(coord);
+    float denominator = plane[dominantAxis];
+    if (abs(denominator) < M8_MEMBRANE_COMPATIBLE_AXIS_COSINE)
+        return false;
+    float3 basePoint = M8MembraneSetFloatComponent(cornerLine,
+        dominantAxis, 0.0);
+    height = (plane.w - dot(basePoint, plane.xyz)) / denominator;
+    if (!isfinite(height)) return false;
+
+    bool signatureUnresolved;
+    if (!M8MembraneFreeSideSignature(coord, dominantAxis, signature,
+            signatureUnresolved))
+    {
+        if (signatureUnresolved) unresolved = true;
+        return false;
+    }
+    return true;
+}
+
 bool M8MembraneResolveCorner(int3 main, KernelState mainState,
     float3 mainNormal, float mainOffset, int dominantAxis,
     int tangentAxis0, int tangentAxis1, int cornerSign0, int cornerSign1,
     uint mainFreeSignature, out float3 position, out uint packedColor,
     out int3 lineAddress, out bool unresolved)
 {
-    // Same math as the CPU oracle, laid out for Adreno: twelve fixed
-    // candidate slots (column x normal layer), every loop unrolled with
-    // constant indices, the branch grown as the connected component of the
-    // height-gap relation and the median selected by rank. No private array
-    // is ever indexed dynamically, so nothing spills to scratch memory.
+    // Exact CPU-oracle math with register-resident GPU state. Candidate
+    // geometry is decoded once from the groupshared tile cache. Connectivity,
+    // median rank and per-column winner selection then operate on three
+    // float4 height registers plus bit masks; no 12-element private arrays,
+    // dynamic local-memory indexing or pairwise near/below tables survive.
     unresolved = false;
     packedColor = 0u;
     int3 halfAddress = main * 2;
@@ -832,178 +975,185 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
 
     int lower0 = M8MembraneFloorDiv2(halfAddress[tangentAxis0]);
     int lower1 = M8MembraneFloorDiv2(halfAddress[tangentAxis1]);
-    bool valid[12];
-    float heights[12];
-    uint signatures[12];
-    int3 coords[12];
-    // Contract C5 step 6: after the residual, the nearer normal layer wins,
-    // then the lexicographically smaller coordinate.
-    uint layers[12];
-    uint count = 0u;
-    [unroll]
-    for (uint column = 0u; column < 4u; column++)
-    [unroll]
-    for (uint layer = 0u; layer < 3u; layer++)
+    float4 heights0 = 0.0;
+    float4 heights1 = 0.0;
+    float4 heights2 = 0.0;
+    uint validMask = 0u;
+    uint signatureBits = 0u;
+
+    // Decode the twelve candidates once. Any unresolved dependency preserves
+    // the old FRONT exactly as before.
+    [loop]
+    for (uint slot = 0u; slot < 12u; slot++)
     {
-        uint slot = column * 3u + layer;
-        valid[slot] = false;
-        heights[slot] = 0.0;
-        signatures[slot] = 0u;
-        coords[slot] = int3(0, 0, 0);
-        layers[slot] = layer == 1u ? 0u : 1u;
-        int first = (int)(column >> 1u);
-        int second = (int)(column & 1u);
-        int normalOffset = (int)layer - 1;
-        int3 coord = main;
-        coord = M8MembraneSetIntComponent(coord, tangentAxis0,
-            lower0 + first);
-        coord = M8MembraneSetIntComponent(coord, tangentAxis1,
-            lower1 + second);
-        coord = M8MembraneSetIntComponent(coord, dominantAxis,
-            main[dominantAxis] + normalOffset);
-        // The cell classification and its decoded plane come from the tile
-        // cache: one groupshared read each, no decode, no state load.
-        bool resolved;
-        bool measured;
-        bool knownFree;
-        bool exists = M8MembraneCell(coord, resolved, measured, knownFree);
-        if (!resolved)
+        float height;
+        uint signature;
+        int3 coord;
+        uint layerDistance;
+        uint columnIndex;
+        bool candidateUnresolved;
+        bool valid = M8MembraneEvaluateCandidate(main, dominantAxis,
+            tangentAxis0, tangentAxis1, lower0, lower1, cornerLine, slot,
+            height, signature, coord, layerDistance, columnIndex,
+            candidateUnresolved);
+        if (candidateUnresolved)
         {
             unresolved = true;
             position = 0.0;
             return false;
         }
-        if (!exists || !measured) continue;
-        bool separatorUnresolved;
-        if (M8MembraneSeparatedByFree(coord, normalOffset,
-                dominantAxis, separatorUnresolved))
-            continue;
-        if (separatorUnresolved)
-        {
-            unresolved = true;
-            position = 0.0;
-            return false;
-        }
-        float4 plane = M8MembranePlaneOf(coord);
-        float denominator = plane[dominantAxis];
-        if (abs(denominator) < M8_MEMBRANE_COMPATIBLE_AXIS_COSINE)
-            continue;
-        float3 basePoint = M8MembraneSetFloatComponent(cornerLine,
-            dominantAxis, 0.0);
-        float height = (plane.w - dot(basePoint, plane.xyz)) / denominator;
-        if (!isfinite(height)) continue;
-        uint freeSignature;
-        bool signatureUnresolved;
-        if (!M8MembraneFreeSideSignature(coord, dominantAxis,
-                freeSignature, signatureUnresolved))
-        {
-            if (signatureUnresolved)
-            {
-                unresolved = true;
-                position = 0.0;
-                return false;
-            }
-            continue;
-        }
-        valid[slot] = true;
-        heights[slot] = height;
-        signatures[slot] = freeSignature;
-        coords[slot] = coord;
-        count++;
+        if (!valid) continue;
+        validMask |= 1u << slot;
+        signatureBits |= (signature & 3u) << (slot * 2u);
+        M8MembraneStoreHeight(heights0, heights1, heights2, slot, height);
     }
-    if (count == 0u)
+    if (validMask == 0u)
     {
         position = 0.0;
         return false;
     }
 
-    // MAIN chooses only WHICH sheet branch this corner belongs to.
+    // MAIN selects only the sheet branch: same free side first, then plane
+    // residual, normal-layer distance, and lexicographic coordinate.
     bool haveSeed = false;
     float seedHeight = 0.0;
     int3 seedCoord = int3(0, 0, 0);
     uint seedSignature = 0u;
     uint seedLayer = 0u;
-    [unroll]
+    [loop]
     for (uint slot = 0u; slot < 12u; slot++)
     {
-        if (!valid[slot]) continue;
-        bool signature = signatures[slot] == mainFreeSignature;
-        bool currentSignature = seedSignature == mainFreeSignature;
-        float residual = abs(heights[slot] - mainHeight);
+        if ((validMask & (1u << slot)) == 0u) continue;
+        float height = M8MembraneLoadHeight(heights0, heights1, heights2,
+            slot);
+        uint signature = M8MembraneLoadSignature(signatureBits, slot);
+        uint columnIndex;
+        uint layerDistance;
+        int normalOffset;
+        int3 coord = M8MembraneCandidateCoord(main, dominantAxis,
+            tangentAxis0, tangentAxis1, lower0, lower1, slot, columnIndex,
+            layerDistance, normalOffset);
+        bool signatureMatch = signature == mainFreeSignature;
+        bool seedSignatureMatch = seedSignature == mainFreeSignature;
+        float residual = abs(height - mainHeight);
         float seedResidual = abs(seedHeight - mainHeight);
         if (!haveSeed ||
-            (signature && !currentSignature) ||
-            (signature == currentSignature &&
+            (signatureMatch && !seedSignatureMatch) ||
+            (signatureMatch == seedSignatureMatch &&
              (residual < seedResidual - M8_MEMBRANE_NUMERICAL_EPSILON ||
               (abs(residual - seedResidual) <=
                    M8_MEMBRANE_NUMERICAL_EPSILON &&
-               (layers[slot] < seedLayer ||
-                (layers[slot] == seedLayer &&
-                 M8MembraneLexLess(coords[slot], seedCoord)))))))
+               (layerDistance < seedLayer ||
+                (layerDistance == seedLayer &&
+                 M8MembraneLexLess(coord, seedCoord)))))))
         {
             haveSeed = true;
-            seedHeight = heights[slot];
-            seedCoord = coords[slot];
-            seedSignature = signatures[slot];
-            seedLayer = layers[slot];
+            seedHeight = height;
+            seedCoord = coord;
+            seedSignature = signature;
+            seedLayer = layerDistance;
         }
     }
-
-    // Pairwise relations of the twelve slots as 12-bit masks, computed once:
-    // near[i] = slots within the branch gap of i, below[i] = slots ordered
-    // before i (height, then coordinate). Everything after this is mask
-    // arithmetic on scalars: no sort, no dynamically indexed array.
-    uint validMask = 0u;
-    uint seedMask = 0u;
-    uint near[12] = { 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u };
-    uint below[12] = { 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u };
-    [unroll]
-    for (uint slot = 0u; slot < 12u; slot++)
+    if (!haveSeed)
     {
-        if (!valid[slot] || signatures[slot] != seedSignature) continue;
-        validMask |= 1u << slot;
-        if (all(coords[slot] == seedCoord)) seedMask = 1u << slot;
-        [unroll]
-        for (uint other = 0u; other < 12u; other++)
-        {
-            if (other == slot || !valid[other] ||
-                signatures[other] != seedSignature)
-                continue;
-            if (abs(heights[slot] - heights[other]) <=
-                M8_MEMBRANE_PATCH_PITCH * 0.6)
-                near[slot] |= 1u << other;
-            if (heights[other] < heights[slot] ||
-                (heights[other] == heights[slot] &&
-                 M8MembraneLexLess(coords[other], coords[slot])))
-                below[slot] |= 1u << other;
-        }
+        position = 0.0;
+        return false;
     }
 
-    // The branch is the connected component of the gap relation that holds
-    // the seed: eleven mask expansions at most.
-    uint inBranch = seedMask;
-    [unroll]
+    // In one dimension the connected component of |dh| <= gap is exactly
+    // represented by its current [low, high] interval. Eleven bounded scans
+    // grow the component from the seed without a near[12] adjacency table.
+    float branchLow = seedHeight;
+    float branchHigh = seedHeight;
+    float branchGap = M8_MEMBRANE_PATCH_PITCH * 0.6;
+    [loop]
     for (uint expansion = 0u; expansion < 11u; expansion++)
     {
-        uint grown = inBranch;
-        [unroll]
+        float nextLow = branchLow;
+        float nextHigh = branchHigh;
+        [loop]
         for (uint slot = 0u; slot < 12u; slot++)
-            if ((inBranch & (1u << slot)) != 0u) grown |= near[slot];
-        inBranch = grown & validMask;
+        {
+            if ((validMask & (1u << slot)) == 0u ||
+                M8MembraneLoadSignature(signatureBits, slot) != seedSignature)
+                continue;
+            float height = M8MembraneLoadHeight(heights0, heights1,
+                heights2, slot);
+            if (height < branchLow - branchGap ||
+                height > branchHigh + branchGap)
+                continue;
+            nextLow = min(nextLow, height);
+            nextHigh = max(nextHigh, height);
+        }
+        bool stable = nextLow == branchLow && nextHigh == branchHigh;
+        branchLow = nextLow;
+        branchHigh = nextHigh;
+        if (stable) break;
     }
 
-    // Median by rank inside the branch.
-    uint members = countbits(inBranch);
+    uint members = 0u;
+    [loop]
+    for (uint slot = 0u; slot < 12u; slot++)
+    {
+        if ((validMask & (1u << slot)) == 0u ||
+            M8MembraneLoadSignature(signatureBits, slot) != seedSignature)
+            continue;
+        float height = M8MembraneLoadHeight(heights0, heights1, heights2,
+            slot);
+        if (height >= branchLow && height <= branchHigh) members++;
+    }
+    if (members == 0u)
+    {
+        position = 0.0;
+        return false;
+    }
+
+    // Exact CPU ordering median. Rank is recomputed from the register-resident
+    // heights, avoiding below[12] while retaining the same (height, coord)
+    // tie-break.
     uint middle = members >> 1u;
     float medianHigh = 0.0;
     float medianLow = 0.0;
-    [unroll]
+    [loop]
     for (uint slot = 0u; slot < 12u; slot++)
     {
-        if ((inBranch & (1u << slot)) == 0u) continue;
-        uint rank = countbits(below[slot] & inBranch);
-        if (rank == middle) medianHigh = heights[slot];
-        if (middle > 0u && rank == middle - 1u) medianLow = heights[slot];
+        if ((validMask & (1u << slot)) == 0u ||
+            M8MembraneLoadSignature(signatureBits, slot) != seedSignature)
+            continue;
+        float height = M8MembraneLoadHeight(heights0, heights1, heights2,
+            slot);
+        if (height < branchLow || height > branchHigh) continue;
+        uint columnIndex;
+        uint layerDistance;
+        int normalOffset;
+        int3 coord = M8MembraneCandidateCoord(main, dominantAxis,
+            tangentAxis0, tangentAxis1, lower0, lower1, slot, columnIndex,
+            layerDistance, normalOffset);
+        uint rank = 0u;
+        [loop]
+        for (uint other = 0u; other < 12u; other++)
+        {
+            if ((validMask & (1u << other)) == 0u ||
+                M8MembraneLoadSignature(signatureBits, other) !=
+                    seedSignature)
+                continue;
+            float otherHeight = M8MembraneLoadHeight(heights0, heights1,
+                heights2, other);
+            if (otherHeight < branchLow || otherHeight > branchHigh)
+                continue;
+            uint otherColumn;
+            uint otherLayer;
+            int otherNormalOffset;
+            int3 otherCoord = M8MembraneCandidateCoord(main, dominantAxis,
+                tangentAxis0, tangentAxis1, lower0, lower1, other,
+                otherColumn, otherLayer, otherNormalOffset);
+            if (otherHeight < height ||
+                (otherHeight == height &&
+                 M8MembraneLexLess(otherCoord, coord)))
+                rank++;
+        }
+        if (rank == middle) medianHigh = height;
+        if (middle > 0u && rank == middle - 1u) medianLow = height;
     }
     float median = (members & 1u) != 0u
         ? medianHigh : (medianLow + medianHigh) * 0.5;
@@ -1014,7 +1164,7 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
     uint green = 0u;
     uint blue = 0u;
     uint weightTotal = 0u;
-    [unroll]
+    [loop]
     for (uint columnIndex = 0u; columnIndex < 4u; columnIndex++)
     {
         bool haveBest = false;
@@ -1022,32 +1172,41 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
         float bestDistance = 0.0;
         int3 bestCoord = int3(0, 0, 0);
         uint bestLayer = 0u;
-        [unroll]
-        for (uint layer = 0u; layer < 3u; layer++)
+        [loop]
+        for (uint layerIndex = 0u; layerIndex < 3u; layerIndex++)
         {
-            uint slot = columnIndex * 3u + layer;
-            if ((inBranch & (1u << slot)) == 0u) continue;
-            float distance = abs(heights[slot] - median);
+            uint slot = columnIndex * 3u + layerIndex;
+            if ((validMask & (1u << slot)) == 0u ||
+                M8MembraneLoadSignature(signatureBits, slot) != seedSignature)
+                continue;
+            float height = M8MembraneLoadHeight(heights0, heights1, heights2,
+                slot);
+            if (height < branchLow || height > branchHigh) continue;
+            uint candidateColumn;
+            uint layerDistance;
+            int normalOffset;
+            int3 coord = M8MembraneCandidateCoord(main, dominantAxis,
+                tangentAxis0, tangentAxis1, lower0, lower1, slot,
+                candidateColumn, layerDistance, normalOffset);
+            float distance = abs(height - median);
             if (!haveBest ||
                 distance < bestDistance - M8_MEMBRANE_NUMERICAL_EPSILON ||
                 (abs(distance - bestDistance) <=
                      M8_MEMBRANE_NUMERICAL_EPSILON &&
-                 (layers[slot] < bestLayer ||
-                  (layers[slot] == bestLayer &&
-                   M8MembraneLexLess(coords[slot], bestCoord)))))
+                 (layerDistance < bestLayer ||
+                  (layerDistance == bestLayer &&
+                   M8MembraneLexLess(coord, bestCoord)))))
             {
                 haveBest = true;
-                bestHeight = heights[slot];
+                bestHeight = height;
                 bestDistance = distance;
-                bestCoord = coords[slot];
-                bestLayer = layers[slot];
+                bestCoord = coord;
+                bestLayer = layerDistance;
             }
         }
         if (!haveBest) continue;
         heightSum += bestHeight;
         accepted++;
-        // The knot's colour is the confidence-weighted mean of the same
-        // contributors in the same column order: one value per shared knot.
         uint ownerColor;
         uint ownerConfidence;
         M8LoadMembraneColor(bestCoord, ownerColor, ownerConfidence);
@@ -1062,6 +1221,7 @@ bool M8MembraneResolveCorner(int3 main, KernelState mainState,
         position = 0.0;
         return false;
     }
+
     cornerLine = M8MembraneSetFloatComponent(cornerLine, dominantAxis,
         heightSum / (float)accepted);
     position = cornerLine;

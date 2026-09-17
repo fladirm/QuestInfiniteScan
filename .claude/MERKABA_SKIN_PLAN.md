@@ -90,3 +90,49 @@ emission in `MerkabaExportMembrane.BuildSkin`, `MerkabaSkinContractTests`.
 - Visible pages are `uint4(page, used, streamOffset, 0)`; cull control is
   `[pages, exactIndexCount, overflow]` and PrepareVisibleIndices rewrites it into the
   emit dispatch after copying the exact count to the draw arguments.
+
+## 5. Revision after the 045be20 review (this patch)
+
+`BuildRenderTiles` is split into three flat dispatches per rebuild tile:
+`CollectRenderPatchInputs` (patch descriptors only, O(measured MAINs)),
+`ReduceAndSolveSharedKnots` (plane cache, one corner solve per task, weld of corners
+of one line/chart/free side within 1 mm so one knot is one vertex, support guard: a
+knot farther than one lattice step from MAIN's plane falls back to MAIN's height) and
+`EmitRenderTileGeometry` (pages, one vertex per root knot, six indices per patch,
+45 mm edge guard degenerates a patch, records). Scratch UAVs: patch descriptors,
+corner results, knot owners, header; 512 rebuild tiles per build, the rest stay
+dirty (carry-over). Native: pipelines 55 (readout 33..49, fine erase 50), resources
+52, ABI 6. Draw: real alpha blending selected on the CPU (no dither coverage);
+coverage mode = dark base + fresnel film. Erase: controller capsule, kernel-centre
+test, cells become KNOWN FREE at once.
+
+## 6. Hybrid pass (2026-09-17, after the two alternative reviews)
+
+Taken from the alternatives: the corner solve is register resident in both twins
+(three `float4` height registers, validity and free-side bits in scalar masks, the
+branch as a `[low, high]` interval, no `[12]` private array); the three draw kernels
+live in `Runtime/Resources/Merkaba/MerkabaVisibility.compute` loaded by the renderer
+with `Resources.Load`, so the native producer asset holds exactly its 17 stages and
+Android cannot renumber the draw kernels into it; patch descriptors have a fixed
+`kernelLocal` slot (no atomic compaction, no 2 KB groupshared patch map, geometry
+order deterministic); a patch that fails the support or edge guard is absent from the
+index stream instead of emitting degenerate triangles.
+
+Kept against the alternatives: the 1 mm weld epsilon (the solve depends on MAIN's
+plane, so corners of one knot are equal only up to rounding); the support guard falls
+back to MAIN's own measured plane height instead of dropping the measured MAIN; a
+build beyond 512 dirty tiles publishes what it solved and leaves the rest dirty
+(progressive), it never rejects BACK for capacity; every phase is parallel (ordinals
+by atomic ticket), no lane walks 512 patches or 2048 tasks serially.
+
+Fixed on the way: the solve kernel prologue filled the halo cache with a 128-lane
+stride in a 64-lane group (half the cache stayed empty); vertex ordinals were
+assigned while other lanes still followed owner chains (a lane could read an ordinal
+as a task index). Ownership is now final before any ordinal is written.
+
+UX: the annotation note field is read-only (one keyboard authority: "Edit note");
+selecting an annotation no longer opens the system keyboard; while the keyboard is
+open no pointer tool runs; the keyboard session retires when input focus returns or
+when the keyboard never opened. The UX, the pointer and the cursor are drawn by a
+depth-clearing URP overlay camera on the UI layer: always on top of the scan and the
+GLB viewer. DEVICE ACCEPTANCE PENDING for all of the above.

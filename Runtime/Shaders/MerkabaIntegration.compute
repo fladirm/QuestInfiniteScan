@@ -2337,25 +2337,14 @@ void M8EraseFineKernel(uint physicalSlot, uint kernelLocal)
     uint wordIndex = M8TileWordIndex(physicalSlot, kernelLocal >> 5u);
     uint bit = 1u << (kernelLocal & 31u);
     uint occupiedWord = _M8TileBits[wordIndex].x;
+    // The erase capsule is tested against the kernel centre itself, never
+    // against a surface point: erase is a volume operation from the
+    // controller, not a surface-hit operation.
     float3 gridPosition = (float3)globalCoord * MERKABA_LATTICE_STEP;
     float3 worldPosition = mul(_MerkabaGridToWorld,
         float4(gridPosition, 1.0)).xyz;
-    KernelState state;
-    bool stateLoaded = false;
-    if ((occupiedWord & bit) != 0u)
-    {
-        state = M8LoadKernelState(physicalSlot, kernelLocal);
-        stateLoaded = true;
-        if (M8HasSurfacePlane(state.flags))
-        {
-            float3 normalGrid;
-            float signedOffset;
-            M8DecodeSurfacePlane(state.flags, normalGrid, signedOffset);
-            worldPosition = mul(_MerkabaGridToWorld,
-                float4(gridPosition + normalGrid * signedOffset, 1.0)).xyz;
-        }
-    }
     if (!M8FineContains(worldPosition)) return;
+    KernelState state = M8LoadKernelState(physicalSlot, kernelLocal);
 
     uint previousOccupied;
     uint previousCarve;
@@ -2364,10 +2353,13 @@ void M8EraseFineKernel(uint physicalSlot, uint kernelLocal)
     InterlockedAnd(_M8TileBits[wordIndex].y, ~bit, previousCarve);
     InterlockedAnd(_M8TileBits[wordIndex].z, ~bit, previousCandidate);
 
-    if (!stateLoaded)
-        state = M8LoadKernelState(physicalSlot, kernelLocal);
-    bool stateChanged = state.evidence != 0 || state.packedColor != 0u ||
-        state.colorConfidence != 0u || state.flags != 0u;
+    // Inside the capsule the kernel becomes KNOWN FREE at once, so nothing
+    // re-emerges from stale candidates and the membrane sees a real hole.
+    KernelState emptyState = (KernelState)0;
+    emptyState.evidence = MERKABA_EXPORT_KNOWN_FREE;
+    bool stateChanged = state.evidence != MERKABA_EXPORT_KNOWN_FREE ||
+        state.packedColor != 0u || state.colorConfidence != 0u ||
+        state.flags != 0u;
     bool occupied = (previousOccupied & bit) != 0u;
     bool carveActive = (previousCarve & bit) != 0u;
     if (occupied)
@@ -2386,7 +2378,6 @@ void M8EraseFineKernel(uint physicalSlot, uint kernelLocal)
     }
     if (stateChanged)
     {
-        KernelState emptyState = (KernelState)0;
         M8StoreKernelState(physicalSlot, kernelLocal, emptyState);
         if (M8RenderInputChanged(state, emptyState))
             M8MarkRenderDirty(physicalSlot, kernelLocal,

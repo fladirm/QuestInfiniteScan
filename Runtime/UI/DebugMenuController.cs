@@ -106,6 +106,14 @@ namespace Genesis.RoomScan.UI
             }
         }
 
+        private void Start()
+        {
+            // The UX is always drawn last, over the scan, the GLB viewer and
+            // every tool preview: a depth-clearing overlay camera owns the
+            // UI layer.
+            MerkabaUiOverlayCamera.Ensure(gameObject.layer);
+        }
+
         private void OnDestroy()
         {
             if (_paintWheelTexture != null)
@@ -199,6 +207,15 @@ namespace Genesis.RoomScan.UI
             _artifactWorldLock = _root.Q<Toggle>("artifact-world-lock");
             _artifactRoomAlign = _root.Q<Toggle>("artifact-room-align");
             _annotationNote = _root.Q<TextField>("annotation-note");
+            if (_annotationNote != null)
+            {
+                // One keyboard authority. A focusable field on the world
+                // panel would open UI Toolkit's own mobile keyboard and fight
+                // the viewer's system keyboard; the note is typed through
+                // "Edit note" and shown here.
+                _annotationNote.isReadOnly = true;
+                _annotationNote.focusable = false;
+            }
             _sessionName = _root.Q<TextField>("session-name");
             _exportName = _root.Q<TextField>("export-name");
             _sessionPicker = _root.Q<DropdownField>("session-picker");

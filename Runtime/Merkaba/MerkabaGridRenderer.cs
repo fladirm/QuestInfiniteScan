@@ -45,6 +45,10 @@ namespace Genesis.RoomScan
         private MerkabaGrid _grid;
         private MerkabaIntegrator _integrator;
         private Material _material;
+        // Draw-only compute asset, isolated from the native publication
+        // ABI: Android may never address the three 72 Hz kernels as
+        // indices of the native readout producer.
+        private ComputeShader _visibilityCompute;
         private int _beginKernel;
         private int _warmKernel;
         private int _prepareReclaimKernel;
@@ -55,7 +59,9 @@ namespace Genesis.RoomScan
         private int _applyMutationKernel;
         private int _collectKernel;
         private int _prepareKernel;
-        private int _buildKernel;
+        private int _collectPatchKernel;
+        private int _solveKnotsKernel;
+        private int _emitGeometryKernel;
         private int _publishKernel;
         private int _recountKernel;
         private int _validateKernel;
@@ -248,6 +254,22 @@ namespace Genesis.RoomScan
             Shader.PropertyToID("_M8ResidencyChanged");
         private static readonly int RenderMutationQueueId =
             Shader.PropertyToID("_M8RenderMutationQueue");
+        private static readonly int RenderPatchScratchId =
+            Shader.PropertyToID("_M8RenderPatchScratch");
+        private static readonly int RenderKnotScratchId =
+            Shader.PropertyToID("_M8RenderKnotScratch");
+        private static readonly int RenderKnotOwnerId =
+            Shader.PropertyToID("_M8RenderKnotOwner");
+        private static readonly int RenderScratchHeaderId =
+            Shader.PropertyToID("_M8RenderScratchHeader");
+        private static readonly int RenderPatchScratchReadId =
+            Shader.PropertyToID("_M8RenderPatchScratchRead");
+        private static readonly int RenderKnotScratchReadId =
+            Shader.PropertyToID("_M8RenderKnotScratchRead");
+        private static readonly int RenderKnotOwnerReadId =
+            Shader.PropertyToID("_M8RenderKnotOwnerRead");
+        private static readonly int RenderScratchHeaderReadId =
+            Shader.PropertyToID("_M8RenderScratchHeaderRead");
         private static readonly int RenderVersionsId =
             Shader.PropertyToID("_M8RenderVersions");
         private static readonly int RenderVersionsReadId =
@@ -271,6 +293,9 @@ namespace Genesis.RoomScan
         private static readonly int QueryBlockSideId =
             Shader.PropertyToID("_M8QueryBlockSide");
         private static readonly int ScanOpacityId = Shader.PropertyToID("_ScanOpacity");
+        private static readonly int SrcBlendId = Shader.PropertyToID("_SrcBlend");
+        private static readonly int DstBlendId = Shader.PropertyToID("_DstBlend");
+        private static readonly int ZWriteId = Shader.PropertyToID("_ZWrite");
         private static readonly int FineCursorPositionId =
             Shader.PropertyToID("_FineCursorPosition");
         private static readonly int FineBrushAxisId =
@@ -466,7 +491,11 @@ namespace Genesis.RoomScan
         private bool Initialize()
         {
             if (_initialized) return true;
-            if (_grid == null || readoutCompute == null || renderShader == null)
+            if (_visibilityCompute == null)
+                _visibilityCompute = Resources.Load<ComputeShader>(
+                    "Merkaba/MerkabaVisibility");
+            if (_grid == null || readoutCompute == null ||
+                _visibilityCompute == null || renderShader == null)
             {
                 Logger.Error("Merkaba readout assets are not wired.");
                 enabled = false;
@@ -493,8 +522,30 @@ namespace Genesis.RoomScan
                 "CollectRenderRebuildTiles", MerkabaGpuStage.ReadoutBuild);
             _prepareKernel = readoutCompute.FindProfiledKernel(
                 "PrepareRenderBuild", MerkabaGpuStage.ReadoutBuild);
-            _buildKernel = readoutCompute.FindProfiledKernel(
-                "BuildRenderTiles", MerkabaGpuStage.ReadoutBuild);
+            // Every kernel of the readout must exist; a shader that lost one
+            // fails here, never as per-frame "Kernel at index is invalid".
+            foreach (string name in new[]
+                     {
+                         "CollectRenderPatchInputs", "ReduceAndSolveSharedKnots",
+                         "EmitRenderTileGeometry"
+                     })
+                if (!readoutCompute.HasKernel(name))
+                    throw new InvalidOperationException(
+                        $"MerkabaReadout.compute lost kernel {name}.");
+            foreach (string name in new[]
+                     {
+                         "CullRenderTiles", "PrepareVisibleIndices",
+                         "EmitVisibleIndices"
+                     })
+                if (!_visibilityCompute.HasKernel(name))
+                    throw new InvalidOperationException(
+                        $"MerkabaVisibility.compute lost kernel {name}.");
+            _collectPatchKernel = readoutCompute.FindProfiledKernel(
+                "CollectRenderPatchInputs", MerkabaGpuStage.ReadoutBuild);
+            _solveKnotsKernel = readoutCompute.FindProfiledKernel(
+                "ReduceAndSolveSharedKnots", MerkabaGpuStage.ReadoutBuild);
+            _emitGeometryKernel = readoutCompute.FindProfiledKernel(
+                "EmitRenderTileGeometry", MerkabaGpuStage.ReadoutBuild);
             _publishKernel = readoutCompute.FindProfiledKernel(
                 "PublishRenderTileList", MerkabaGpuStage.ReadoutBuild);
             _recountKernel = readoutCompute.FindProfiledKernel(
@@ -503,11 +554,11 @@ namespace Genesis.RoomScan
                 "ValidatePublication", MerkabaGpuStage.ReadoutBuild);
             _finalizeKernel = readoutCompute.FindProfiledKernel(
                 "FinalizeReadout", MerkabaGpuStage.ReadoutBuild);
-            _cullKernel = readoutCompute.FindProfiledKernel(
+            _cullKernel = _visibilityCompute.FindProfiledKernel(
                 "CullRenderTiles", MerkabaGpuStage.MerkabaDraw);
-            _prepareVisibleKernel = readoutCompute.FindProfiledKernel(
+            _prepareVisibleKernel = _visibilityCompute.FindProfiledKernel(
                 "PrepareVisibleIndices", MerkabaGpuStage.MerkabaDraw);
-            _emitVisibleKernel = readoutCompute.FindProfiledKernel(
+            _emitVisibleKernel = _visibilityCompute.FindProfiledKernel(
                 "EmitVisibleIndices", MerkabaGpuStage.MerkabaDraw);
             foreach (int kernel in new[]
                      {
@@ -515,7 +566,8 @@ namespace Genesis.RoomScan
                          _reclaimKernel,
                          _applyReclaimKernel, _copyKernel, _markKernel,
                          _applyMutationKernel, _collectKernel,
-                         _prepareKernel, _buildKernel, _publishKernel, _recountKernel,
+                         _prepareKernel, _collectPatchKernel, _solveKnotsKernel,
+                         _emitGeometryKernel, _publishKernel, _recountKernel,
                          _validateKernel, _finalizeKernel
                      })
             {
@@ -534,9 +586,33 @@ namespace Genesis.RoomScan
                     _grid.M8AttemptCompletion);
             }
             foreach (int kernel in new[]
-                     { _markKernel, _applyMutationKernel, _buildKernel })
+                     { _markKernel, _applyMutationKernel, _emitGeometryKernel })
                 readoutCompute.SetBuffer(kernel, RenderMutationQueueId,
                     _grid.M8RenderMutationQueue);
+            // Scratch views: the collect kernel writes descriptors and the
+            // header, the solve kernel reads descriptors and writes knots,
+            // the emit kernel only reads. Every kernel stays within the
+            // eight writable bindings of the Quest gate.
+            readoutCompute.SetBuffer(_collectPatchKernel, RenderPatchScratchId,
+                _grid.M8RenderPatchScratch);
+            readoutCompute.SetBuffer(_collectPatchKernel, RenderScratchHeaderId,
+                _grid.M8RenderScratchHeader);
+            readoutCompute.SetBuffer(_solveKnotsKernel, RenderPatchScratchId,
+                _grid.M8RenderPatchScratch);
+            readoutCompute.SetBuffer(_solveKnotsKernel, RenderKnotScratchId,
+                _grid.M8RenderKnotScratch);
+            readoutCompute.SetBuffer(_solveKnotsKernel, RenderKnotOwnerId,
+                _grid.M8RenderKnotOwner);
+            readoutCompute.SetBuffer(_solveKnotsKernel, RenderScratchHeaderId,
+                _grid.M8RenderScratchHeader);
+            readoutCompute.SetBuffer(_emitGeometryKernel, RenderPatchScratchReadId,
+                _grid.M8RenderPatchScratch);
+            readoutCompute.SetBuffer(_emitGeometryKernel, RenderKnotScratchReadId,
+                _grid.M8RenderKnotScratch);
+            readoutCompute.SetBuffer(_emitGeometryKernel, RenderKnotOwnerReadId,
+                _grid.M8RenderKnotOwner);
+            readoutCompute.SetBuffer(_emitGeometryKernel, RenderScratchHeaderReadId,
+                _grid.M8RenderScratchHeader);
             _material = new Material(renderShader)
             {
                 name = "Merkaba M8 Readout"
@@ -702,8 +778,9 @@ namespace Genesis.RoomScan
             foreach (int kernel in new[]
                      {
                          _beginKernel, _warmKernel, _copyKernel,
-                         _collectKernel, _prepareKernel, _buildKernel,
-                         _publishKernel, _recountKernel, _finalizeKernel
+                         _collectKernel, _prepareKernel, _collectPatchKernel,
+                         _emitGeometryKernel, _publishKernel, _recountKernel,
+                         _finalizeKernel
                      })
                 command.SetComputeBufferParam(readoutCompute, kernel,
                     RenderIndexBackId, back);
@@ -717,14 +794,14 @@ namespace Genesis.RoomScan
                      {
                          _beginKernel, _warmKernel, _prepareReclaimKernel,
                          _reclaimKernel, _applyReclaimKernel, _copyKernel,
-                         _collectKernel, _buildKernel, _recountKernel,
-                         _validateKernel
+                         _collectKernel, _collectPatchKernel,
+                         _emitGeometryKernel, _recountKernel, _validateKernel
                      })
                 command.SetComputeBufferParam(readoutCompute, kernel,
                     RenderPageQueuesId, backPages);
-            command.SetComputeBufferParam(readoutCompute, _buildKernel,
+            command.SetComputeBufferParam(readoutCompute, _emitGeometryKernel,
                 RenderVerticesId, _grid.GetM8RenderVertices(backSlot));
-            command.SetComputeBufferParam(readoutCompute, _buildKernel,
+            command.SetComputeBufferParam(readoutCompute, _emitGeometryKernel,
                 PublishedIndicesId, _grid.GetM8PublishedIndices(backSlot));
             command.SetComputeBufferParam(readoutCompute, _validateKernel,
                 PublishedIndicesReadId, _grid.GetM8PublishedIndices(backSlot));
@@ -751,7 +828,13 @@ namespace Genesis.RoomScan
                 frontGroups, 1, 1);
             command.DispatchComputeProfiled(readoutCompute, _prepareKernel,
                 1, 1, 1);
-            command.DispatchComputeProfiled(readoutCompute, _buildKernel,
+            // Three flat dispatches per rebuild tile: descriptors, one solve
+            // per shared knot, emission. Nothing solves and emits at once.
+            command.DispatchComputeProfiled(readoutCompute, _collectPatchKernel,
+                _grid.M8FrameDispatchArgs);
+            command.DispatchComputeProfiled(readoutCompute, _solveKnotsKernel,
+                _grid.M8FrameDispatchArgs);
+            command.DispatchComputeProfiled(readoutCompute, _emitGeometryKernel,
                 _grid.M8FrameDispatchArgs);
             command.DispatchComputeProfiled(readoutCompute, _publishKernel,
                 1, 1, 1);
@@ -1122,46 +1205,46 @@ namespace Genesis.RoomScan
             Matrix4x4 gridToWorld = _grid.GridToWorldMatrix;
             MerkabaReadoutCoverage.WriteGridMetric(gridToWorld,
                 out Vector3 metricDiagonal, out Vector3 metricCross);
-            command.SetComputeVectorParam(readoutCompute, CameraGridMetersId,
+            command.SetComputeVectorParam(_visibilityCompute, CameraGridMetersId,
                 gridToWorld.inverse.MultiplyPoint3x4(cameraWorld));
-            command.SetComputeVectorParam(readoutCompute, GridMetricDiagonalId,
+            command.SetComputeVectorParam(_visibilityCompute, GridMetricDiagonalId,
                 metricDiagonal);
-            command.SetComputeVectorParam(readoutCompute, GridMetricCrossId,
+            command.SetComputeVectorParam(_visibilityCompute, GridMetricCrossId,
                 metricCross);
             // Draw policy may shorten the view, never extend it past what the
             // publication actually covers.
-            command.SetComputeFloatParam(readoutCompute, RenderDistanceId,
+            command.SetComputeFloatParam(_visibilityCompute, RenderDistanceId,
                 Mathf.Min(renderDistance, ReadoutCoverageRadius));
-            command.SetComputeVectorArrayParam(readoutCompute,
+            command.SetComputeVectorArrayParam(_visibilityCompute,
                 CullGridPlanesId, gridCullPlanes);
-            command.SetComputeBufferParam(readoutCompute, _cullKernel,
+            command.SetComputeBufferParam(_visibilityCompute, _cullKernel,
                 RenderIndexFrontReadId, frontIndex);
-            command.SetComputeBufferParam(readoutCompute, _cullKernel,
+            command.SetComputeBufferParam(_visibilityCompute, _cullKernel,
                 RenderPageQueuesId, _grid.GetM8RenderPageQueues(_frontReadout));
-            command.SetComputeBufferParam(readoutCompute, _cullKernel,
+            command.SetComputeBufferParam(_visibilityCompute, _cullKernel,
                 VisiblePagesId, _grid.M8VisiblePages);
-            command.SetComputeBufferParam(readoutCompute, _cullKernel,
+            command.SetComputeBufferParam(_visibilityCompute, _cullKernel,
                 CullControlId, cullControl);
-            command.SetComputeBufferParam(readoutCompute,
+            command.SetComputeBufferParam(_visibilityCompute,
                 _prepareVisibleKernel, CullControlId, cullControl);
-            command.SetComputeBufferParam(readoutCompute,
+            command.SetComputeBufferParam(_visibilityCompute,
                 _prepareVisibleKernel, RenderDrawArgsId,
                 _grid.M8RenderDrawArgs);
-            command.SetComputeBufferParam(readoutCompute, _emitVisibleKernel,
+            command.SetComputeBufferParam(_visibilityCompute, _emitVisibleKernel,
                 VisiblePagesReadId, _grid.M8VisiblePages);
-            command.SetComputeBufferParam(readoutCompute, _emitVisibleKernel,
+            command.SetComputeBufferParam(_visibilityCompute, _emitVisibleKernel,
                 CullControlReadId, cullControl);
-            command.SetComputeBufferParam(readoutCompute, _emitVisibleKernel,
+            command.SetComputeBufferParam(_visibilityCompute, _emitVisibleKernel,
                 VisibleIndicesId, indices);
-            command.SetComputeBufferParam(readoutCompute, _emitVisibleKernel,
+            command.SetComputeBufferParam(_visibilityCompute, _emitVisibleKernel,
                 PublishedIndicesReadId,
                 _grid.GetM8PublishedIndices(_frontReadout));
             int groups = MerkabaSpatial.PhysicalTileCapacity / 128;
-            command.DispatchComputeProfiled(readoutCompute, _cullKernel,
+            command.DispatchComputeProfiled(_visibilityCompute, _cullKernel,
                 groups, 1, 1);
-            command.DispatchComputeProfiled(readoutCompute,
+            command.DispatchComputeProfiled(_visibilityCompute,
                 _prepareVisibleKernel, 1, 1, 1);
-            command.DispatchComputeProfiled(readoutCompute,
+            command.DispatchComputeProfiled(_visibilityCompute,
                 _emitVisibleKernel, cullControl, sizeof(uint));
             return timedSubmission;
         }
@@ -1192,11 +1275,19 @@ namespace Genesis.RoomScan
         private void ApplyOpacityState()
         {
             if (_material == null) return;
-            bool coverage = scanOpacity < 0.999f;
+            // Real alpha blending, selected on the CPU as material state: a
+            // translucent membrane blends over passthrough and writes no
+            // depth; an opaque one is the depth-writing geometry it was.
+            bool translucent = scanOpacity < 0.999f;
             _material.SetFloat(ScanOpacityId, scanOpacity);
-            if (coverage) _material.EnableKeyword("M8_ALPHA_COVERAGE");
-            else _material.DisableKeyword("M8_ALPHA_COVERAGE");
-            _material.renderQueue = (int)RenderQueue.Geometry;
+            // 5 = SrcAlpha, 10 = OneMinusSrcAlpha, 1 = One, 0 = Zero.
+            _material.SetInt(SrcBlendId, translucent ? 5 : 1);
+            _material.SetInt(DstBlendId, translucent ? 10 : 0);
+            _material.SetInt(ZWriteId, translucent ? 0 : 1);
+            if (translucent) _material.EnableKeyword("M8_ALPHA_BLEND");
+            else _material.DisableKeyword("M8_ALPHA_BLEND");
+            _material.renderQueue = translucent
+                ? (int)RenderQueue.Transparent : (int)RenderQueue.Geometry;
         }
 
         private void ApplyFinePreviewState()
