@@ -328,32 +328,20 @@ namespace Genesis.RoomScan
         {
             DecodePlane(coord, state, cache, out float3 normal,
                 out float planeConstant);
-            float3 sum = normal;
-            // The 26 neighbours in fixed lexicographic order of the offset.
-            for (int dx = -1; dx <= 1; dx++)
-            for (int dy = -1; dy <= 1; dy++)
-            for (int dz = -1; dz <= 1; dz++)
+            // Binding plan section 1: radius one means the SIX FACE
+            // neighbours only. Diagonals never vote the chart. The available
+            // canonical confidence is ColorConfidence, so the CPU and HLSL
+            // twins use the same integer weight and the same fixed order.
+            float3 sum = normal * math.max(1u, state.ColorConfidence);
+            for (int axis = 0; axis < 3; axis++)
+            for (int direction = -1; direction <= 1; direction += 2)
             {
-                if (dx == 0 && dy == 0 && dz == 0) continue;
-                int3 offset = new(dx, dy, dz);
-                int3 neighbour = coord + offset;
+                int3 neighbour = coord + AxisInt3(axis) * direction;
                 if (!TryGetState(neighbour, coord, state, context,
                         out KernelState neighbourState) ||
                     !neighbourState.IsOccupied ||
                     !neighbourState.HasMeasuredSurfacePlane)
                     continue;
-                // No KNOWN FREE on any axis step from the cell towards the
-                // neighbour: FREE separates sheets, also diagonally.
-                bool separated = false;
-                for (int axis = 0; axis < 3 && !separated; axis++)
-                {
-                    if (offset[axis] == 0) continue;
-                    int3 step = coord;
-                    step[axis] += offset[axis];
-                    separated = TryGetState(step, coord, state, context,
-                            out KernelState between) && IsKnownFree(between);
-                }
-                if (separated) continue;
                 DecodePlane(neighbour, neighbourState, cache,
                     out float3 neighbourNormal, out float neighbourConstant);
                 if (math.dot(normal, neighbourNormal) < ChartCompatibleCosine)
@@ -368,7 +356,8 @@ namespace Genesis.RoomScan
                 if (residualHere > BranchHeightGap ||
                     residualThere > BranchHeightGap)
                     continue;
-                sum += neighbourNormal;
+                sum += neighbourNormal *
+                    math.max(1u, neighbourState.ColorConfidence);
             }
             return DominantAxis(sum);
         }
@@ -436,6 +425,135 @@ namespace Genesis.RoomScan
         }
 
         /// <summary>
+        /// Same-chart patches are already joined by shared knots. A genuine
+        /// chart transition uses the binding plan's one extra primitive: the
+        /// two facing knot edges only, no new position and no cross-sheet
+        /// search. Cross-tile ownership is deliberately left to export/live
+        /// duplicate equality; live only emits the same-tile case.
+        /// </summary>
+        internal static bool TryBuildStitch(int3 main, int tangentAxis,
+            IReadOnlyDictionary<int3, KernelState> context,
+            SolveCache solveCache, out Patch stitch)
+        {
+            stitch = default;
+            if (context == null ||
+                !context.TryGetValue(main, out KernelState firstState) ||
+                !firstState.IsOccupied || !firstState.HasMeasuredSurfacePlane ||
+                !TryBuildPatch(main, context, solveCache, out Patch first))
+                return false;
+
+            int firstChart = first.Corner00.Chart;
+            TangentAxes(firstChart, out int firstT0, out int firstT1);
+            if (tangentAxis != firstT0 && tangentAxis != firstT1)
+                return false;
+
+            int3 neighbour = main + AxisInt3(tangentAxis);
+            if (!context.TryGetValue(neighbour, out KernelState secondState) ||
+                !secondState.IsOccupied ||
+                !secondState.HasMeasuredSurfacePlane ||
+                !TryBuildPatch(neighbour, context, solveCache, out Patch second))
+                return false;
+
+            int secondChart = second.Corner00.Chart;
+            if (secondChart == firstChart || secondChart == tangentAxis)
+                return false;
+
+            DecodePlane(main, firstState, solveCache, out float3 firstNormal,
+                out float firstConstant);
+            DecodePlane(neighbour, secondState, solveCache,
+                out float3 secondNormal, out float secondConstant);
+            if (math.dot(firstNormal, secondNormal) < ChartCompatibleCosine)
+                return false;
+            float3 firstCentre = (float3)main * MerkabaConstants.LatticeStep;
+            float3 secondCentre =
+                (float3)neighbour * MerkabaConstants.LatticeStep;
+            if (math.abs(math.dot(secondCentre, firstNormal) - firstConstant) >
+                    BranchHeightGap ||
+                math.abs(math.dot(firstCentre, secondNormal) - secondConstant) >
+                    BranchHeightGap)
+                return false;
+
+            if (!TryGetPatchEdge(first, tangentAxis, 1,
+                    out Corner firstLow, out Corner firstHigh) ||
+                !TryGetPatchEdge(second, tangentAxis, -1,
+                    out Corner secondLow, out Corner secondHigh))
+                return false;
+
+            // One physical knot may appear only once in the transition quad.
+            Corner a = firstLow;
+            Corner b = firstHigh;
+            Corner c = secondHigh;
+            Corner d = secondLow;
+            if (a.Identity.Equals(b.Identity) || a.Identity.Equals(c.Identity) ||
+                a.Identity.Equals(d.Identity) || b.Identity.Equals(c.Identity) ||
+                b.Identity.Equals(d.Identity) || c.Identity.Equals(d.Identity))
+                return false;
+
+            float maxEdge = MembraneMaxEdge;
+            if (math.distance(a.GridPosition, b.GridPosition) > maxEdge ||
+                math.distance(b.GridPosition, c.GridPosition) > maxEdge ||
+                math.distance(c.GridPosition, d.GridPosition) > maxEdge ||
+                math.distance(d.GridPosition, a.GridPosition) > maxEdge)
+                return false;
+
+            float3 stitchNormal = math.normalizesafe(firstNormal + secondNormal,
+                firstNormal);
+            float area0 = math.dot(math.cross(
+                b.GridPosition - a.GridPosition,
+                c.GridPosition - a.GridPosition), stitchNormal);
+            float area1 = math.dot(math.cross(
+                c.GridPosition - a.GridPosition,
+                d.GridPosition - a.GridPosition), stitchNormal);
+            if (math.abs(area0) <= NumericalEpsilon ||
+                math.abs(area1) <= NumericalEpsilon || area0 * area1 <= 0f)
+                return false;
+            if (area0 < 0f)
+                (b, d) = (d, b);
+
+            stitch = new Patch(main, stitchNormal, first.Tangent0,
+                first.Tangent1, a, b, c, d);
+            return true;
+        }
+
+        private static bool TryGetPatchEdge(Patch patch, int axis,
+            int direction, out Corner low, out Corner high)
+        {
+            TangentAxes(patch.Corner00.Chart, out int tangent0,
+                out int tangent1);
+            if (axis == tangent0)
+            {
+                if (direction > 0)
+                {
+                    low = patch.Corner10;
+                    high = patch.Corner11;
+                }
+                else
+                {
+                    low = patch.Corner00;
+                    high = patch.Corner01;
+                }
+                return true;
+            }
+            if (axis == tangent1)
+            {
+                if (direction > 0)
+                {
+                    low = patch.Corner01;
+                    high = patch.Corner11;
+                }
+                else
+                {
+                    low = patch.Corner00;
+                    high = patch.Corner10;
+                }
+                return true;
+            }
+            low = default;
+            high = default;
+            return false;
+        }
+
+        /// <summary>
         /// One shared knot of a MAIN's corner. The knot is a function of its
         /// line, chart, free side and layer only: the uses of the line at that
         /// layer (the up to four cells of the same chart and side around it)
@@ -482,7 +600,12 @@ namespace Genesis.RoomScan
                     continue;
                 DecodePlane(coord, use, chartCache, out float3 useNormal,
                     out float useConstant);
-                if (!TryPlaneLineHeight(useNormal, useConstant, chart, line,
+                // The plan's chart is defined only while |N_c| >= 0.5.
+                // Never manufacture a huge line intersection by dividing a
+                // legitimate MAIN plane by an almost-zero canonical axis.
+                if (math.abs(useNormal[chart]) <
+                        MembraneCompatibleAxisCosine ||
+                    !TryPlaneLineHeight(useNormal, useConstant, chart, line,
                         out float height))
                     continue;
                 useHeight[column] = height;
@@ -1088,19 +1211,20 @@ bool M8MembraneCanonicalChart(int3 coord, out int chart, out bool unresolved)
     chart = 0;
     float4 plane = M8MembranePlaneOf(coord);
     float3 normal = plane.xyz;
-    float3 sum = normal;
+    uint ownColor;
+    uint ownConfidence;
+    M8LoadMembraneColor(coord, ownColor, ownConfidence);
+    float3 sum = normal * (float)max(1u, ownConfidence);
     float planeConstant = plane.w;
-    // The 26 neighbours in fixed lexicographic order of the offset.
-    [loop]
-    for (int dx = -1; dx <= 1; dx++)
-    [loop]
-    for (int dy = -1; dy <= 1; dy++)
-    [loop]
-    for (int dz = -1; dz <= 1; dz++)
+    // Binding plan section 1: SIX face neighbours only, fixed axis/sign
+    // order, no abs(dot), confidence weighted.
+    [unroll]
+    for (int axis = 0; axis < 3; axis++)
+    [unroll]
+    for (int signIndex = 0; signIndex < 2; signIndex++)
     {
-        if (dx == 0 && dy == 0 && dz == 0) continue;
-        int3 offset = int3(dx, dy, dz);
-        int3 neighbour = coord + offset;
+        int direction = signIndex == 0 ? -1 : 1;
+        int3 neighbour = coord + M8MembraneAxis(axis) * direction;
         bool resolved;
         bool measured;
         bool knownFree;
@@ -1111,28 +1235,6 @@ bool M8MembraneCanonicalChart(int3 coord, out int chart, out bool unresolved)
             return false;
         }
         if (!exists || !measured) continue;
-        // No KNOWN FREE on any axis step from the cell towards the
-        // neighbour: FREE separates sheets, also diagonally.
-        bool separated = false;
-        [unroll]
-        for (int axis = 0; axis < 3; axis++)
-        {
-            if (offset[axis] == 0 || separated) continue;
-            int3 step = M8MembraneSetIntComponent(coord, axis,
-                coord[axis] + offset[axis]);
-            bool stepResolved;
-            bool stepMeasured;
-            bool stepFree;
-            bool stepExists = M8MembraneCell(step, stepResolved, stepMeasured,
-                stepFree);
-            if (!stepResolved)
-            {
-                unresolved = true;
-                return false;
-            }
-            separated = stepExists && stepFree;
-        }
-        if (separated) continue;
         float4 neighbourPlane = M8MembranePlaneOf(neighbour);
         float3 neighbourNormal = neighbourPlane.xyz;
         if (dot(normal, neighbourNormal) < M8_MEMBRANE_CHART_COSINE) continue;
@@ -1143,10 +1245,29 @@ bool M8MembraneCanonicalChart(int3 coord, out int chart, out bool unresolved)
         if (residualHere > M8_MEMBRANE_BRANCH_GAP ||
             residualThere > M8_MEMBRANE_BRANCH_GAP)
             continue;
-        sum += neighbourNormal;
+        uint neighbourColor;
+        uint neighbourConfidence;
+        M8LoadMembraneColor(neighbour, neighbourColor, neighbourConfidence);
+        sum += neighbourNormal * (float)max(1u, neighbourConfidence);
     }
     chart = M8MembraneDominantAxis(sum);
     return true;
+}
+
+// The chart-transition predicate is part of the same generated oracle.
+// It creates no point: Resolve/Emit may only use already solved knot edges.
+bool M8MembraneStitchCompatible(int3 first, int3 second)
+{
+    float4 firstPlane = M8MembranePlaneOf(first);
+    float4 secondPlane = M8MembranePlaneOf(second);
+    if (dot(firstPlane.xyz, secondPlane.xyz) < M8_MEMBRANE_CHART_COSINE)
+        return false;
+    float3 firstCentre = (float3)first * MERKABA_LATTICE_STEP;
+    float3 secondCentre = (float3)second * MERKABA_LATTICE_STEP;
+    return abs(dot(secondCentre, firstPlane.xyz) - firstPlane.w) <=
+               M8_MEMBRANE_BRANCH_GAP &&
+           abs(dot(firstCentre, secondPlane.xyz) - secondPlane.w) <=
+               M8_MEMBRANE_BRANCH_GAP;
 }
 
 // One shared knot of a MAIN's corner (contract C5 steps 1-9). The knot is a
@@ -1212,7 +1333,7 @@ bool M8MembraneSolveKnot(int3 main, float3 mainNormal, int chart,
         if (useSide != side) continue;
         float4 plane = M8MembranePlaneOf(coord);
         float denominator = plane[chart];
-        if (abs(denominator) <= M8_MEMBRANE_NUMERICAL_EPSILON) continue;
+        if (abs(denominator) < M8_MEMBRANE_COMPATIBLE_AXIS_COSINE) continue;
         float3 basePoint = M8MembraneSetFloatComponent(linePoint, chart, 0.0);
         float height = (plane.w - dot(basePoint, plane.xyz)) / denominator;
         if (!isfinite(height)) continue;

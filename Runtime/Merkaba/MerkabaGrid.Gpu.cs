@@ -60,8 +60,9 @@ namespace Genesis.RoomScan
             RenderMutationJournalCapacity * RenderMutationJournalEntryWords;
         internal const int CounterCount = 120;
         // MerkabaReadout.compute M8_RENDER_SCRATCH_*: readout build scratch.
-        // Scratch capacity in tiles; a batch uses the first RenderBatchTiles.
-        internal const int RenderScratchTiles = 512;
+        // One transaction batch. BACK persists across submissions; scratch is
+        // recycled only after the previous 64-tile batch fence has completed.
+        internal const int RenderScratchTiles = 64;
         internal const int RenderBatchTiles = 64;
         internal const int RenderScratchPatches = 512;
         // 512 descriptors + 128 uint4 of compact measured indices per tile.

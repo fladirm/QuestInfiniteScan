@@ -161,7 +161,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(allBuffers.Max(), Is.EqualTo(64L * 1024 * 1024));
             Assert.That(allBuffers.Max(), Is.LessThanOrEqualTo(
                 128L * 1024 * 1024));
-            Assert.That(allBuffers.Sum(), Is.EqualTo(932163804L));
+            Assert.That(allBuffers.Sum(), Is.EqualTo(909219036L));
 
             Assert.That(MerkabaSpatial.OwnerRecordCount,
                 Is.EqualTo(MerkabaSpatial.BlockCapacity +
@@ -829,7 +829,7 @@ namespace Genesis.RoomScan.Tests
             Assert.That(fullStateLoad, Is.GreaterThan(occupiedPrefilter));
             Assert.That(Regex.Matches(build,
                 "GroupMemoryBarrierWithGroupSync\\(\\)"),
-                Has.Count.EqualTo(9));
+                Has.Count.EqualTo(7));
             Assert.That(build, Does.Not.Contain(
                 "M8_COUNTER_LOGICAL_VISIBLE_PRIMITIVES"));
             Assert.That(build, Does.Contain(

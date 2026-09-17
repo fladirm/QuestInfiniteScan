@@ -863,14 +863,19 @@ namespace Genesis.RoomScan
 
             FineBrushOperation action = fineMode
                 ? CurrentFineAction() : FineBrushOperation.None;
-            FineBrushOperation previewOperation = action ==
-                FineBrushOperation.None ? FineBrushOperation.Preview : action;
+            // Selection owns preview semantics. The trigger owns mutation only:
+            // selecting ERASE must show its controller-origin capsule even
+            // while the trigger is up and there is no surface hit.
+            FineBrushOperation previewOperation = action !=
+                FineBrushOperation.None ? action :
+                FineEraseSelected ? FineBrushOperation.Erase :
+                FineBrushOperation.Preview;
             bool cursorOnSurface = false;
             if (TryGetPendingFineDescriptor(out FineBrushDescriptor pending))
             {
                 _finePreviewDescriptor = pending;
-                cursorOnSurface = true;
-                action = pending.Operation;
+                cursorOnSurface = pending.Operation != FineBrushOperation.Erase;
+                previewOperation = pending.Operation;
             }
             else if (fineMode && TryCreateFineDescriptor(previewOperation,
                          out FineBrushDescriptor liveDescriptor,
@@ -884,9 +889,10 @@ namespace Genesis.RoomScan
                 _renderer?.SetFineSurfacePreview(default, Color.clear);
                 return;
             }
-            Color color = _controllerRay.GetFineBrushPreviewColor(action);
-            _controllerRay.SetFineBrushPreview(_finePreviewDescriptor, action,
-                cursorOnSurface);
+            Color color = _controllerRay.GetFineBrushPreviewColor(
+                previewOperation);
+            _controllerRay.SetFineBrushPreview(_finePreviewDescriptor,
+                previewOperation, cursorOnSurface);
             _renderer?.SetFineSurfacePreview(_finePreviewDescriptor, color);
         }
 

@@ -242,10 +242,28 @@ checks["knots carry global identity and canonical colour"] = \
 checks["readout solve and emission are separate dispatches"] = \
     "M8MembraneSolveKnot(" not in readout[readout.index("void EmitRenderTileGeometry"):] and \
     "M8StoreRenderVertex(" not in readout[readout.index("void SolveSharedKnots"):readout.index("void EmitRenderTileGeometry")]
-checks["one physical knot is one vertex inside a tile (exact identity, no epsilon)"] = \
-    "_M8RenderKnotOwner" in readout and \
-    "(theirs.w >> 8u) != (mine.w >> 8u)" in readout and \
+checks["one physical knot is owner-solved before any merge (no post-solve neighbour weld)"] = \
+    "M8KnotTaskOwner(" in readout and \
+    "only the lexicographic owner solves" in readout and \
+    "twelve-neighbour post-solve weld" in readout and \
     "M8_MEMBRANE_WELD_EPSILON" not in readout
+checks["adjacent normal layers merge only by exact winner identity"] = \
+    "exact adjacent-layer merge" in readout and \
+    "(theirs.w >> 8u) != (mine.w >> 8u)" in readout
+checks["binding-plan canonical chart is six-face confidence weighted"] = \
+    "SIX face neighbours only" in membrane and \
+    "state.ColorConfidence" in membrane and \
+    "for (int dx = -1; dx <= 1; dx++)" not in \
+        membrane[membrane.index("private static int CanonicalChart"): \
+                 membrane.index("private static bool TryBuildPatch", \
+                                membrane.index("private static int CanonicalChart"))]
+checks["readout scratch is exactly one 64-tile batch"] = \
+    "RenderScratchTiles = 64" in grid and \
+    "M8_RENDER_SCRATCH_TILES 64u" in readout
+checks["same-tile chart transitions use existing knots only"] = \
+    "Phase C2: same-tile chart-transition stitch" in readout and \
+    "TryBuildStitch(" in membrane and \
+    "TryBuildStitch(main, tangent0" in exporter
 checks["no support clamp and no invented fallback geometry, edge guard on both twins"] = \
     "M8_MEMBRANE_KNOT_SUPPORT_LIMIT" not in readout and \
     "MembraneKnotSupportLimit" not in membrane and \

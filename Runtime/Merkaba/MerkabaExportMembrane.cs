@@ -171,12 +171,16 @@ namespace Genesis.RoomScan
             var patches = new List<MerkabaExportMembranePatch>(
                 Math.Max(owners.Count, 16));
             var chartCache = new MerkabaOverlapShell.SolveCache();
+            int measuredPatchCount = 0;
             for (int ownerIndex = 0; ownerIndex < owners.Count; ownerIndex++)
             {
                 MerkabaKernelSnapshot kernel = owners[ownerIndex];
                 if (MerkabaOverlapShell.TryBuildPatch(kernel.Coord, context,
                         chartCache, out MerkabaOverlapShell.Patch patch))
+                {
                     patches.Add(FromMeasured(patch));
+                    measuredPatchCount++;
+                }
 
                 if (ownerIndex + 1 == owners.Count ||
                     (ownerIndex + 1) % 1024 == 0)
@@ -186,13 +190,34 @@ namespace Genesis.RoomScan
                         $"Built {ownerIndex + 1}/{owners.Count} membrane owners"));
             }
 
+            // Export is not constrained by live tile ownership: emit the same
+            // chart-transition stitch for each +tangent neighbour owned by an
+            // exported MAIN. It contains four already solved knots, no new
+            // geometry authority.
+            for (int ownerIndex = 0; ownerIndex < owners.Count; ownerIndex++)
+            {
+                int3 main = owners[ownerIndex].Coord;
+                int chart = MerkabaOverlapShell.CanonicalChart(main,
+                    owners[ownerIndex].State, context);
+                MerkabaOverlapShell.TangentAxes(chart, out int tangent0,
+                    out int tangent1);
+                if (MerkabaOverlapShell.TryBuildStitch(main, tangent0,
+                        context, chartCache,
+                        out MerkabaOverlapShell.Patch stitch0))
+                    patches.Add(FromMeasured(stitch0));
+                if (MerkabaOverlapShell.TryBuildStitch(main, tangent1,
+                        context, chartCache,
+                        out MerkabaOverlapShell.Patch stitch1))
+                    patches.Add(FromMeasured(stitch1));
+            }
+
             if (patches.Count == 0 && ownsCoordinate == null)
                 throw new InvalidOperationException(
                     "The M8 membrane has no resolvable measured patches " +
                     $"(occupied={canonical.Count}, measuredPlane={measured.Count}).");
 
             return new MerkabaExportMembraneResult(patches,
-                canonical.ToArray(), measured.ToArray(), patches.Count, 0,
+                canonical.ToArray(), measured.ToArray(), measuredPatchCount, 0,
                 Array.Empty<int3>(), 0);
         }
 
@@ -341,7 +366,7 @@ namespace Genesis.RoomScan
         // knots of neighbouring patches key onto one exported vertex.
         private static MerkabaExportMembranePatch FromMeasured(
             MerkabaOverlapShell.Patch patch) => new(patch.Main,
-            patch.Corner00.Normal,
+            patch.Normal,
             patch.Corner00.GridPosition, patch.Corner10.GridPosition,
             patch.Corner11.GridPosition, patch.Corner01.GridPosition,
             patch.Corner00.PackedColor, false, false,

@@ -475,12 +475,10 @@ groupshared uint gM8MembraneOccupiedWords[M8_MEMBRANE_TILE_WORD_COUNT];
 // the kernel states, so a corner candidate costs one groupshared read.
 #define M8_MEMBRANE_CELL_WORDS 108u
 #define M8_RENDER_TILE_KERNELS 512u
-// One BACK transaction runs in batches of this many rebuild tiles; every
-// batch reuses the scratch from work index 0. No batch publishes: FRONT
-// changes only after the last one validated. The scratch keeps its 512-tile
-// capacity (see MERKABA_KNOT_PLAN section 10: editor evidence with 64).
+// One BACK transaction runs in 64-tile batches. Scratch is one batch only;
+// the persistent BACK records/pages are the transaction state.
 #define M8_RENDER_BATCH_TILES 64u
-#define M8_RENDER_SCRATCH_TILES 512u
+#define M8_RENDER_SCRATCH_TILES 64u
 // Per work tile: 512 descriptors + 128 uint4 of compact measured indices.
 #define M8_RENDER_SCRATCH_PATCH_STRIDE 640u
 #define M8_RENDER_SCRATCH_CORNERS 2048u
@@ -1276,9 +1274,284 @@ uint M8KnotKey(int3 knotLine, int tangentAxis0, int tangentAxis1, int chart,
         ((uint)chart << 18u) | (side << 20u);
 }
 
-// Kernel 2: solve every corner task of the measured MAINs from the plane
-// cache; owners are the lowest task of identical knots; valid patches and
-// referenced root knots take ordinals by atomic ticket.
+// descriptor.x after the tile chart prepass:
+// [0..8] kernelLocal, [9..10] chart, [11..12] side, [13] ready,
+// [14..22] compact measured index. descriptor.z is two optional 16-bit
+// chart-transition stitch ordinals (ordinal+1, bit15 = reversed winding).
+#define M8_DESCRIPTOR_KERNEL_MASK 0x1ffu
+#define M8_DESCRIPTOR_CHART_SHIFT 9u
+#define M8_DESCRIPTOR_SIDE_SHIFT 11u
+#define M8_DESCRIPTOR_READY 0x2000u
+#define M8_DESCRIPTOR_COMPACT_SHIFT 14u
+#define M8_DESCRIPTOR_COMPACT_MASK 0x1ffu
+
+uint M8DescriptorKernelLocal(uint4 descriptor)
+{
+    return descriptor.x & M8_DESCRIPTOR_KERNEL_MASK;
+}
+int M8DescriptorChart(uint4 descriptor)
+{
+    return (int)((descriptor.x >> M8_DESCRIPTOR_CHART_SHIFT) & 3u);
+}
+uint M8DescriptorSide(uint4 descriptor)
+{
+    return (descriptor.x >> M8_DESCRIPTOR_SIDE_SHIFT) & 3u;
+}
+uint M8DescriptorCompact(uint4 descriptor)
+{
+    return (descriptor.x >> M8_DESCRIPTOR_COMPACT_SHIFT) &
+        M8_DESCRIPTOR_COMPACT_MASK;
+}
+bool M8DescriptorReady(uint4 descriptor)
+{
+    return (descriptor.x & M8_DESCRIPTOR_READY) != 0u;
+}
+
+uint M8CornerFromSigns(int sign0, int sign1)
+{
+    return sign0 > 0 ? (sign1 > 0 ? 2u : 1u) :
+        (sign1 > 0 ? 3u : 0u);
+}
+
+bool M8InsideBuildTile(M8ReadoutTileContext context, int3 coord,
+    out uint kernelLocal)
+{
+    int3 local = coord - context.tileOrigin;
+    if (any(local < 0) || any(local > 7))
+    {
+        kernelLocal = 0u;
+        return false;
+    }
+    kernelLocal = (uint)local.x | ((uint)local.y << 3u) |
+        ((uint)local.z << 6u);
+    return true;
+}
+
+bool M8UseChartSide(M8ReadoutTileContext context, uint patchBase,
+    int3 coord, out int chart, out uint side, out bool unresolved)
+{
+    chart = 0;
+    side = 0u;
+    unresolved = false;
+    bool resolved;
+    bool measured;
+    bool knownFree;
+    if (!M8MembraneCell(coord, resolved, measured, knownFree))
+    {
+        if (!resolved) unresolved = true;
+        return false;
+    }
+    if (!resolved)
+    {
+        unresolved = true;
+        return false;
+    }
+    if (!measured) return false;
+
+    uint kernelLocal;
+    if (M8InsideBuildTile(context, coord, kernelLocal))
+    {
+        uint4 descriptor = _M8RenderPatchScratch[patchBase + kernelLocal];
+        if (!M8DescriptorMeasured(descriptor)) return false;
+        if (!M8DescriptorReady(descriptor))
+        {
+            unresolved = true;
+            return false;
+        }
+        chart = M8DescriptorChart(descriptor);
+        side = M8DescriptorSide(descriptor);
+        return true;
+    }
+
+    if (!M8MembraneCanonicalChart(coord, chart, unresolved))
+        return false;
+    if (!M8MembraneFreeSideSignature(coord, chart, side, unresolved))
+        return false;
+    return true;
+}
+
+// Binding-plan Phase A. The task key is (line, chart, side, layer, cluster).
+// The lexicographically smallest same-layer use INSIDE this solving tile owns
+// the task; halo uses influence the cluster but never own a live vertex.
+bool M8KnotTaskOwner(M8ReadoutTileContext context, uint patchBase,
+    int3 main, uint corner, int chart, uint side, out uint ownerTask,
+    out bool unresolved)
+{
+    ownerTask = 0u;
+    unresolved = false;
+    int tangentAxis0;
+    int tangentAxis1;
+    M8MembraneTangentAxes(chart, tangentAxis0, tangentAxis1);
+    int3 halfAddress = main * 2;
+    halfAddress = M8MembraneSetIntComponent(halfAddress, tangentAxis0,
+        halfAddress[tangentAxis0] + M8CornerSign0(corner));
+    halfAddress = M8MembraneSetIntComponent(halfAddress, tangentAxis1,
+        halfAddress[tangentAxis1] + M8CornerSign1(corner));
+    float3 linePoint = (float3)halfAddress *
+        (M8_MEMBRANE_PATCH_PITCH * 0.5);
+    int layer = main[chart];
+    int lower0 = M8MembraneFloorDiv2(halfAddress[tangentAxis0]);
+    int lower1 = M8MembraneFloorDiv2(halfAddress[tangentAxis1]);
+
+    float4 useHeights = 0.0;
+    uint useMask = 0u;
+    [unroll]
+    for (uint column = 0u; column < 4u; column++)
+    {
+        int3 coord = M8MembraneColumnCoord(main, chart, tangentAxis0,
+            tangentAxis1, lower0, lower1, column, layer);
+        int useChart;
+        uint useSide;
+        bool useUnresolved;
+        if (!M8UseChartSide(context, patchBase, coord, useChart, useSide,
+                useUnresolved))
+        {
+            if (useUnresolved) unresolved = true;
+            continue;
+        }
+        if (useChart != chart || useSide != side) continue;
+        float4 plane = M8MembranePlaneOf(coord);
+        if (abs(plane[chart]) < M8_MEMBRANE_COMPATIBLE_AXIS_COSINE)
+            continue;
+        float3 basePoint = M8MembraneSetFloatComponent(linePoint, chart, 0.0);
+        float height = (plane.w - dot(basePoint, plane.xyz)) / plane[chart];
+        if (!isfinite(height)) continue;
+        useHeights = column == 0u ? float4(height, useHeights.yzw) :
+            column == 1u ? float4(useHeights.x, height, useHeights.zw) :
+            column == 2u ? float4(useHeights.xy, height, useHeights.w) :
+            float4(useHeights.xyz, height);
+        useMask |= 1u << column;
+    }
+    if (unresolved) return false;
+
+    uint mainColumn = (uint)(main[tangentAxis0] - lower0) * 2u +
+        (uint)(main[tangentAxis1] - lower1);
+    if ((useMask & (1u << mainColumn)) == 0u) return false;
+
+    uint cluster = 1u << mainColumn;
+    [unroll]
+    for (uint expansion = 0u; expansion < 3u; expansion++)
+    [unroll]
+    for (uint column = 0u; column < 4u; column++)
+    {
+        if ((useMask & (1u << column)) == 0u ||
+            (cluster & (1u << column)) != 0u)
+            continue;
+        float height = M8MembraneLoadUse(useHeights, column);
+        [unroll]
+        for (uint member = 0u; member < 4u; member++)
+        {
+            if ((cluster & (1u << member)) != 0u &&
+                abs(height - M8MembraneLoadUse(useHeights, member)) <=
+                    M8_MEMBRANE_BRANCH_GAP)
+            {
+                cluster |= 1u << column;
+                break;
+            }
+        }
+    }
+
+    bool haveOwner = false;
+    int3 ownerCoord = int3(0, 0, 0);
+    uint ownerKernel = 0u;
+    [unroll]
+    for (uint column = 0u; column < 4u; column++)
+    {
+        if ((cluster & (1u << column)) == 0u) continue;
+        int3 coord = M8MembraneColumnCoord(main, chart, tangentAxis0,
+            tangentAxis1, lower0, lower1, column, layer);
+        uint candidateKernel;
+        if (!M8InsideBuildTile(context, coord, candidateKernel)) continue;
+        uint4 candidate =
+            _M8RenderPatchScratch[patchBase + candidateKernel];
+        if (!M8DescriptorMeasured(candidate) ||
+            !M8DescriptorReady(candidate) ||
+            M8DescriptorChart(candidate) != chart ||
+            M8DescriptorSide(candidate) != side)
+            continue;
+        if (!haveOwner || M8MembraneLexLess(coord, ownerCoord))
+        {
+            haveOwner = true;
+            ownerCoord = coord;
+            ownerKernel = candidateKernel;
+        }
+    }
+    if (!haveOwner) return false;
+
+    int sign0 = halfAddress[tangentAxis0] - ownerCoord[tangentAxis0] * 2;
+    int sign1 = halfAddress[tangentAxis1] - ownerCoord[tangentAxis1] * 2;
+    if (abs(sign0) != 1 || abs(sign1) != 1) return false;
+    uint4 ownerDescriptor =
+        _M8RenderPatchScratch[patchBase + ownerKernel];
+    ownerTask = M8DescriptorCompact(ownerDescriptor) * 4u +
+        M8CornerFromSigns(sign0, sign1);
+    return true;
+}
+
+// Root of a corner task. Twelve hops: a Phase-B chain can link one root per
+// normal layer of the tile (fitting deviation from the four hops of the
+// closure diff; same bound as M8KnotVertexOrdinal).
+uint M8KnotRootTask(uint cornerBase, uint task)
+{
+    uint root = task;
+    [loop]
+    for (uint hop = 0u; hop < 12u; hop++)
+    {
+        uint next = _M8RenderKnotOwner[cornerBase + root];
+        if (next == root) break;
+        root = next;
+    }
+    return root;
+}
+
+void M8PatchEdgeTasks(uint compactIndex, int chart, int faceAxis,
+    int direction, out uint lowTask, out uint highTask)
+{
+    int tangent0;
+    int tangent1;
+    M8MembraneTangentAxes(chart, tangent0, tangent1);
+    uint lowCorner = 0u;
+    uint highCorner = 0u;
+    if (faceAxis == tangent0)
+    {
+        lowCorner = direction > 0 ? 1u : 0u;
+        highCorner = direction > 0 ? 2u : 3u;
+    }
+    else
+    {
+        lowCorner = direction > 0 ? 3u : 0u;
+        highCorner = direction > 0 ? 2u : 1u;
+    }
+    lowTask = compactIndex * 4u + lowCorner;
+    highTask = compactIndex * 4u + highCorner;
+}
+
+float3 M8KnotTaskPosition(M8ReadoutTileContext context, uint patchBase,
+    uint cornerBase, uint task)
+{
+    uint root = M8KnotRootTask(cornerBase, task);
+    uint4 result = _M8RenderKnotScratch[cornerBase + root];
+    uint kernelLocal = M8ScratchCompactKernel(patchBase, root >> 2u);
+    uint corner = root & 3u;
+    int chart = (int)((result.z >> 18u) & 3u);
+    int tangent0;
+    int tangent1;
+    M8MembraneTangentAxes(chart, tangent0, tangent1);
+    int3 main = context.tileOrigin + int3(kernelLocal & 7u,
+        (kernelLocal >> 3u) & 7u, (kernelLocal >> 6u) & 7u);
+    int3 halfAddress = main * 2;
+    halfAddress = M8MembraneSetIntComponent(halfAddress, tangent0,
+        halfAddress[tangent0] + M8CornerSign0(corner));
+    halfAddress = M8MembraneSetIntComponent(halfAddress, tangent1,
+        halfAddress[tangent1] + M8CornerSign1(corner));
+    float3 position = (float3)halfAddress *
+        (M8_MEMBRANE_PATCH_PITCH * 0.5);
+    return M8MembraneSetFloatComponent(position, chart, asfloat(result.x));
+}
+
+// Kernel 2: each task first resolves to the binding-plan owner of
+// (line, chart, side, layer, cluster). Only that owner executes the expensive
+// twelve-candidate solve; all other corner tasks reference it.
 // Knot result: x = height bits, y = knot colour, z = knot key, w = winner
 // key << 8 | bit 0 solved | bit 1 referenced by a valid patch.
 [numthreads(64, 1, 1)]
@@ -1298,30 +1571,27 @@ void SolveSharedKnots(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
         if (M8CurrentRenderIdentity(physicalSlot) == 0u)
             gM8MembraneFailed = 2u;
         else
+        {
             M8InitializeReadoutTileContext(physicalSlot);
+            // Halo tile slots and cell bits are resolved by lane 0 before
+            // the first barrier (27 and 108 constant steps), and occupancy is
+            // read in the cache loop itself: the three extra phases of the
+            // closure (chart prepass, root copy, transition stitch) fit the
+            // Quest limit of eight barriers per kernel.
+            M8ReadoutTileContext initContext = M8SharedReadoutTileContext();
+            [loop]
+            for (uint tile = 0u; tile < M8_MEMBRANE_TILE_COUNT; tile++)
+                gM8MembraneTileSlots[tile] = M8ResolveMembraneTile(
+                    initContext, M8MembraneTileOffset(tile));
+            [loop]
+            for (uint word = 0u; word < M8_MEMBRANE_CELL_WORDS; word++)
+                gM8MembraneCellBits[word] = 0u;
+        }
     }
     GroupMemoryBarrierWithGroupSync();
     if (gM8MembraneFailed == 2u) return;
 
     M8ReadoutTileContext context = M8SharedReadoutTileContext();
-    if (thread < M8_MEMBRANE_TILE_COUNT)
-        gM8MembraneTileSlots[thread] = M8ResolveMembraneTile(context,
-            M8MembraneTileOffset(thread));
-    if (thread < M8_MEMBRANE_CELL_WORDS) gM8MembraneCellBits[thread] = 0u;
-    GroupMemoryBarrierWithGroupSync();
-
-    for (uint wordIndex = thread;
-        wordIndex < M8_MEMBRANE_TILE_WORD_COUNT;
-        wordIndex += M8_SOLVE_GROUP_THREADS)
-    {
-        uint tileIndex = wordIndex >> 4u;
-        uint word = wordIndex - tileIndex * MERKABA_M8_TILE_WORDS;
-        uint slot = gM8MembraneTileSlots[tileIndex];
-        gM8MembraneOccupiedWords[wordIndex] =
-            slot < MERKABA_M8_PHYSICAL_TILE_CAPACITY
-            ? _M8TileBitsRead[M8TileWordIndex(slot, word)].x : 0u;
-    }
-    GroupMemoryBarrierWithGroupSync();
 
     // Every halo cell is classified and its plane decoded exactly once.
     for (uint cacheIndex = thread; cacheIndex < M8_MEMBRANE_CACHE_COUNT;
@@ -1336,8 +1606,8 @@ void SolveSharedKnots(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
         uint bits = 0u;
         if (slot < MERKABA_M8_PHYSICAL_TILE_CAPACITY)
         {
-            uint occupancy = gM8MembraneOccupiedWords[tileIndex *
-                MERKABA_M8_TILE_WORDS + (kernelLocal >> 5u)];
+            uint occupancy = _M8TileBitsRead[M8TileWordIndex(slot,
+                kernelLocal >> 5u)].x;
             if ((occupancy & (1u << (kernelLocal & 31u))) != 0u)
             {
                 uint flags = M8LoadKernelFlagsOnly(slot, kernelLocal);
@@ -1373,44 +1643,37 @@ void SolveSharedKnots(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
     uint patchBase = M8ScratchPatchBase(local);
     uint cornerBase = M8ScratchCornerBase(local);
 
-    // Phase A: one knot solve per corner task of a measured MAIN.
+    // Canonical chart/side is derived ONCE for every measured MAIN in the
+    // solving tile. The old implementation recomputed the 26-neighbour chart
+    // from every corner and every use; the binding plan explicitly forbids
+    // that duplication.
     [loop]
-    for (uint task = thread; task < taskCount; task += M8_SOLVE_GROUP_THREADS)
+    for (uint index = thread; index < measuredCount;
+        index += M8_SOLVE_GROUP_THREADS)
     {
-        uint kernelLocal = M8ScratchCompactKernel(patchBase, task >> 2u);
-        uint corner = task & 3u;
+        uint kernelLocal = M8ScratchCompactKernel(patchBase, index);
         uint4 descriptor = _M8RenderPatchScratch[patchBase + kernelLocal];
-        uint4 result = 0u;
         int3 globalCoord = context.tileOrigin + int3(
             kernelLocal & 7u, (kernelLocal >> 3u) & 7u,
             (kernelLocal >> 6u) & 7u);
-        float3 normal;
-        float signedOffset;
-        M8DecodeSurfacePlane(descriptor.y, normal, signedOffset);
         int chart;
         bool unresolved;
-        bool chartKnown = M8MembraneCanonicalChart(globalCoord, chart,
-            unresolved);
-        if (chartKnown)
+        if (M8MembraneCanonicalChart(globalCoord, chart, unresolved))
         {
-            int tangentAxis0;
-            int tangentAxis1;
-            M8MembraneTangentAxes(chart, tangentAxis0, tangentAxis1);
+            float3 mainNormal;
+            float mainOffset;
+            M8DecodeSurfacePlane(descriptor.y, mainNormal, mainOffset);
             uint side;
-            if (M8MembraneFreeSideSignature(globalCoord, chart, side,
+            if (abs(mainNormal[chart]) >=
+                    M8_MEMBRANE_COMPATIBLE_AXIS_COSINE &&
+                M8MembraneFreeSideSignature(globalCoord, chart, side,
                     unresolved))
             {
-                float3 position;
-                uint color;
-                int3 knotLine;
-                uint winnerKey;
-                if (M8MembraneSolveKnot(globalCoord, normal, chart,
-                        tangentAxis0, tangentAxis1, M8CornerSign0(corner),
-                        M8CornerSign1(corner), side, position, color, knotLine,
-                        winnerKey, unresolved))
-                    result = uint4(asuint(position[chart]), color,
-                        M8KnotKey(knotLine, tangentAxis0, tangentAxis1, chart,
-                            side), (winnerKey << 8u) | 1u);
+                descriptor.x = kernelLocal |
+                    ((uint)chart << M8_DESCRIPTOR_CHART_SHIFT) |
+                    (side << M8_DESCRIPTOR_SIDE_SHIFT) |
+                    M8_DESCRIPTOR_READY |
+                    (index << M8_DESCRIPTOR_COMPACT_SHIFT);
             }
         }
         if (unresolved)
@@ -1418,71 +1681,123 @@ void SolveSharedKnots(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
             uint ignored;
             InterlockedOr(gM8MembraneUnresolved, 1u, ignored);
         }
+        _M8RenderPatchScratch[patchBase + kernelLocal] = descriptor;
+    }
+    DeviceMemoryBarrierWithGroupSync();
+
+    // Phase A: one task key per corner; only the lexicographic owner solves.
+    [loop]
+    for (uint task = thread; task < taskCount; task += M8_SOLVE_GROUP_THREADS)
+    {
+        uint kernelLocal = M8ScratchCompactKernel(patchBase, task >> 2u);
+        uint corner = task & 3u;
+        uint4 descriptor = _M8RenderPatchScratch[patchBase + kernelLocal];
+        uint owner = task;
+        uint4 result = 0u;
+        bool unresolved = false;
+        if (M8DescriptorReady(descriptor))
+        {
+            int3 globalCoord = context.tileOrigin + int3(
+                kernelLocal & 7u, (kernelLocal >> 3u) & 7u,
+                (kernelLocal >> 6u) & 7u);
+            int chart = M8DescriptorChart(descriptor);
+            uint side = M8DescriptorSide(descriptor);
+            uint taskOwner;
+            if (M8KnotTaskOwner(context, patchBase, globalCoord, corner,
+                    chart, side, taskOwner, unresolved))
+            {
+                owner = taskOwner;
+                if (taskOwner == task)
+                {
+                    float3 normal;
+                    float signedOffset;
+                    M8DecodeSurfacePlane(descriptor.y, normal, signedOffset);
+                    int tangentAxis0;
+                    int tangentAxis1;
+                    M8MembraneTangentAxes(chart, tangentAxis0, tangentAxis1);
+                    float3 position;
+                    uint color;
+                    int3 knotLine;
+                    uint winnerKey;
+                    if (M8MembraneSolveKnot(globalCoord, normal, chart,
+                            tangentAxis0, tangentAxis1,
+                            M8CornerSign0(corner), M8CornerSign1(corner),
+                            side, position, color, knotLine, winnerKey,
+                            unresolved))
+                        result = uint4(asuint(position[chart]), color,
+                            M8KnotKey(knotLine, tangentAxis0, tangentAxis1,
+                                chart, side), (winnerKey << 8u) | 1u);
+                }
+            }
+        }
+        if (unresolved)
+        {
+            uint ignored;
+            InterlockedOr(gM8MembraneUnresolved, 1u, ignored);
+        }
+        _M8RenderKnotOwner[cornerBase + task] = owner;
         _M8RenderKnotScratch[cornerBase + task] = result;
     }
     DeviceMemoryBarrierWithGroupSync();
 
-    // Phase B: ownership. The owner of a knot is the lowest task among the
-    // corner tasks of the (up to twelve) MAINs around the same line whose
-    // knot key and winner key are identical: same inputs, same numbers.
+    // Phase B: exact adjacent-layer merge from the binding plan. There is no
+    // twelve-neighbour post-solve weld. An owner at L may reference the owner
+    // of the same line/chart/side task at L-1 only when the solved winner set
+    // is exactly identical.
     [loop]
     for (uint task = thread; task < taskCount; task += M8_SOLVE_GROUP_THREADS)
     {
+        if (_M8RenderKnotOwner[cornerBase + task] != task) continue;
         uint4 mine = _M8RenderKnotScratch[cornerBase + task];
-        uint owner = task;
-        if ((mine.w & 1u) != 0u)
-        {
-            uint kernelLocal = M8ScratchCompactKernel(patchBase, task >> 2u);
-            uint corner = task & 3u;
-            int chart = (int)((mine.z >> 18u) & 3u);
-            int tangentAxis0;
-            int tangentAxis1;
-            M8MembraneTangentAxes(chart, tangentAxis0, tangentAxis1);
-            int3 local3 = int3(kernelLocal & 7u, (kernelLocal >> 3u) & 7u,
-                (kernelLocal >> 6u) & 7u);
-            int s0 = M8CornerSign0(corner);
-            int s1 = M8CornerSign1(corner);
-            [unroll]
-            for (uint column = 0u; column < 4u; column++)
-            [unroll]
-            for (uint layer = 0u; layer < 3u; layer++)
-            {
-                int3 other = local3;
-                int d0 = (column & 1u) != 0u ? 1 : 0;
-                int d1 = (column & 2u) != 0u ? 1 : 0;
-                other = M8MembraneSetIntComponent(other, tangentAxis0,
-                    local3[tangentAxis0] + (s0 > 0 ? d0 : d0 - 1));
-                other = M8MembraneSetIntComponent(other, tangentAxis1,
-                    local3[tangentAxis1] + (s1 > 0 ? d1 : d1 - 1));
-                other = M8MembraneSetIntComponent(other, chart,
-                    local3[chart] + (int)layer - 1);
-                if (any(other < 0) || any(other > 7)) continue;
-                uint otherKernel = (uint)other.x | ((uint)other.y << 3u) |
-                    ((uint)other.z << 6u);
-                uint4 otherDescriptor =
-                    _M8RenderPatchScratch[patchBase + otherKernel];
-                if (!M8DescriptorMeasured(otherDescriptor)) continue;
-                int o0 = (other[tangentAxis0] < local3[tangentAxis0] ||
-                    (other[tangentAxis0] == local3[tangentAxis0] && s0 > 0))
-                    ? 1 : -1;
-                int o1 = (other[tangentAxis1] < local3[tangentAxis1] ||
-                    (other[tangentAxis1] == local3[tangentAxis1] && s1 > 0))
-                    ? 1 : -1;
-                uint otherCorner = o0 > 0 ? (o1 > 0 ? 2u : 1u)
-                    : (o1 > 0 ? 3u : 0u);
-                uint otherTask = (otherDescriptor.w & M8_SCRATCH_INDEX_MASK) *
-                    4u + otherCorner;
-                if (otherTask >= task) continue;
-                uint4 theirs = _M8RenderKnotScratch[cornerBase + otherTask];
-                if ((theirs.w & 1u) == 0u || theirs.z != mine.z ||
-                    (theirs.w >> 8u) != (mine.w >> 8u))
-                    continue;
-                owner = min(owner, otherTask);
-            }
-        }
-        // Direct owner only; every hop strictly decreases the task and the
-        // chain is followed where it is consumed.
-        _M8RenderKnotOwner[cornerBase + task] = owner;
+        if ((mine.w & 1u) == 0u) continue;
+
+        uint kernelLocal = M8ScratchCompactKernel(patchBase, task >> 2u);
+        uint corner = task & 3u;
+        uint4 descriptor = _M8RenderPatchScratch[patchBase + kernelLocal];
+        int chart = M8DescriptorChart(descriptor);
+        uint side = M8DescriptorSide(descriptor);
+        int tangentAxis0;
+        int tangentAxis1;
+        M8MembraneTangentAxes(chart, tangentAxis0, tangentAxis1);
+        int3 local3 = int3(kernelLocal & 7u, (kernelLocal >> 3u) & 7u,
+            (kernelLocal >> 6u) & 7u);
+        int3 previous = local3;
+        previous = M8MembraneSetIntComponent(previous, chart,
+            previous[chart] - 1);
+        if (any(previous < 0) || any(previous > 7)) continue;
+
+        uint previousKernel = (uint)previous.x |
+            ((uint)previous.y << 3u) | ((uint)previous.z << 6u);
+        uint4 previousDescriptor =
+            _M8RenderPatchScratch[patchBase + previousKernel];
+        if (!M8DescriptorMeasured(previousDescriptor) ||
+            !M8DescriptorReady(previousDescriptor) ||
+            M8DescriptorChart(previousDescriptor) != chart ||
+            M8DescriptorSide(previousDescriptor) != side)
+            continue;
+
+        int3 globalCoord = context.tileOrigin + local3;
+        int3 halfAddress = globalCoord * 2;
+        halfAddress = M8MembraneSetIntComponent(halfAddress, tangentAxis0,
+            halfAddress[tangentAxis0] + M8CornerSign0(corner));
+        halfAddress = M8MembraneSetIntComponent(halfAddress, tangentAxis1,
+            halfAddress[tangentAxis1] + M8CornerSign1(corner));
+        int3 previousGlobal = context.tileOrigin + previous;
+        int previousSign0 = halfAddress[tangentAxis0] -
+            previousGlobal[tangentAxis0] * 2;
+        int previousSign1 = halfAddress[tangentAxis1] -
+            previousGlobal[tangentAxis1] * 2;
+        if (abs(previousSign0) != 1 || abs(previousSign1) != 1) continue;
+        uint previousTask = M8DescriptorCompact(previousDescriptor) * 4u +
+            M8CornerFromSigns(previousSign0, previousSign1);
+        uint previousRoot = M8KnotRootTask(cornerBase, previousTask);
+        if (previousRoot >= task) continue;
+        uint4 theirs =
+            _M8RenderKnotScratch[cornerBase + previousRoot];
+        if ((theirs.w & 1u) == 0u || theirs.z != mine.z ||
+            (theirs.w >> 8u) != (mine.w >> 8u))
+            continue;
+        _M8RenderKnotOwner[cornerBase + task] = previousRoot;
     }
     DeviceMemoryBarrierWithGroupSync();
 
@@ -1498,6 +1813,18 @@ void SolveSharedKnots(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
         uint kernelLocal = M8ScratchCompactKernel(patchBase, index);
         uint4 descriptor = _M8RenderPatchScratch[patchBase + kernelLocal];
         uint firstTask = index * 4u;
+        // Every corner task now carries its root's exact solved value
+        // (closure-diff copy phase, merged here to stay within eight
+        // barriers). Roots are never overwritten, so the read is stable.
+        [unroll]
+        for (uint copyCorner = 0u; copyCorner < 4u; copyCorner++)
+        {
+            uint copyTask = firstTask + copyCorner;
+            uint copyRoot = M8KnotRootTask(cornerBase, copyTask);
+            if (copyRoot != copyTask)
+                _M8RenderKnotScratch[cornerBase + copyTask] =
+                    _M8RenderKnotScratch[cornerBase + copyRoot];
+        }
         uint4 r0 = _M8RenderKnotScratch[cornerBase + firstTask + 0u];
         uint4 r1 = _M8RenderKnotScratch[cornerBase + firstTask + 1u];
         uint4 r2 = _M8RenderKnotScratch[cornerBase + firstTask + 2u];
@@ -1540,6 +1867,122 @@ void SolveSharedKnots(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
         }
         else
             descriptor.w = 0u;
+        _M8RenderPatchScratch[patchBase + kernelLocal] = descriptor;
+    }
+    DeviceMemoryBarrierWithGroupSync();
+
+    // Phase C2: same-tile chart-transition stitch from the binding plan.
+    // Only +tangent neighbours are considered, so the lexicographically
+    // smaller MAIN owns the primitive. No new vertex is ever created.
+    [loop]
+    for (uint index = thread; index < measuredCount;
+        index += M8_SOLVE_GROUP_THREADS)
+    {
+        uint kernelLocal = M8ScratchCompactKernel(patchBase, index);
+        uint4 descriptor = _M8RenderPatchScratch[patchBase + kernelLocal];
+        descriptor.z = 0u;
+        if ((descriptor.w & M8_SCRATCH_PATCH_VALID) != 0u &&
+            M8DescriptorReady(descriptor))
+        {
+            int chart = M8DescriptorChart(descriptor);
+            int tangent0;
+            int tangent1;
+            M8MembraneTangentAxes(chart, tangent0, tangent1);
+            int3 local3 = int3(kernelLocal & 7u,
+                (kernelLocal >> 3u) & 7u, (kernelLocal >> 6u) & 7u);
+            [unroll]
+            for (uint edge = 0u; edge < 2u; edge++)
+            {
+                int faceAxis = edge == 0u ? tangent0 : tangent1;
+                int3 neighbourLocal = local3 + M8MembraneAxis(faceAxis);
+                if (any(neighbourLocal < 0) || any(neighbourLocal > 7))
+                    continue; // cross-tile live stitch is a documented limit.
+                uint neighbourKernel = (uint)neighbourLocal.x |
+                    ((uint)neighbourLocal.y << 3u) |
+                    ((uint)neighbourLocal.z << 6u);
+                uint4 neighbourDescriptor =
+                    _M8RenderPatchScratch[patchBase + neighbourKernel];
+                if ((neighbourDescriptor.w & M8_SCRATCH_PATCH_VALID) == 0u ||
+                    !M8DescriptorReady(neighbourDescriptor))
+                    continue;
+                int neighbourChart = M8DescriptorChart(neighbourDescriptor);
+                if (neighbourChart == chart || neighbourChart == faceAxis)
+                    continue;
+
+                int3 mainGlobal = context.tileOrigin + local3;
+                int3 neighbourGlobal = context.tileOrigin + neighbourLocal;
+                if (!M8MembraneStitchCompatible(mainGlobal, neighbourGlobal))
+                    continue;
+
+                uint firstLow;
+                uint firstHigh;
+                uint secondLow;
+                uint secondHigh;
+                M8PatchEdgeTasks(index, chart, faceAxis, 1,
+                    firstLow, firstHigh);
+                M8PatchEdgeTasks(M8DescriptorCompact(neighbourDescriptor),
+                    neighbourChart, faceAxis, -1, secondLow, secondHigh);
+                uint r0 = M8KnotRootTask(cornerBase, firstLow);
+                uint r1 = M8KnotRootTask(cornerBase, firstHigh);
+                uint r2 = M8KnotRootTask(cornerBase, secondHigh);
+                uint r3 = M8KnotRootTask(cornerBase, secondLow);
+                if (r0 == r1 || r0 == r2 || r0 == r3 ||
+                    r1 == r2 || r1 == r3 || r2 == r3)
+                    continue;
+                if ((_M8RenderKnotScratch[cornerBase + r0].w & 1u) == 0u ||
+                    (_M8RenderKnotScratch[cornerBase + r1].w & 1u) == 0u ||
+                    (_M8RenderKnotScratch[cornerBase + r2].w & 1u) == 0u ||
+                    (_M8RenderKnotScratch[cornerBase + r3].w & 1u) == 0u)
+                    continue;
+
+                float3 p0 = M8KnotTaskPosition(context, patchBase,
+                    cornerBase, r0);
+                float3 p1 = M8KnotTaskPosition(context, patchBase,
+                    cornerBase, r1);
+                float3 p2 = M8KnotTaskPosition(context, patchBase,
+                    cornerBase, r2);
+                float3 p3 = M8KnotTaskPosition(context, patchBase,
+                    cornerBase, r3);
+                float maxEdge2 =
+                    M8_MEMBRANE_MAX_EDGE * M8_MEMBRANE_MAX_EDGE;
+                if (dot(p1 - p0, p1 - p0) > maxEdge2 ||
+                    dot(p2 - p1, p2 - p1) > maxEdge2 ||
+                    dot(p3 - p2, p3 - p2) > maxEdge2 ||
+                    dot(p0 - p3, p0 - p3) > maxEdge2)
+                    continue;
+
+                float4 firstPlane = M8MembranePlaneOf(mainGlobal);
+                float4 secondPlane = M8MembranePlaneOf(neighbourGlobal);
+                float3 stitchNormal = firstPlane.xyz + secondPlane.xyz;
+                float normal2 = dot(stitchNormal, stitchNormal);
+                if (normal2 <= M8_MEMBRANE_NUMERICAL_EPSILON) continue;
+                stitchNormal *= rsqrt(normal2);
+                float area0 = dot(cross(p1 - p0, p2 - p0), stitchNormal);
+                float area1 = dot(cross(p2 - p0, p3 - p0), stitchNormal);
+                if (abs(area0) <= M8_MEMBRANE_NUMERICAL_EPSILON ||
+                    abs(area1) <= M8_MEMBRANE_NUMERICAL_EPSILON ||
+                    area0 * area1 <= 0.0)
+                    continue;
+
+                uint ordinal;
+                InterlockedAdd(gM8ScratchValidPatches, 1u, ordinal);
+                if (ordinal >= 0x7ffeu) continue;
+                uint code = (ordinal + 1u) |
+                    (area0 < 0.0 ? 0x8000u : 0u);
+                descriptor.z = edge == 0u
+                    ? (descriptor.z & 0xffff0000u) | code
+                    : (descriptor.z & 0x0000ffffu) | (code << 16u);
+                uint ignored;
+                InterlockedOr(_M8RenderKnotScratch[cornerBase + r0].w,
+                    2u, ignored);
+                InterlockedOr(_M8RenderKnotScratch[cornerBase + r1].w,
+                    2u, ignored);
+                InterlockedOr(_M8RenderKnotScratch[cornerBase + r2].w,
+                    2u, ignored);
+                InterlockedOr(_M8RenderKnotScratch[cornerBase + r3].w,
+                    2u, ignored);
+            }
+        }
         _M8RenderPatchScratch[patchBase + kernelLocal] = descriptor;
     }
     DeviceMemoryBarrierWithGroupSync();
@@ -1721,6 +2164,82 @@ void EmitRenderTileGeometry(uint3 groupId : SV_GroupID,
             _M8RenderIndices[M8MembraneIndexSlot(indexBase + 3u)] = a;
             _M8RenderIndices[M8MembraneIndexSlot(indexBase + 4u)] = c;
             _M8RenderIndices[M8MembraneIndexSlot(indexBase + 5u)] = d;
+        }
+
+        // Chart-transition stitches use only the four existing edge knots.
+        [loop]
+        for (uint index = thread; index < measuredCount;
+            index += M8_SHELL_GROUP_THREADS)
+        {
+            uint kernelLocal = M8ScratchCompactKernelRead(patchBase, index);
+            uint4 descriptor =
+                _M8RenderPatchScratchRead[patchBase + kernelLocal];
+            int chart = M8DescriptorChart(descriptor);
+            int tangent0;
+            int tangent1;
+            M8MembraneTangentAxes(chart, tangent0, tangent1);
+            int3 local3 = int3(kernelLocal & 7u,
+                (kernelLocal >> 3u) & 7u, (kernelLocal >> 6u) & 7u);
+            [unroll]
+            for (uint edge = 0u; edge < 2u; edge++)
+            {
+                uint encoded = edge == 0u ? descriptor.z & 0xffffu :
+                    descriptor.z >> 16u;
+                uint stored = encoded & 0x7fffu;
+                if (stored == 0u) continue;
+                uint outputPatch = stored - 1u;
+                if (outputPatch >= patchTotal)
+                {
+                    uint ignoredReason;
+                    InterlockedOr(_M8Counters[
+                        M8_COUNTER_RENDER_PUBLICATION_INVALID], 2u,
+                        ignoredReason);
+                    continue;
+                }
+                int faceAxis = edge == 0u ? tangent0 : tangent1;
+                int3 neighbourLocal = local3 + M8MembraneAxis(faceAxis);
+                if (any(neighbourLocal < 0) || any(neighbourLocal > 7))
+                    continue;
+                uint neighbourKernel = (uint)neighbourLocal.x |
+                    ((uint)neighbourLocal.y << 3u) |
+                    ((uint)neighbourLocal.z << 6u);
+                uint4 neighbourDescriptor =
+                    _M8RenderPatchScratchRead[patchBase + neighbourKernel];
+                int neighbourChart = M8DescriptorChart(neighbourDescriptor);
+                uint firstLow;
+                uint firstHigh;
+                uint secondLow;
+                uint secondHigh;
+                M8PatchEdgeTasks(index, chart, faceAxis, 1,
+                    firstLow, firstHigh);
+                M8PatchEdgeTasks(M8DescriptorCompact(neighbourDescriptor),
+                    neighbourChart, faceAxis, -1, secondLow, secondHigh);
+                uint v0 = M8KnotVertexOrdinal(cornerBase, firstLow);
+                uint v1 = M8KnotVertexOrdinal(cornerBase, firstHigh);
+                uint v2 = M8KnotVertexOrdinal(cornerBase, secondHigh);
+                uint v3 = M8KnotVertexOrdinal(cornerBase, secondLow);
+                if (max(max(v0, v1), max(v2, v3)) >= vertexTotal)
+                {
+                    uint ignoredReason;
+                    InterlockedOr(_M8Counters[
+                        M8_COUNTER_RENDER_PUBLICATION_INVALID], 4u,
+                        ignoredReason);
+                    continue;
+                }
+                bool flip = (encoded & 0x8000u) != 0u;
+                uint a = M8MembraneVertexSlot(v0);
+                uint b = M8MembraneVertexSlot(flip ? v3 : v1);
+                uint c = M8MembraneVertexSlot(v2);
+                uint d = M8MembraneVertexSlot(flip ? v1 : v3);
+                uint indexBase =
+                    outputPatch * M8_MEMBRANE_INDICES_PER_PATCH;
+                _M8RenderIndices[M8MembraneIndexSlot(indexBase + 0u)] = a;
+                _M8RenderIndices[M8MembraneIndexSlot(indexBase + 1u)] = b;
+                _M8RenderIndices[M8MembraneIndexSlot(indexBase + 2u)] = c;
+                _M8RenderIndices[M8MembraneIndexSlot(indexBase + 3u)] = a;
+                _M8RenderIndices[M8MembraneIndexSlot(indexBase + 4u)] = c;
+                _M8RenderIndices[M8MembraneIndexSlot(indexBase + 5u)] = d;
+            }
         }
     }
     GroupMemoryBarrierWithGroupSync();

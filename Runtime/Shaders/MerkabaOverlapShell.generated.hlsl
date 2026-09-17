@@ -236,19 +236,20 @@ bool M8MembraneCanonicalChart(int3 coord, out int chart, out bool unresolved)
     chart = 0;
     float4 plane = M8MembranePlaneOf(coord);
     float3 normal = plane.xyz;
-    float3 sum = normal;
+    uint ownColor;
+    uint ownConfidence;
+    M8LoadMembraneColor(coord, ownColor, ownConfidence);
+    float3 sum = normal * (float)max(1u, ownConfidence);
     float planeConstant = plane.w;
-    // The 26 neighbours in fixed lexicographic order of the offset.
-    [loop]
-    for (int dx = -1; dx <= 1; dx++)
-    [loop]
-    for (int dy = -1; dy <= 1; dy++)
-    [loop]
-    for (int dz = -1; dz <= 1; dz++)
+    // Binding plan section 1: SIX face neighbours only, fixed axis/sign
+    // order, no abs(dot), confidence weighted.
+    [unroll]
+    for (int axis = 0; axis < 3; axis++)
+    [unroll]
+    for (int signIndex = 0; signIndex < 2; signIndex++)
     {
-        if (dx == 0 && dy == 0 && dz == 0) continue;
-        int3 offset = int3(dx, dy, dz);
-        int3 neighbour = coord + offset;
+        int direction = signIndex == 0 ? -1 : 1;
+        int3 neighbour = coord + M8MembraneAxis(axis) * direction;
         bool resolved;
         bool measured;
         bool knownFree;
@@ -259,28 +260,6 @@ bool M8MembraneCanonicalChart(int3 coord, out int chart, out bool unresolved)
             return false;
         }
         if (!exists || !measured) continue;
-        // No KNOWN FREE on any axis step from the cell towards the
-        // neighbour: FREE separates sheets, also diagonally.
-        bool separated = false;
-        [unroll]
-        for (int axis = 0; axis < 3; axis++)
-        {
-            if (offset[axis] == 0 || separated) continue;
-            int3 step = M8MembraneSetIntComponent(coord, axis,
-                coord[axis] + offset[axis]);
-            bool stepResolved;
-            bool stepMeasured;
-            bool stepFree;
-            bool stepExists = M8MembraneCell(step, stepResolved, stepMeasured,
-                stepFree);
-            if (!stepResolved)
-            {
-                unresolved = true;
-                return false;
-            }
-            separated = stepExists && stepFree;
-        }
-        if (separated) continue;
         float4 neighbourPlane = M8MembranePlaneOf(neighbour);
         float3 neighbourNormal = neighbourPlane.xyz;
         if (dot(normal, neighbourNormal) < M8_MEMBRANE_CHART_COSINE) continue;
@@ -291,10 +270,29 @@ bool M8MembraneCanonicalChart(int3 coord, out int chart, out bool unresolved)
         if (residualHere > M8_MEMBRANE_BRANCH_GAP ||
             residualThere > M8_MEMBRANE_BRANCH_GAP)
             continue;
-        sum += neighbourNormal;
+        uint neighbourColor;
+        uint neighbourConfidence;
+        M8LoadMembraneColor(neighbour, neighbourColor, neighbourConfidence);
+        sum += neighbourNormal * (float)max(1u, neighbourConfidence);
     }
     chart = M8MembraneDominantAxis(sum);
     return true;
+}
+
+// The chart-transition predicate is part of the same generated oracle.
+// It creates no point: Resolve/Emit may only use already solved knot edges.
+bool M8MembraneStitchCompatible(int3 first, int3 second)
+{
+    float4 firstPlane = M8MembranePlaneOf(first);
+    float4 secondPlane = M8MembranePlaneOf(second);
+    if (dot(firstPlane.xyz, secondPlane.xyz) < M8_MEMBRANE_CHART_COSINE)
+        return false;
+    float3 firstCentre = (float3)first * MERKABA_LATTICE_STEP;
+    float3 secondCentre = (float3)second * MERKABA_LATTICE_STEP;
+    return abs(dot(secondCentre, firstPlane.xyz) - firstPlane.w) <=
+               M8_MEMBRANE_BRANCH_GAP &&
+           abs(dot(firstCentre, secondPlane.xyz) - secondPlane.w) <=
+               M8_MEMBRANE_BRANCH_GAP;
 }
 
 // One shared knot of a MAIN's corner (contract C5 steps 1-9). The knot is a
@@ -360,7 +358,7 @@ bool M8MembraneSolveKnot(int3 main, float3 mainNormal, int chart,
         if (useSide != side) continue;
         float4 plane = M8MembranePlaneOf(coord);
         float denominator = plane[chart];
-        if (abs(denominator) <= M8_MEMBRANE_NUMERICAL_EPSILON) continue;
+        if (abs(denominator) < M8_MEMBRANE_COMPATIBLE_AXIS_COSINE) continue;
         float3 basePoint = M8MembraneSetFloatComponent(linePoint, chart, 0.0);
         float height = (plane.w - dot(basePoint, plane.xyz)) / denominator;
         if (!isfinite(height)) continue;
