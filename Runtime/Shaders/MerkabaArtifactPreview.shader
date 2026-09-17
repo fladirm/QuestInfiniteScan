@@ -6,7 +6,6 @@ Shader "Hidden/QuestMerkaba/ArtifactPreview"
         [Enum(UnityEngine.Rendering.BlendMode)] _SrcBlend("Source Blend", Float) = 1
         [Enum(UnityEngine.Rendering.BlendMode)] _DstBlend("Destination Blend", Float) = 0
         [Toggle] _ZWrite("Depth Write", Float) = 1
-        [Toggle] _AlphaDither("Alpha Dither", Float) = 0
         _PlanColor("Plan Color", Color) = (0.36, 1, 0.72, 1)
     }
 
@@ -40,7 +39,6 @@ Shader "Hidden/QuestMerkaba/ArtifactPreview"
             CBUFFER_START(UnityPerMaterial)
                 half4 _BaseColor;
                 half4 _PlanColor;
-                half _AlphaDither;
             CBUFFER_END
 
             struct Attributes
@@ -77,21 +75,6 @@ Shader "Hidden/QuestMerkaba/ArtifactPreview"
 #if defined(M8_ARTIFACT_PLAN)
                 displayColor = _PlanColor;
 #endif
-                if (_AlphaDither > 0.5h)
-                {
-                    int3 worldCell = (int3)floor(input.worldPosition * 40.0);
-                    uint hash = (uint)input.positionCS.x * 0x8da6b343u ^
-                        (uint)input.positionCS.y * 0xd8163841u ^
-                        asuint(worldCell.x) * 0xcb1ab31fu ^
-                        asuint(worldCell.y) * 0x165667b1u ^
-                        asuint(worldCell.z) * 0x27d4eb2fu;
-                    hash ^= hash >> 13u;
-                    hash *= 0x85ebca6bu;
-                    hash ^= hash >> 16u;
-                    half threshold = (half)((hash & 255u) + 0.5) / 256.0h;
-                    clip(displayColor.a - threshold);
-                    return half4(displayColor.rgb, 1.0h);
-                }
                 return displayColor;
             }
             ENDHLSL

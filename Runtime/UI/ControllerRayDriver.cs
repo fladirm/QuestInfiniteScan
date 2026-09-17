@@ -75,16 +75,6 @@ namespace Genesis.RoomScan.UI
             SetupLineRenderer();
             SetupCursor();
             SetupFinePreview();
-            // Pointer feedback lives on the UI layer: the UX overlay camera
-            // draws it after the world, so it is never hidden by the scan
-            // or by the GLB viewer. Nothing here carries a collider.
-            int uiLayer = LayerMask.NameToLayer("UI");
-            if (uiLayer >= 0)
-            {
-                gameObject.layer = uiLayer;
-                _cursor.layer = uiLayer;
-                _fineCursor.layer = uiLayer;
-            }
         }
 
         private void Update()
@@ -148,8 +138,15 @@ namespace Genesis.RoomScan.UI
             FineBrushOperation operation, bool cursorOnSurface = false)
         {
             bool visible = descriptor.IsActive && _fineCursor != null;
-            _fineTargetVisible = visible && cursorOnSurface;
-            _fineTargetPosition = descriptor.CursorPosition;
+            // ERASE is a capsule from the controller: it is shown for its
+            // whole length whether or not it meets a surface, and the laser
+            // ends at its tip. REFINE still needs the surface cursor.
+            bool erase = operation == FineBrushOperation.Erase;
+            _fineTargetVisible = visible && (erase || cursorOnSurface);
+            _fineTargetPosition = erase
+                ? descriptor.CursorPosition +
+                  descriptor.Axis.normalized * descriptor.Length
+                : descriptor.CursorPosition;
             _fineTargetOperation = operation;
             if (_fineCursor != null)
                 _fineCursor.SetActive(_fineTargetVisible);

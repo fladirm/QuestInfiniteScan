@@ -126,13 +126,14 @@ namespace Genesis.RoomScan.Tests
             Assert.That(viewer, Does.Contain(
                 "_modelMaterial.EnableKeyword(PlanKeyword)"));
             Assert.That(viewer, Does.Not.Contain("KernelState"));
-            Assert.That(shader, Does.Contain("_AlphaDither"));
+            // Viewer opacity is real alpha blending, never a dither mask.
+            Assert.That(shader, Does.Not.Contain("_AlphaDither"));
             Assert.That(shader, Does.Contain(
                 "#pragma multi_compile_local_fragment _ M8_ARTIFACT_PLAN"));
             Assert.That(shader, Does.Contain(
                 "displayColor = _PlanColor"));
-            Assert.That(shader, Does.Contain(
-                "clip(displayColor.a - threshold)"));
+            Assert.That(shader, Does.Not.Contain("clip("));
+            Assert.That(viewer, Does.Contain("_previewOpacity >= 0.999f"));
             Assert.That(setup, Does.Contain(
                 "GetOrAdd<MerkabaArtifactViewer>(scannerObject)"));
             Assert.That(setup, Does.Contain("requiresSystemKeyboard = true"));

@@ -56,8 +56,6 @@ namespace Genesis.RoomScan.UI
         private static readonly int SourceBlendId = Shader.PropertyToID("_SrcBlend");
         private static readonly int DestinationBlendId = Shader.PropertyToID("_DstBlend");
         private static readonly int ZWriteId = Shader.PropertyToID("_ZWrite");
-        private static readonly int AlphaDitherId =
-            Shader.PropertyToID("_AlphaDither");
         private static readonly int PlanColorId =
             Shader.PropertyToID("_PlanColor");
         private const string PlanKeyword = "M8_ARTIFACT_PLAN";
@@ -1694,8 +1692,10 @@ namespace Genesis.RoomScan.UI
         {
             if (_modelMaterial == null) return;
             bool visible = _previewOpacity > 0.001f;
+            // Real alpha blending below full opacity; never a dither mask.
             ConfigureMaterial(_modelMaterial,
-                new Color(1f, 1f, 1f, _previewOpacity), true);
+                new Color(1f, 1f, 1f, _previewOpacity),
+                _previewOpacity >= 0.999f);
             if (_planViewEnabled)
             {
                 Color plan = architecturalPlanColor;
@@ -1705,8 +1705,6 @@ namespace Genesis.RoomScan.UI
             }
             else
                 _modelMaterial.DisableKeyword(PlanKeyword);
-            _modelMaterial.SetFloat(AlphaDitherId,
-                _previewOpacity < 0.999f ? 1f : 0f);
             foreach (Tile tile in _tiles)
             {
                 MeshRenderer renderer = tile.Object != null
@@ -1720,7 +1718,6 @@ namespace Genesis.RoomScan.UI
         {
             if (material == null) return;
             material.SetColor(BaseColorId, color);
-            material.SetFloat(AlphaDitherId, 0f);
             material.SetFloat(SourceBlendId, (float)(opaque
                 ? BlendMode.One : BlendMode.SrcAlpha));
             material.SetFloat(DestinationBlendId, (float)(opaque

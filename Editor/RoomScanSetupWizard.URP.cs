@@ -90,6 +90,7 @@ namespace Genesis.RoomScan.Editor
 
                 ApplyQuestFriendlyDefaults(pipeline);
                 EnsureMerkabaRenderFeature(pipeline);
+                EnsureUiOnTopFeature(pipeline);
 
                 // Wire into GraphicsSettings + every quality level.
                 if (GraphicsSettings.defaultRenderPipeline != pipeline)
@@ -233,6 +234,46 @@ namespace Genesis.RoomScan.Editor
             rendererData.SetDirty();
             EditorUtility.SetDirty(rendererData);
             Debug.Log("[RoomScan Setup] Installed Merkaba M8 URP render pass.");
+        }
+
+        /// <summary>
+        /// The UX (UI layer) is drawn by one render pass after the world
+        /// transparents with depth test Always; the renderer's own opaque and
+        /// transparent passes must not draw that layer a second time.
+        /// </summary>
+        static void EnsureUiOnTopFeature(UniversalRenderPipelineAsset pipeline)
+        {
+            ScriptableRendererData rendererData = pipeline.rendererDataList.Length > 0
+                ? pipeline.rendererDataList[0] : null;
+            if (rendererData == null) return;
+            int uiLayer = LayerMask.NameToLayer("UI");
+            bool changed = false;
+            if (uiLayer >= 0 && rendererData is UniversalRendererData universal)
+            {
+                int bit = 1 << uiLayer;
+                if ((universal.opaqueLayerMask.value & bit) != 0 ||
+                    (universal.transparentLayerMask.value & bit) != 0)
+                {
+                    universal.opaqueLayerMask = universal.opaqueLayerMask.value & ~bit;
+                    universal.transparentLayerMask =
+                        universal.transparentLayerMask.value & ~bit;
+                    changed = true;
+                }
+            }
+            if (!rendererData.TryGetRendererFeature<Genesis.RoomScan.UI.MerkabaUiOnTopFeature>(out _))
+            {
+                var feature = CreateInstance<Genesis.RoomScan.UI.MerkabaUiOnTopFeature>();
+                feature.name = "Merkaba UX On Top";
+                feature.hideFlags = HideFlags.HideInHierarchy;
+                AssetDatabase.AddObjectToAsset(feature, rendererData);
+                rendererData.rendererFeatures.Add(feature);
+                feature.Create();
+                changed = true;
+            }
+            if (!changed) return;
+            rendererData.SetDirty();
+            EditorUtility.SetDirty(rendererData);
+            Debug.Log("[RoomScan Setup] Installed Merkaba UX-on-top URP render pass.");
         }
 
         static void AssignToAllQualityLevels(UniversalRenderPipelineAsset pipeline)

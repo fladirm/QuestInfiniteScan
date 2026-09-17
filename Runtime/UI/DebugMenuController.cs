@@ -106,14 +106,6 @@ namespace Genesis.RoomScan.UI
             }
         }
 
-        private void Start()
-        {
-            // The UX is always drawn last, over the scan, the GLB viewer and
-            // every tool preview: a depth-clearing overlay camera owns the
-            // UI layer.
-            MerkabaUiOverlayCamera.Ensure(gameObject.layer);
-        }
-
         private void OnDestroy()
         {
             if (_paintWheelTexture != null)

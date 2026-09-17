@@ -296,6 +296,8 @@ namespace Genesis.RoomScan
         private static readonly int SrcBlendId = Shader.PropertyToID("_SrcBlend");
         private static readonly int DstBlendId = Shader.PropertyToID("_DstBlend");
         private static readonly int ZWriteId = Shader.PropertyToID("_ZWrite");
+        private static readonly int ZTestId = Shader.PropertyToID("_ZTest");
+        private const int DepthOnlyPass = 1;
         private static readonly int FineCursorPositionId =
             Shader.PropertyToID("_FineCursorPosition");
         private static readonly int FineBrushAxisId =
@@ -1264,8 +1266,15 @@ namespace Genesis.RoomScan
                     _submissionRevision == 0u ? 1u : _submissionRevision,
                     command);
             if (canDraw)
+            {
+                // Translucent: depth-only first, then the blended colour pass
+                // with ZTest Equal (no stacked-layer overdraw).
+                if (scanOpacity < 0.999f)
+                    command.DrawMeshInstancedIndirectProfiled(mesh, 0,
+                        _material, DepthOnlyPass, _grid.M8RenderDrawArgs, 0);
                 command.DrawMeshInstancedIndirectProfiled(mesh, 0,
                     _material, 0, _grid.M8RenderDrawArgs, 0);
+            }
             MerkabaGpuTimestamps.End(CaptureOwner.Draw, command,
                 timedSubmission);
             MerkabaGpuTimestamps.Complete(CaptureOwner.Draw, timedSubmission,
@@ -1284,6 +1293,9 @@ namespace Genesis.RoomScan
             _material.SetInt(SrcBlendId, translucent ? 5 : 1);
             _material.SetInt(DstBlendId, translucent ? 10 : 0);
             _material.SetInt(ZWriteId, translucent ? 0 : 1);
+            // 3 = Equal: the colour pass follows the depth-only pass and
+            // blends exactly the nearest sheet layer. 4 = LEqual.
+            _material.SetInt(ZTestId, translucent ? 3 : 4);
             if (translucent) _material.EnableKeyword("M8_ALPHA_BLEND");
             else _material.DisableKeyword("M8_ALPHA_BLEND");
             _material.renderQueue = translucent
