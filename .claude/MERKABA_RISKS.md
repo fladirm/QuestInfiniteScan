@@ -409,3 +409,50 @@ space, which is exactly when Meta relocalization moves it.
 
 Decisive evidence, not yet taken: the count of "Merkaba observation admitted in room
 authority generation N" lines in one session's logcat.
+
+## RISK-21 — device run 2026-09-18 of the line-node build: rigid 45 degree scan rotation and a disconnected skin [OPEN, device evidence]
+
+Build `360652a` (C0-C4 line-node membrane plus audit), clean install 05:03, scan session
+06:11-06:42. Evidence bundle:
+`/mnt/kingston-unity/Builds/SimpleScan/evidence-20260918/` (full logcat,
+`session-evidence.txt`, two stereo captures).
+
+Operator observations, authoritative:
+
+- The whole scan is rotated **45 degrees to the left** and sits about half a metre high
+  against passthrough. It is a rigid error of the frame, constant, not drift.
+- The published skin is **not** the C5.1-C5.4 connected line-node skin: it renders as
+  separate, unconnected patches.
+
+Rejected on the operator's design statement: compositor reprojection or stale frames
+cannot explain it. The pipeline is serial by design - snapshot of pose, video and depth,
+then geometry, then the world write, then the readout, and only then the next snapshot.
+There are no queued, lagging or unfinished frames in it.
+
+Measured GPU stage times (native scanner queue, per job):
+
+```text
+SolveSharedKnotLines     avg 17.16 ms   max 32.77 ms     (plan budget <= 8 ms per batch)
+RequestWarmResidency     avg  9.15 ms   max 11.28 ms     (ring residency test, C1)
+ResolveRenderPatches     avg  0.32 ms   max  1.52 ms
+EmitRenderTileGeometry   avg  0.04 ms
+CollectRenderPatchInputs avg  0.03 ms
+StereoRgbdRefine         avg  0.67 ms
+IntegrateSurfaceCandidates avg 0.12 ms  IntegrateCarveTiles avg 0.27 ms
+```
+
+Session rates: VrApi `FPS=54..58/72`, `Stale=23..33` per second; 2.5 observations per
+second (mean gap 405 ms, worst 1223 ms); 134 readout transactions, mean 156 rebuilt
+tiles, max 437, mean 3 batches; 266 Begin, 797 Batch and 268 Finalize jobs against 408
+observations. No publication failure, every observation `failure=0x0`, and **no
+coordinate authority generation change**, so the anchor did not jump in this session and
+RISK-20 is not what moved the scan.
+
+Open lead for the rigid error, not yet verified: `DepthCapture.HandleDeviceDepth` builds
+the depth view matrix straight from `AROcclusionFrameEventArgs` poses
+(`Matrix4x4.TRS(pose.position, pose.rotation, ScaleFlipZ)`), and the integrator pairs it
+with `_MerkabaWorldToGrid`. AR Foundation reports those poses in session space. If the
+XR origin carries any yaw or height offset against Unity world space, every observation
+integrates rotated and raised by exactly that rig transform, which is the shape of the
+reported error. The next step is to read the rig transform on device and compare it with
+the identity assumption.
