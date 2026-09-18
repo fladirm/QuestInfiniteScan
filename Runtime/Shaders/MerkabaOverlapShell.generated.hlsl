@@ -87,14 +87,21 @@ bool M8MembraneFreeAt(int3 coord)
     return exists && knownFree;
 }
 
-// Free-side signature along the chart axis: bit 0 KNOWN FREE at -c, bit 1
-// KNOWN FREE at +c.
+// Canonical sheet side along the chart axis. Exact one-sided FREE evidence
+// wins. UNKNOWN/UNKNOWN and FREE/FREE fall back to the measured plane
+// orientation, so incomplete free-space evidence cannot split one physical
+// sheet into disconnected node families.
 uint M8MembraneSignature(int3 coord, int chart)
 {
     int3 axis = M8MembraneAxis(chart);
     uint signature = M8MembraneFreeAt(coord - axis) ? 1u : 0u;
     if (M8MembraneFreeAt(coord + axis)) signature |= 2u;
-    return signature;
+    if (signature == 1u || signature == 2u)
+        return signature;
+    if (!M8MembraneMeasuredAt(coord))
+        return signature;
+    float4 plane = M8MembranePlaneOf(coord);
+    return plane[chart] >= 0.0 ? 2u : 1u;
 }
 
 // C5.1 canonical chart of a measured cell: dominant axis of its normal plus

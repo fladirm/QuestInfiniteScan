@@ -307,14 +307,26 @@ namespace Genesis.RoomScan
             if (cache != null) cache.Planes[coord] = (normal, planeConstant);
         }
 
-        /// <summary>Free-side signature along the chart axis: bit 0 KNOWN FREE
-        /// at -c, bit 1 KNOWN FREE at +c.</summary>
+        /// <summary>
+        /// Canonical sheet side along the chart axis. Exact one-sided FREE
+        /// evidence wins. UNKNOWN/UNKNOWN and FREE/FREE are not allowed to
+        /// create a third/fourth sheet family: they inherit the orientation
+        /// of the measured plane, whose normal is already oriented toward the
+        /// observed free side by the RGB-D solve.
+        /// </summary>
         private static int Signature(int3 coord, int chart,
             IReadOnlyDictionary<int3, KernelState> context)
         {
             int3 axis = AxisInt3(chart);
-            return (FreeAt(coord - axis, context) ? 1 : 0) |
+            int signature = (FreeAt(coord - axis, context) ? 1 : 0) |
                 (FreeAt(coord + axis, context) ? 2 : 0);
+            if (signature == 1 || signature == 2)
+                return signature;
+            if (!TryMeasured(coord, context, out KernelState state))
+                return signature;
+            KernelState.DecodeSurfacePlane(state.Flags, out float3 normal,
+                out _);
+            return normal[chart] >= 0f ? 2 : 1;
         }
 
         // ---- C5.1 canonical chart ----
@@ -1162,14 +1174,21 @@ bool M8MembraneFreeAt(int3 coord)
     return exists && knownFree;
 }
 
-// Free-side signature along the chart axis: bit 0 KNOWN FREE at -c, bit 1
-// KNOWN FREE at +c.
+// Canonical sheet side along the chart axis. Exact one-sided FREE evidence
+// wins. UNKNOWN/UNKNOWN and FREE/FREE fall back to the measured plane
+// orientation, so incomplete free-space evidence cannot split one physical
+// sheet into disconnected node families.
 uint M8MembraneSignature(int3 coord, int chart)
 {
     int3 axis = M8MembraneAxis(chart);
     uint signature = M8MembraneFreeAt(coord - axis) ? 1u : 0u;
     if (M8MembraneFreeAt(coord + axis)) signature |= 2u;
-    return signature;
+    if (signature == 1u || signature == 2u)
+        return signature;
+    if (!M8MembraneMeasuredAt(coord))
+        return signature;
+    float4 plane = M8MembranePlaneOf(coord);
+    return plane[chart] >= 0.0 ? 2u : 1u;
 }
 
 // C5.1 canonical chart of a measured cell: dominant axis of its normal plus

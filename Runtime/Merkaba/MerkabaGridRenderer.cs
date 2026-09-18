@@ -1383,9 +1383,14 @@ namespace Genesis.RoomScan
             command.SetComputeBufferParam(_visibilityCompute, _emitVisibleKernel,
                 PublishedIndicesReadId,
                 _grid.GetM8PublishedIndices(_frontReadout));
-            int groups = MerkabaSpatial.PhysicalTileCapacity / 128;
-            command.DispatchComputeProfiled(_visibilityCompute, _cullKernel,
-                groups, 1, 1);
+            // Cull only the immutable FRONT list, not all 32768 physical
+            // slots. The kernel already addresses FRONT by list index.
+            int groups = Mathf.Min(
+                MerkabaSpatial.PhysicalTileCapacity / 128,
+                (Mathf.Max(0, frontTileCount) + 127) / 128);
+            if (groups > 0)
+                command.DispatchComputeProfiled(_visibilityCompute, _cullKernel,
+                    groups, 1, 1);
             command.DispatchComputeProfiled(_visibilityCompute,
                 _prepareVisibleKernel, 1, 1, 1);
             command.DispatchComputeProfiled(_visibilityCompute,

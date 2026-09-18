@@ -481,3 +481,29 @@ conversion); FXC log grep; Unity EditMode 100 %; APK build clean.
   tiles of the ring. `M8ReadoutRingResident` adds 27 address resolutions per drawable
   tile per build. Scanning is blocked for the whole transaction (1 + ceil(N/64) + 1
   frames, one job per frame).
+
+## 15. Operator patch 2026-09-18 (applied verbatim)
+
+Applied exactly as delivered, six files:
+
+- `RoomAnchorManager.CoordinateAuthorityGate.Sample`: `_position`/`_rotation` are now the
+  reference pose of the authority generation, not the previous sample, so a run of
+  sub-threshold corrections can no longer walk arbitrarily far without advancing
+  `Generation`. The sample that exposes the discontinuity becomes the new reference.
+- `DepthCapture.CalculateProjectionMatrix`: the four FOV extents are normalised with
+  `Mathf.Abs`, matching AR Foundation's ARShaderOcclusion convention on every provider.
+- `MerkabaOverlapShell.Signature` and its HLSL twin: **deviation from contr.md C5.2.**
+  The side is no longer the raw two-bit KNOWN FREE signature. One-sided FREE evidence
+  still wins, but UNKNOWN/UNKNOWN and FREE/FREE now inherit the orientation of the
+  measured plane (`N[chart] >= 0` => +side) instead of forming their own families, so
+  incomplete free-space evidence cannot split one physical sheet into disconnected node
+  families. The contract text still describes the raw signature.
+- `MerkabaReadout.compute`: the closure of R walks the four columns over the five legal
+  layers instead of scanning all 64 member slots, which is the same relation without the
+  64x64 inner scan that measured 17.2 ms avg / 32.8 ms max per batch (RISK-21).
+- `MerkabaGridRenderer`: the cull dispatch covers the FRONT list, not all 32768 physical
+  slots.
+
+Gates on this change: SPIR-V audit 77 kernels PASS, closure script 75 checks PASS, APK
+built clean and installed 07:47. Unity EditMode has **not** been run on it yet, and the
+device behaviour of RISK-21 (rigid rotation, disconnected skin) is not retested.

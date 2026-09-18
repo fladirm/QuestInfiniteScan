@@ -52,18 +52,40 @@ namespace Genesis.RoomScan
                 _anchorIdentity = null;
                 return;
             }
+
             if (!ReferenceEquals(anchorIdentity, _anchorIdentity))
             {
                 _anchorIdentity = anchorIdentity;
                 Invalidate();
             }
-            else if (_hasPose &&
-                     (Vector3.Distance(position, _position) > PoseJumpMeters ||
-                      Quaternion.Angle(rotation, _rotation) > PoseJumpDegrees))
+
+            // _position/_rotation are the reference pose of this authority
+            // generation, not the previous frame. Comparing only consecutive
+            // samples lets a long sequence of sub-threshold corrections walk
+            // arbitrarily far without ever advancing Generation.
+            if (!_hasPose)
+            {
+                _position = position;
+                _rotation = rotation;
+                _hasPose = true;
+                StableFrames = 1;
+                return;
+            }
+
+            if (Vector3.Distance(position, _position) > PoseJumpMeters ||
+                Quaternion.Angle(rotation, _rotation) > PoseJumpDegrees)
+            {
                 Invalidate();
-            _position = position;
-            _rotation = rotation;
-            _hasPose = true;
+                // The sample that exposed the discontinuity is the first
+                // reference sample of the new authority generation.
+                _anchorIdentity = anchorIdentity;
+                _position = position;
+                _rotation = rotation;
+                _hasPose = true;
+                StableFrames = 1;
+                return;
+            }
+
             if (StableFrames < RequiredStableFrames) StableFrames++;
         }
     }

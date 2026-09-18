@@ -1536,7 +1536,11 @@ void M8SolveLineTask(uint local, uint task)
         uint minOffset = seed & 15u;
         uint maxOffset = minOffset;
 
-        // Closure of R over the uses of this side.
+        // Closure of R over the uses of this side. R already forbids
+        // |dL| > 2, so searching all 64 member slots for every candidate was
+        // pure work. Inspect only the four columns in the five legal layers;
+        // this preserves the exact relation while removing the 64x64 inner
+        // scan that dominated SolveSharedKnotLines on Quest.
         [loop]
         for (uint sweep = 0u; sweep < M8_RENDER_LINE_SLOTS; sweep++)
         {
@@ -1550,24 +1554,40 @@ void M8SolveLineTask(uint local, uint task)
                 uint4 useU = _M8RenderLineUseScratch[lineBase + u];
                 if (((useU.y >> M8_LINE_USE_SIDE_SHIFT) & 3u) != side)
                     continue;
+                int layerU = layerBase + (int)(u & 15u);
+                int lowLayer = max(layerBase,
+                    layerU - M8_MEMBRANE_MAX_LAYER_SPAN);
+                int highLayer = min(layerBase + 15,
+                    layerU + M8_MEMBRANE_MAX_LAYER_SPAN);
+                bool joins = false;
                 [loop]
-                for (uint v = 0u; v < M8_RENDER_LINE_SLOTS; v++)
+                for (uint columnV = 0u; columnV < 4u; columnV++)
                 {
-                    if (!M8UseBit(memberLow, memberHigh, v)) continue;
-                    uint4 useV = _M8RenderLineUseScratch[lineBase + v];
-                    if (!M8MembraneRelated(halfAddress, chart, tangentAxis0,
-                            tangentAxis1, u >> 4u,
-                            layerBase + (int)(u & 15u), asfloat(useU.x),
-                            v >> 4u, layerBase + (int)(v & 15u),
-                            asfloat(useV.x)))
-                        continue;
-                    if (u < 32u) memberLow |= 1u << u;
-                    else memberHigh |= 1u << (u - 32u);
-                    minOffset = min(minOffset, u & 15u);
-                    maxOffset = max(maxOffset, u & 15u);
-                    grown = true;
-                    break;
+                    if (joins) break;
+                    [loop]
+                    for (int layerV = lowLayer; layerV <= highLayer; layerV++)
+                    {
+                        uint v = columnV * 16u +
+                            (uint)(layerV - layerBase);
+                        if (!M8UseBit(memberLow, memberHigh, v)) continue;
+                        uint4 useV =
+                            _M8RenderLineUseScratch[lineBase + v];
+                        if (M8MembraneRelated(halfAddress, chart,
+                                tangentAxis0, tangentAxis1, u >> 4u,
+                                layerU, asfloat(useU.x), columnV, layerV,
+                                asfloat(useV.x)))
+                        {
+                            joins = true;
+                            break;
+                        }
+                    }
                 }
+                if (!joins) continue;
+                if (u < 32u) memberLow |= 1u << u;
+                else memberHigh |= 1u << (u - 32u);
+                minOffset = min(minOffset, u & 15u);
+                maxOffset = max(maxOffset, u & 15u);
+                grown = true;
             }
             if (!grown) break;
         }

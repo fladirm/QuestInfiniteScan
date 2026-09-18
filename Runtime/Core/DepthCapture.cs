@@ -1425,10 +1425,14 @@ namespace Genesis.RoomScan
 
         private static Matrix4x4 CalculateProjectionMatrix(XRFov fov, XRNearFarPlanes planes)
         {
-            float left = Mathf.Tan(fov.angleLeft);
-            float right = Mathf.Tan(fov.angleRight);
-            float bottom = Mathf.Tan(fov.angleDown);
-            float top = Mathf.Tan(fov.angleUp);
+            // Match AR Foundation's ARShaderOcclusion projection exactly.
+            // XRFov is nominally signed, but normalising the four extents here
+            // makes the scanner use the same convention as the passthrough
+            // depth reprojection path on every provider.
+            float left = Mathf.Tan(-Mathf.Abs(fov.angleLeft));
+            float right = Mathf.Tan(Mathf.Abs(fov.angleRight));
+            float bottom = Mathf.Tan(-Mathf.Abs(fov.angleDown));
+            float top = Mathf.Tan(Mathf.Abs(fov.angleUp));
 
             float near = planes.nearZ;
             float far = planes.farZ;
