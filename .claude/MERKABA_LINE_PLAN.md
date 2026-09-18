@@ -453,3 +453,31 @@ conversion); FXC log grep; Unity EditMode 100 %; APK build clean.
   68/68, full EditMode on 042d453 333/333 including the formerly failing
   `TileWithNonResidentRingIsNotListedUntilInstalled` and
   `RetiredPagesReturnOnlyAfterTheNextPublication`.
+
+## 14. Audit 2026-09-18 (read-only): what is not finished
+
+- Device acceptance (section 11) never ran. No per-stage timing, so the section 9 budget
+  (Solve <= 8 ms, Resolve <= 2 ms per 64-tile batch) is unverified.
+- `LineNodeReadoutEqualsTheCpuOracleOnTheCorpus` compares only the tile at origin
+  (0, 0, 0), so the `tileOrigin` term of `M8LineHalfAddress` / `M8NodeRecordPosition` is
+  exercised by no test (it reads correct).
+- "One readout job per frame" and "no observation while a readout transaction is open"
+  are asserted only as source strings in the closure script; no runtime test, and no
+  test of scan throughput.
+- The invalid-branch counter exists on the GPU only; the CPU oracle does not count them,
+  although C5.2 says an invalid component is counted.
+- The node height is summed in column index order 00, 01, 10, 11; C5.2 writes
+  00, 10, 01, 11. Float summation order only, no geometric effect, previously unrecorded.
+- `.claude/MERKABA_GEOMETRY_REVIEW.md` still describes the pre-line-node model and
+  `.claude/MERKABA_SKIN_PLAN.md` is not marked superseded.
+- Nothing gates the C5.4 closure rate; the fold test fixture is a case that closes
+  (RISK-19 measures the real rate).
+- Readout cost against 045be20, statically: one 70 592 B `BuildRenderTiles` SPIR-V and
+  one dispatch per batch became Collect 10 000 + SolveSharedKnotLines 101 420 +
+  ResolveRenderPatches 48 748 + Emit 27 164 = 187 332 B over four dispatches. The 18^3
+  halo cannot hold decoded planes in 32 KB groupshared (93 KB), so the cache keeps the
+  flags word and every access decodes the plane again, and the C5.1 table adds 26
+  neighbour evaluations for every measured cell of the tile +-4, recomputed by up to 27
+  tiles of the ring. `M8ReadoutRingResident` adds 27 address resolutions per drawable
+  tile per build. Scanning is blocked for the whole transaction (1 + ceil(N/64) + 1
+  frames, one job per frame).

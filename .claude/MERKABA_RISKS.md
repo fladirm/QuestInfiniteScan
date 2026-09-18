@@ -364,3 +364,48 @@ The line-node kernels index only bounded values. Evidence: three consecutive gre
 `MerkabaReadoutGpuTests` runs, full EditMode 333/333 on 042d453. On Vulkan without
 robust buffer access the same class of bug corrupts neighbouring GPU allocations on
 Quest, so any new scratch index must stay provably bounded.
+
+## RISK-19 — the C5.1 chart is bistable in the 45 degree band; C5.4 cannot close the seam [OPEN, measured off device 2026-09-18]
+
+Measured with the CPU oracle on lattice planes with RGB-D-like noise (plane offset
+sigma 2 mm, normal sigma 6 degrees clipped at 15 degrees), 13x13 cells per fixture:
+
+```text
+angle from the chart axis   patches   charts (cells)   seam pairs   transitions built
+0 / 15 / 30 / 40 / 50 / 60   100 %    one               0            0
+42                           100 %    141 / 28          31           16 (12 folded)
+45                           100 %    59 / 110          41           18 (23 folded)
+48                           100 %    6 / 163            9            6 (3 folded)
+```
+
+At 45 degrees the dominant-axis chart sits exactly on its decision boundary, so noise
+splits one physical sheet into two chart families whose patches are squares in two
+projection planes 90 degrees apart. 26 % of adjacent measured pairs straddle the
+boundary there. About half of those seams stay open: the C5.4 quad is rejected as
+self-intersecting, and the rejection is real, not a bad diagonal choice (of 38 folded
+quads at 42/45/48 degrees only 4 would be consistent under the other diagonal), so the
+two families overlap rather than leave a gap.
+
+Coverage also thins there once the noise grows, always through the 45 mm edge guard:
+95 % at (4 mm, 10 deg), 92 % at (6 mm, 14 deg), 88 % at (8 mm, 15 deg) at 45 degrees,
+while 35 and 55 degrees keep 100 % under the same noise. The longest patch edge at 45
+degrees is 41.9 mm against the 45 mm limit, 7 % of headroom.
+
+Where the skin exists it is accurate: mean corner distance from the true plane 1.0 mm,
+maximum 5 mm, independent of the angle. A rigid displacement of a whole scan therefore
+cannot originate in C5.1-C5.4: C5.3 rejects any patch whose corner is farther than
+g = 15 mm from its MAIN's measured plane.
+
+## RISK-20 — integrated world is never re-anchored when the room anchor jumps [OPEN]
+
+`CoordinateAuthorityGate` invalidates its generation when the anchor identity changes or
+its pose moves more than 1 cm / 0.5 degrees, and `RoomScanner.HasCoordinateAuthority`
+then discards in-flight sensor frames, so nothing is integrated across a jump. Data that
+was already integrated keeps its grid coordinates, and the grid hangs under the anchor
+(`MerkabaGrid.ApplyAnchorFrame`), so a relocalized anchor moves the whole scan rigidly
+with it. Nothing detects or compensates that. A clean install deletes the persisted
+anchors, so the first session after one creates a fresh anchor in a freshly mapped
+space, which is exactly when Meta relocalization moves it.
+
+Decisive evidence, not yet taken: the count of "Merkaba observation admitted in room
+authority generation N" lines in one session's logcat.
